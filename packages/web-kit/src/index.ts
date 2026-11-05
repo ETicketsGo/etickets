@@ -9,6 +9,10 @@ export * from './event-timing';
 export * from './wallet';
 export * from './offline-eligibility';
 export * from './api';
+export * from './toast-queue';
+export * from './crm-types';
+export * from './billing-types';
+export * from './campaign-types';
 export * from './event-image';
 export * from './connectivity';
 export * from './components';
@@ -16,6 +20,7 @@ export * from './brand';
 export * from './hooks';
 export * from './nav';
 export * from './shell';
+export * from './shell-preferences';
 export * from './console';
 export * from './toggle';
 export * from './admin-grouping';
@@ -23,8 +28,13 @@ export * from './admin-filters';
 export * from './providers';
 export * from './human-check';
 export * from './login';
+export * from './phone-number';
+export * from './phone-sign-in';
+export * from './console-handoff';
 export * from './password-field';
 export * from './city';
+export * from './city-scope';
+export * from './image-ref';
 export * from './place-groups';
 /*
   Country + currency, re-exported from shared-types.
@@ -39,6 +49,8 @@ export {
   DEFAULT_MARKET,
   marketFor,
   marketFromHint,
+  postalCodeProblem,
+  issuesTaxInvoices,
   regionFor,
   type Market,
 } from '@eticketsgo/shared-types';

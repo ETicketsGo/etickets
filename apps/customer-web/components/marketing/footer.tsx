@@ -8,7 +8,7 @@ import {
   needsPlaceholderNotice,
   Wordmark,
 } from '@eticketsgo/web-kit';
-import { INDIA_OPERATOR } from '@eticketsgo/shared-types';
+import { FooterLegalLines } from '@/components/legal/operator-statement';
 import { FooterSignInLink } from '@/components/marketing/footer-sign-in-link';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { FeedbackButton } from '@/components/feedback-widget';
@@ -151,9 +151,7 @@ export function MarketingFooter({
             to be a hardcoded English literal, so the two footers already disagreed and a French
             reader got English here.
           */}
-          <p data-testid="footer-rights">
-            {f('rights', { year: new Date().getFullYear(), entity: INDIA_OPERATOR.shortName })}
-          </p>
+          <FooterLegalLines />
           {/*
             Derived, not hardcoded. This notice used to be a constant, which meant it would
             still be here long after the details were real - and, worse, could be deleted while

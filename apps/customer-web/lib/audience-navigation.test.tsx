@@ -20,10 +20,11 @@ import { SiteChrome } from '@/components/site-chrome';
 */
 
 let path = '/';
+let search = '';
 vi.mock('next/navigation', () => ({
   usePathname: () => path,
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(search),
   useParams: () => ({}),
   notFound: vi.fn(),
   redirect: vi.fn(),
@@ -53,8 +54,10 @@ let cleanup: (() => void) | null = null;
 afterEach(() => {
   cleanup?.();
   cleanup = null;
+  search = '';
   localStorage.clear();
   document.cookie = 'etg_session=; Max-Age=0; Path=/';
+  document.cookie = 'etg_selected_market=; Max-Age=0; Path=/';
 });
 
 function tree(signedIn: boolean) {
@@ -97,7 +100,20 @@ function labels(el: Element): string[] {
 
 const MARKETING_LINKS = ['Features', 'Solutions', 'Pricing', 'For organizers', 'For attendees'];
 const APP_LINKS = ['Explore', 'Movies', 'Tickets'];
-const LEGAL_LINE = '© 2026 ETicketsGo, DeepTrics Software Solutions Pvt Ltd | All rights reserved.';
+/*
+  The copyright line names no company and is the same for every reader. The operator line is
+  there only for a market the reader selected; with none, the footer names no company at all
+  (never both, and never a guess from an IP address). The Legal & Policies pages list both.
+*/
+const LEGAL_LINE = `© ${new Date().getFullYear()} ETicketsGo. All rights reserved.`;
+// One line with a market: the brand once, then the company by its short name (owner, 2026-11-05).
+const INDIA_LINE = `© ${new Date().getFullYear()} ETicketsGo. Operated by DeepTrics Software Solutions Pvt Ltd.`;
+const US_LINE = `© ${new Date().getFullYear()} ETicketsGo. Operated by DeepTrics LLC.`;
+/** The footer names no company: the neutral copyright line only. */
+function expectNeutral(footer: HTMLElement) {
+  expect(footer.querySelector('[data-testid="footer-rights"]')?.textContent).toBe(LEGAL_LINE);
+  expect(footer.textContent).not.toContain('DeepTrics');
+}
 
 describe('the marketing header', () => {
   it.each(['/features', '/pricing', '/organizers', '/legal', '/docs/api'])(
@@ -130,13 +146,38 @@ describe('the marketing header', () => {
     },
   );
 
-  it('signed in with no session hint: no Sign in is ever drawn, not even before mount', () => {
-    // The server's render for a hint-less session is a placeholder, never "Sign in".
+  /*
+    Refresh flicker (2026-11): the server used to draw an empty placeholder when there was no
+    session hint, and Sign in / Get started appeared a moment later on every signed-out load.
+    An absent hint now means "visitor" from the first byte; a signed-in session without the hint
+    (older than the cookie) is corrected on mount, and the backfill means it happens once.
+  */
+  it('no session hint: the server already draws Sign in and Get started', () => {
     path = '/features';
     const html = renderToStaticMarkup(tree(false));
     const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
-    expect(header).toContain('data-auth="pending"');
-    expect(header).not.toContain('>Sign in<');
+    expect(header).not.toContain('data-auth="pending"');
+    expect(header).toContain('>Sign in<');
+    expect(header).toContain('>Get started<');
+  });
+
+  it('a session older than the hint is corrected on mount and given the hint', async () => {
+    path = '/features';
+    localStorage.setItem('etg_access', 'test-access-token');
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(tree(false));
+    });
+    cleanup = () => {
+      act(() => root.unmount());
+      host.remove();
+    };
+    const seen = labels(host.querySelector('header') as HTMLElement);
+    expect(seen).toContain('Go to app');
+    expect(seen).not.toContain('Sign in');
+    expect(document.cookie).toContain('etg_session=1');
   });
 
   it('has no bottom bar or city bar under it; the home page keeps its bottom bar', async () => {
@@ -197,13 +238,22 @@ describe('the home page header (owner, 2026-10-18: "Combined")', () => {
     expect(host.querySelector('nav[aria-label="Primary"]')).not.toBeNull();
   });
 
-  it('before the session is known: no platform links and no Sign in, not even on the server', () => {
+  it('no session hint: the server draws the visitor bar, platform row included', () => {
     path = '/';
     const html = renderToStaticMarkup(tree(false));
     const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
-    expect(header).toContain('data-auth="pending"');
+    expect(header).not.toContain('data-auth="pending"');
+    expect(header).toContain('data-nav-row="platform"');
+    expect(header).toContain('>Get started<');
+    expect(header).toContain('>Features<');
+  });
+
+  it('with the session hint: the server draws the shop bar, no platform row and no Sign in', () => {
+    path = '/';
+    const html = renderToStaticMarkup(tree(true));
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+    expect(header).not.toContain('data-nav-row="platform"');
     expect(header).not.toContain('>Sign in<');
-    expect(header).not.toContain('>Get started<');
     expect(header).not.toContain('>Features<');
   });
 });
@@ -279,13 +329,12 @@ describe('the shop header for a visitor', () => {
     }
   });
 
-  it('before the session is known on Explore: no platform links and no Sign in', () => {
+  it('no session hint on Explore: the server already draws the platform links', () => {
     path = '/explore';
     const html = renderToStaticMarkup(tree(false));
     const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
-    expect(header).toContain('data-auth="pending"');
-    expect(header).not.toContain('>Sign in<');
-    expect(header).not.toContain('>Features<');
+    expect(header).not.toContain('data-auth="pending"');
+    expect(header).toContain('>Features<');
   });
 });
 
@@ -315,7 +364,155 @@ describe('the storefront footer', () => {
     const { footer } = await mount('/', false);
     expect(footer.querySelector('a[href="/features"]')).not.toBeNull();
     expect(footer.querySelector('a[href="/organizers"]')).not.toBeNull();
-    expect(footer.textContent).toContain(LEGAL_LINE);
+    expectNeutral(footer);
+  });
+});
+
+/*
+  The company follows the market the reader SELECTED: the country of a city they picked, kept
+  in storage by the city picker. A guess from the network is never enough to name one.
+*/
+describe('the footer names the company for the selected market', () => {
+  function choose(city: string, region: string, country: string) {
+    localStorage.setItem('etg.city', JSON.stringify({ city, region, country }));
+  }
+
+  it('India: the copyright line and the Indian company', async () => {
+    choose('Hyderabad', 'Telangana', 'India');
+    const { footer } = await mount('/', false);
+    expect(footer.querySelector('[data-testid="footer-rights"]')?.textContent).toBe(INDIA_LINE);
+    expect(footer.textContent).not.toContain('DeepTrics LLC');
+  });
+
+  it('United States: DeepTrics LLC', async () => {
+    choose('Austin', 'Texas', 'United States');
+    const { footer } = await mount('/features', false);
+    expect(footer.querySelector('[data-testid="footer-rights"]')?.textContent).toBe(US_LINE);
+    expect(footer.textContent).not.toContain('Private Limited');
+  });
+
+  it('a market with no company: the neutral copyright line only', async () => {
+    choose('Toronto', 'Ontario', 'Canada');
+    const { footer } = await mount('/', false);
+    expectNeutral(footer);
+  });
+
+  it('"All cities" in India still names the Indian company, never both', async () => {
+    // The reader picked an Indian city before (the cookie), then "All cities"; the storefront
+    // is scoped to India. "All cities" means every city in India.
+    localStorage.setItem('etg.city', '__all__');
+    document.cookie = 'etg_selected_market=IN; Path=/';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        String(url).includes('/public/location/resolve')
+          ? Promise.resolve(
+              new Response(
+                JSON.stringify({
+                  city: null,
+                  region: null,
+                  country: 'IN',
+                  scopeCountry: 'IN',
+                  confident: false,
+                  topCities: [],
+                }),
+                { status: 200, headers: { 'content-type': 'application/json' } },
+              ),
+            )
+          : new Promise(() => {}),
+      ),
+    );
+    try {
+      const { footer } = await mount('/', false);
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      expect(footer.querySelector('[data-testid="footer-rights"]')?.textContent).toBe(INDIA_LINE);
+      expect(footer.textContent).not.toContain('DeepTrics LLC');
+      // "All cities" keeps the market for the server-rendered legal pages too.
+      expect(document.cookie).toContain('etg_selected_market=IN');
+    } finally {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => new Promise(() => {})),
+      );
+    }
+  });
+
+  it('"All cities" with no market ever selected names no company', async () => {
+    localStorage.setItem('etg.city', '__all__');
+    const { footer } = await mount('/', false);
+    expectNeutral(footer);
+  });
+
+  it('server-renders the neutral line, so hydration never shows a wrong company', () => {
+    choose('Austin', 'Texas', 'United States');
+    path = '/';
+    const html = renderToStaticMarkup(tree(false));
+    expect(html).toContain(LEGAL_LINE);
+    expect(html).not.toContain('DeepTrics');
+  });
+
+  it('the choice is mirrored for the server-rendered legal pages', async () => {
+    choose('Hyderabad', 'Telangana', 'India');
+    await mount('/', false);
+    expect(document.cookie).toContain('etg_selected_market=IN');
+  });
+});
+
+/*
+  QA certification of main 60eee811: /terms?country=IN showed the Indian company in the page
+  body and the neutral line in the footer, because the body resolves the market from
+  ?country= and the etg_selected_market cookie while the footer read only the city choice.
+  On a legal page the footer now resolves it the same way: ?country=, then the cookie, then
+  the city choice, then neither company. Never the network guess (etg_market).
+*/
+describe('on a legal page the footer follows the market the page body follows', () => {
+  const INDIA_OPERATOR_LINE = INDIA_LINE;
+  const US_OPERATOR_LINE = US_LINE;
+
+  it.each(['/terms', '/privacy', '/refunds', '/cookies', '/sms'])(
+    '%s?country=IN names the Indian company in the footer',
+    async (route) => {
+      search = 'country=IN';
+      const { footer } = await mount(route, false);
+      expect(footer.querySelector('[data-testid="footer-rights"]')?.textContent).toBe(
+        INDIA_OPERATOR_LINE,
+      );
+    },
+  );
+
+  it('an explicit ?country= wins over the city the reader chose', async () => {
+    localStorage.setItem(
+      'etg.city',
+      JSON.stringify({ city: 'Austin', region: 'Texas', country: 'United States' }),
+    );
+    search = 'country=IN';
+    const { footer } = await mount('/terms', false);
+    expect(footer.textContent).toContain(INDIA_OPERATOR_LINE);
+    expect(footer.textContent).not.toContain('DeepTrics LLC');
+  });
+
+  it('then the etg_selected_market cookie', async () => {
+    document.cookie = 'etg_selected_market=US; Path=/';
+    const { footer } = await mount('/privacy', false);
+    expect(footer.textContent).toContain(US_OPERATOR_LINE);
+  });
+
+  it('never the network guess: etg_market alone leaves the neutral line', async () => {
+    document.cookie = 'etg_market=IN; Path=/';
+    try {
+      const { footer } = await mount('/terms', false);
+      expectNeutral(footer);
+    } finally {
+      document.cookie = 'etg_market=; Max-Age=0; Path=/';
+    }
+  });
+
+  it('off the legal pages ?country= changes nothing (the city choice still decides)', async () => {
+    search = 'country=IN';
+    const { footer } = await mount('/features', false);
+    expectNeutral(footer);
   });
 });
 

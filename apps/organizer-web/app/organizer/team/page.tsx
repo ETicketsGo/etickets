@@ -17,6 +17,7 @@ import {
   errorMessage,
   useAuthUser,
   type Column,
+  type InvitationEmailStatus,
   type OrgMember,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
@@ -99,14 +100,14 @@ export default function TeamPage() {
   const [role, setRole] = useState('CHECKIN_STAFF');
 
   /*
-    The link for the person who was just invited, or whose link was just re-issued.
+    What happened to the invitation email for the person just invited (or sent again).
 
-    Shown rather than only emailed, and this is not belt-and-braces - `EMAIL_PROVIDER=log`
-    swallows mail in every environment configured so far, so for now the copied link IS the
-    delivery mechanism. Kept in component state on purpose: it is a one-time secret, and
-    re-fetching the member list must not reproduce it.
+    Never the link. It used to be shown here to copy, and that made whoever invited a holder of
+    the invitee's acceptance credential (owner decision, 2026-10-26). The link now goes to the
+    invitee's address only, and accepting needs the invitee to sign in as that address. So this
+    says whether the email left, and what to do if it did not.
   */
-  const [link, setLink] = useState<{ email: string; url: string } | null>(null);
+  const [sent, setSent] = useState<{ email: string; status: InvitationEmailStatus } | null>(null);
 
   /*
     The member being managed: their role, or taking them off the team. There was no way to do
@@ -136,8 +137,13 @@ export default function TeamPage() {
   const invite = useMutation({
     mutationFn: () => api.organizations.invite(activeOrg.id, { email, role }),
     onSuccess: (member) => {
-      toast.push('Invitation created. Send them the link.', 'success');
-      setLink({ email: member.user.email, url: member.inviteUrl });
+      toast.push(
+        member.invitationEmail === 'SENT'
+          ? `Invitation sent to ${member.user.email}.`
+          : 'Invitation saved, but the email could not be sent.',
+        member.invitationEmail === 'SENT' ? 'success' : 'error',
+      );
+      setSent({ email: member.user.email, status: member.invitationEmail });
       setEmail('');
       qc.invalidateQueries({ queryKey: ['members', activeOrg.id] });
     },
@@ -147,8 +153,14 @@ export default function TeamPage() {
   const resend = useMutation({
     mutationFn: (memberId: string) => api.organizations.resendInvite(activeOrg.id, memberId),
     onSuccess: (r) => {
-      toast.push('New link created. The previous one no longer works.', 'success');
-      setLink({ email: r.email, url: r.inviteUrl });
+      toast.push(
+        r.invitationEmail === 'SENT'
+          ? `Invitation sent again to ${r.email}. The previous link no longer works.`
+          : 'The email could not be sent. The previous link no longer works.',
+        r.invitationEmail === 'SENT' ? 'success' : 'error',
+      );
+      setSent({ email: r.email, status: r.invitationEmail });
+      qc.invalidateQueries({ queryKey: ['members', activeOrg.id] });
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
@@ -218,7 +230,7 @@ export default function TeamPage() {
               <BrandStatusPill status="caution">Invitation pending</BrandStatusPill>
             </span>
             <span className="text-brand-meta text-brand-ink-3">Has not joined yet</span>
-            {/* Owner only at the API: re-issuing mints a fresh credential for this person. */}
+            {/* Owner only at the API. It emails the person a fresh link; the owner never sees it. */}
             {can.ownerActions && (
               <button
                 type="button"
@@ -226,7 +238,7 @@ export default function TeamPage() {
                 onClick={() => resend.mutate(m.id)}
                 className="min-h-6 rounded-sm text-brand-meta font-semibold text-brand-ink underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus disabled:opacity-50"
               >
-                Get invite link
+                Send invitation again
               </button>
             )}
           </div>
@@ -287,46 +299,26 @@ export default function TeamPage() {
       */}
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_22rem] xl:gap-8">
         <div className="min-w-0 space-y-4">
-          {link && (
-            <Card>
-              <h2 className="text-title font-semibold text-text-primary">
-                Send this link to {link.email}
-              </h2>
-              <p className="mt-1 text-[0.9375rem] text-text-secondary">
-                They open it to set a password and join. It works once and expires in seven days.
-              </p>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                {/*
-                  Readable and selectable rather than a bare "Copy" button. Clipboard access is
-                  blocked in plenty of contexts, and a link somebody cannot see is one they
-                  cannot send by hand when it fails.
-                */}
-                <input
-                  readOnly
-                  aria-label="Invitation link"
-                  value={link.url}
-                  onFocus={(e) => e.currentTarget.select()}
-                  className="min-w-0 flex-1 rounded-md border border-border bg-background-canvas px-3 py-2 font-mono text-caption text-text-primary"
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(link.url);
-                      toast.push('Link copied.', 'success');
-                    } catch {
-                      toast.push('Copy failed. Select the link and copy it by hand.', 'error');
-                    }
-                  }}
-                >
-                  Copy
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setLink(null)}>
-                  Done
-                </Button>
-              </div>
-            </Card>
+          {sent && (
+            <div data-testid="invitation-email-status" role="status">
+              <Card>
+                <h2 className="text-title font-semibold text-text-primary">
+                  {sent.status === 'SENT'
+                    ? `Invitation sent to ${sent.email}`
+                    : `We could not email ${sent.email}`}
+                </h2>
+                <p className="mt-1 text-[0.9375rem] text-text-secondary">
+                  {sent.status === 'SENT'
+                    ? 'They open the link in that email and sign in with that address to join. Only they can accept it. It works once and expires in seven days.'
+                    : 'Email is not working right now, so nobody has the invitation link yet. They are listed as invited. Use "Send invitation again" later, or ask ETicketsGo support.'}
+                </p>
+                <div className="mt-3">
+                  <Button variant="ghost" size="sm" onClick={() => setSent(null)}>
+                    Done
+                  </Button>
+                </div>
+              </Card>
+            </div>
           )}
 
           <section aria-labelledby="team-members" className="min-w-0">
@@ -538,7 +530,8 @@ export default function TeamPage() {
               Create invitation
             </Button>
             <p className="text-caption text-text-muted">
-              They do not need an account first. The link creates one.
+              We email them a link. They do not need an account first: the link lets them make one
+              with this address, then join. Only they can accept it.
             </p>
           </div>
         </Card>

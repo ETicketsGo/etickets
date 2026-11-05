@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata } from '@/lib/seo';
 import { Check, Minus } from 'lucide-react';
 import {
   Container,
@@ -12,12 +12,11 @@ import {
 import { PageHero, NoticeBanner } from '@/components/marketing/blocks';
 import { BrandPage } from '@/components/storefront-brand';
 
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/pricing', {
   title: 'Pricing',
   description:
     'Starter, Professional and Enterprise plans for event organizers. The figures are placeholders while we set the real prices.',
-  alternates: { canonical: '/pricing' },
-};
+});
 
 const PLANS = [
   {

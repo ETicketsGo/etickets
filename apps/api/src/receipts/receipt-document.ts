@@ -6,6 +6,8 @@
  * with no I/O in it.
  */
 
+import { issuesTaxInvoices, type DocumentOperator } from '@eticketsgo/shared-types';
+
 export const RECEIPT_DOCUMENT_VERSION = 1;
 
 export type ReceiptKindName = 'RECEIPT' | 'TAX_INVOICE' | 'CREDIT_NOTE';
@@ -115,6 +117,14 @@ export interface ReceiptDocument {
   /** Set on a credit note: the number of the sale document it reverses. */
   reverses?: { number: string; issuedAt: string } | null;
   reason?: string | null;
+  /**
+   * The DeepTrics company that operates ETicketsGo for this sale, frozen at issue.
+   *
+   * The SELLER above is the organizer; this is the platform, printed as one line in the
+   * footer. Optional, because every document issued before it existed has none, and those
+   * keep rendering exactly as they were issued: the field is never back-filled.
+   */
+  operator?: DocumentOperator;
 }
 
 export interface BuildReceiptInput {
@@ -132,6 +142,7 @@ export interface BuildReceiptInput {
   feeParts?: ReceiptFeeParts;
   reverses?: { number: string; issuedAt: Date } | null;
   reason?: string | null;
+  operator?: DocumentOperator;
 }
 
 /**
@@ -146,9 +157,21 @@ export interface BuildReceiptInput {
  * TaxRule configuration and nothing else.
  */
 export function resolveSaleKind(
-  seller: Pick<ReceiptSeller, 'taxRegistrationNumber'>,
+  seller: Pick<ReceiptSeller, 'taxRegistrationNumber'> & {
+    taxRegistrationKind?: string | null;
+    address?: { country: string | null } | null;
+  },
 ): ReceiptKindName {
-  return seller.taxRegistrationNumber?.trim() ? 'TAX_INVOICE' : 'RECEIPT';
+  /*
+    Only where the country HAS tax invoices. In the US an EIN identifies a business for income
+    tax; it is not a sales-tax registration and makes nothing a "tax invoice", so a US sale is a
+    receipt with the EIN printed on it (owner decision, 2026-11-04). India's GST invoice is
+    unchanged. Decided at issue time only: documents already issued keep their kind and number.
+  */
+  if (!seller.taxRegistrationNumber?.trim()) return 'RECEIPT';
+  return issuesTaxInvoices(seller.address?.country, seller.taxRegistrationKind)
+    ? 'TAX_INVOICE'
+    : 'RECEIPT';
 }
 
 /**
@@ -164,7 +187,12 @@ function buildNotes(input: BuildReceiptInput): string[] {
   if (input.taxLines.length === 0) {
     notes.push('No tax was charged on this sale.');
   }
-  if (input.kind !== 'CREDIT_NOTE' && !input.seller.taxRegistrationNumber?.trim()) {
+  if (
+    input.kind !== 'CREDIT_NOTE' &&
+    !input.seller.taxRegistrationNumber?.trim() &&
+    // Where no tax invoice exists, saying this is "not a tax invoice" only confuses the buyer.
+    issuesTaxInvoices(input.seller.address.country, input.seller.taxRegistrationKind)
+  ) {
     notes.push('The seller has not recorded a tax registration, so this is not a tax invoice.');
   }
   if (input.kind === 'CREDIT_NOTE') {
@@ -193,6 +221,7 @@ export function buildReceiptDocument(input: BuildReceiptInput): ReceiptDocument 
       ? { number: input.reverses.number, issuedAt: input.reverses.issuedAt.toISOString() }
       : null,
     reason: input.reason ?? null,
+    ...(input.operator ? { operator: input.operator } : {}),
   };
 }
 

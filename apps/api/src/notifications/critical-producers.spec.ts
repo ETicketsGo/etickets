@@ -46,6 +46,8 @@ const NOT_PRODUCERS = new Set(
     'notifications/policy/channel-policy.ts',
     'notifications/policy/notification-policy.ts',
     'notifications/policy/dedupe-key.ts',
+    // Lists the types SMS_TRANSACTIONAL_TYPES may switch on; it produces nothing.
+    'notifications/policy/sms-transactional.ts',
     'notifications/message-class.ts',
     'notifications/templates/notification-template.service.ts',
     // A settings surface: it LISTS the types a customer can express a preference about, and

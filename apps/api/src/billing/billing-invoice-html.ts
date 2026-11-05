@@ -1,0 +1,238 @@
+import { formatMinor } from '../receipts/receipt-html';
+import { TAX_NOT_APPLIED_NOTE } from './billing-invoice.service';
+import { GST_NOT_CHARGED_NOTE } from './billing-seller';
+
+/**
+ * A platform invoice to an organizer (ETGB-2627-000001, ETG-BIL-US-2026-000001) as a
+ * standalone, printable page.
+ *
+ * The same rules as the ticket receipt (receipts/receipt-html.ts), whose look it shares: a plain
+ * string template, no scripts, no fonts or images to fetch, so it prints and saves as PDF from
+ * any browser. It is NOT a ticket receipt: it is the platform's own document, in its own series.
+ */
+export interface BillingInvoiceView {
+  number: string;
+  status: string;
+  issuedAt: Date;
+  currency: string;
+  lines: { description: string; quantity: number; unitAmountMinor: number }[];
+  subtotalMinor: number;
+  taxMinor: number;
+  totalMinor: number;
+  /** Each tax charged (CGST + SGST, IGST, a state rate, Stripe Tax). Empty: none recorded. */
+  taxLines?: { label: string; rateBasisPoints: number; amountMinor: number }[];
+  /** The organizer's state, which is the place of supply for the platform's service. */
+  placeOfSupply?: string | null;
+  periodStart: Date | null;
+  periodEnd: Date | null;
+  sellerName: string;
+  /** Registration facts frozen on the document (India: GSTIN, SAC, address, state). */
+  seller?: InvoiceSellerFacts | null;
+  billedTo: {
+    name: string;
+    country: string;
+    taxId: string | null;
+    email: string | null;
+    /** The organizer's state, as frozen on the document. */
+    state?: string | null;
+  };
+  /** The provider's payment id. */
+  paymentRef?: string | null;
+}
+
+export interface InvoiceSellerFacts {
+  /**
+   * The seller's GST status frozen at issue. UNREGISTERED prints an ordinary "Invoice" with no
+   * tax lines, no GSTIN and no SAC. Null: not recorded (an older invoice), printed as before.
+   */
+  gstStatus?: 'REGISTERED' | 'UNREGISTERED' | null;
+  gstin: string | null;
+  sac: string | null;
+  address: string | null;
+  state: string | null;
+  stateCode: string | null;
+}
+
+const text = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
+
+/**
+ * The seller facts, buyer and payment reference frozen on an invoice's document. An invoice
+ * issued before they were recorded has none of them, and renders as it did.
+ */
+export function invoiceDocumentFacts(documentJson: unknown): {
+  seller: InvoiceSellerFacts | null;
+  buyer: { name: string | null; state: string | null; taxId: string | null } | null;
+  paymentRef: string | null;
+} {
+  const doc = (documentJson ?? {}) as Record<string, unknown>;
+  const s = (doc.seller ?? null) as Record<string, unknown> | null;
+  const b = (doc.buyer ?? null) as Record<string, unknown> | null;
+  const status = s?.gstStatus ?? doc.sellerGstStatus;
+  const gstStatus: InvoiceSellerFacts['gstStatus'] =
+    status === 'REGISTERED' || status === 'UNREGISTERED' ? status : null;
+  const seller =
+    s && (gstStatus || text(s.gstin) || text(s.sac) || text(s.address) || text(s.state))
+      ? {
+          gstStatus,
+          gstin: text(s.gstin),
+          sac: text(s.sac),
+          address: text(s.address),
+          state: text(s.state),
+          stateCode: text(s.stateCode),
+        }
+      : null;
+  return {
+    seller,
+    buyer: b ? { name: text(b.name), state: text(b.state), taxId: text(b.taxId) } : null,
+    paymentRef: text(doc.paymentRef),
+  };
+}
+
+/** What every invoice said before invoices recorded their issuing company. */
+export const LEGACY_INVOICE_SELLER = 'ETicketsGo';
+
+/**
+ * The seller name an invoice prints: the company frozen on its document when it was issued,
+ * or, for an invoice issued before that was recorded, exactly what it printed then.
+ */
+export function invoiceSellerName(documentJson: unknown): string {
+  const seller = (documentJson as { seller?: { legalName?: unknown } } | null | undefined)?.seller;
+  return typeof seller?.legalName === 'string' && seller.legalName.trim()
+    ? seller.legalName
+    : LEGACY_INVOICE_SELLER;
+}
+
+function esc(v: unknown): string {
+  return String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+const day = (d: Date) => d.toISOString().slice(0, 10);
+
+export function renderBillingInvoiceHtml(v: BillingInvoiceView): string {
+  const money = (minor: number) => esc(formatMinor(minor, v.currency));
+  const rows = v.lines
+    .map(
+      (l) =>
+        `<tr><td>${esc(l.description)}${v.seller?.sac && v.seller.gstStatus !== 'UNREGISTERED' ? ` <span class="muted">(SAC ${esc(v.seller.sac)})</span>` : ''}</td><td class="num">${esc(l.quantity)}</td>` +
+        `<td class="num">${money(l.unitAmountMinor)}</td>` +
+        `<td class="num">${money(l.quantity * l.unitAmountMinor)}</td></tr>`,
+    )
+    .join('\n');
+  const period =
+    v.periodStart && v.periodEnd
+      ? `<div class="muted">Period ${esc(day(v.periodStart))} to ${esc(day(v.periodEnd))}</div>`
+      : '';
+  // An unregistered supplier's invoice: no GST at all - no tax rows, no GSTIN, no SAC.
+  const unregistered = v.seller?.gstStatus === 'UNREGISTERED';
+  const taxLines = v.taxLines ?? [];
+  const taxNote = unregistered
+    ? `<li>${esc(GST_NOT_CHARGED_NOTE)}</li>`
+    : v.taxMinor > 0 || taxLines.length > 0
+      ? ''
+      : `<li>${esc(TAX_NOT_APPLIED_NOTE)}</li>`;
+  const rate = (bps: number) => `${(bps / 100).toFixed(bps % 100 === 0 ? 0 : 2)}%`;
+  const taxRows = unregistered
+    ? ''
+    : taxLines.length > 0
+      ? taxLines
+          .map(
+            (l) =>
+              `<tr><th colspan="3">${esc(l.label)}${l.rateBasisPoints > 0 ? ` (${esc(rate(l.rateBasisPoints))})` : ''}</th>` +
+              `<td class="num">${money(l.amountMinor)}</td></tr>`,
+          )
+          .join('\n      ')
+      : `<tr><th colspan="3">Tax</th><td class="num">${money(v.taxMinor)}</td></tr>`;
+  const supply = v.placeOfSupply ? `<li>Place of supply: ${esc(v.placeOfSupply)}.</li>` : '';
+  const f = v.seller ? { ...v.seller, ...(unregistered ? { gstin: null, sac: null } : {}) } : null;
+  // A GST tax invoice says so, and names the seller's registration.
+  const title = f?.gstin && !unregistered ? 'Tax invoice' : 'Invoice';
+  const sellerFacts = f
+    ? [
+        f.address ? `<div class="muted">${esc(f.address)}</div>` : '',
+        f.state
+          ? `<div class="muted">State: ${esc(f.state)}${f.stateCode ? ` (code ${esc(f.stateCode)})` : ''}</div>`
+          : '',
+        f.gstin ? `<div>GSTIN: ${esc(f.gstin)}</div>` : '',
+      ].join('')
+    : '';
+  const sac = f?.sac ? `<li>SAC: ${esc(f.sac)}.</li>` : '';
+  const paymentRef = v.paymentRef ? `<li>Payment reference: ${esc(v.paymentRef)}.</li>` : '';
+  const buyerTaxLabel = v.billedTo.country === 'IN' ? 'GSTIN' : 'Tax ID';
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${title} ${esc(v.number)}</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px;
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1a1a1a; background: #fff; }
+  .sheet { max-width: 760px; margin: 0 auto; }
+  header { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap;
+           border-bottom: 2px solid #1a1a1a; padding-bottom: 16px; }
+  h1 { margin: 0 0 4px; font-size: 22px; letter-spacing: .02em; text-transform: uppercase; }
+  .number { font-size: 15px; font-weight: 600; }
+  .muted { color: #555; }
+  .seller { text-align: right; font-weight: 600; font-size: 15px; }
+  .seller .facts { font-weight: 400; font-size: 13px; margin-top: 4px; }
+  .label { text-transform: uppercase; letter-spacing: .08em; font-size: 11px; color: #666; margin: 24px 0 4px; }
+  .paid { display: inline-block; margin-top: 6px; padding: 2px 8px; border: 1px solid #1a1a1a;
+          font-size: 12px; font-weight: 700; letter-spacing: .08em; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  th, td { text-align: left; padding: 8px 6px; }
+  thead th { border-bottom: 1px solid #ccc; font-size: 11px; text-transform: uppercase;
+             letter-spacing: .06em; color: #666; }
+  tbody td { border-bottom: 1px solid #eee; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  tfoot th { text-align: right; font-weight: 400; color: #444; }
+  tfoot .grand th, tfoot .grand td { border-top: 2px solid #1a1a1a; font-weight: 700; font-size: 16px; padding-top: 12px; }
+  ul.notes { margin: 24px 0 0; padding-left: 18px; color: #555; font-size: 13px; }
+  @media print { body { padding: 0; } }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header>
+    <div>
+      <h1>${title}</h1>
+      <div class="number">${esc(v.number)}</div>
+      <div class="muted">Issued ${esc(day(v.issuedAt))}</div>
+      ${period}
+      ${v.status === 'PAID' ? '<div class="paid">PAID</div>' : ''}
+    </div>
+    <div class="seller">${esc(v.sellerName)}${sellerFacts ? `<div class="facts">${sellerFacts}</div>` : ''}</div>
+  </header>
+  <div class="label">Billed to</div>
+  <div>${esc(v.billedTo.name)}</div>
+  <div class="muted">${v.billedTo.state ? `${esc(v.billedTo.state)}, ` : ''}${esc(v.billedTo.country)}${v.billedTo.taxId ? ` - ${buyerTaxLabel} ${esc(v.billedTo.taxId)}` : ''}</div>
+  ${v.billedTo.email ? `<div class="muted">${esc(v.billedTo.email)}</div>` : ''}
+  <table>
+    <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Amount</th></tr></thead>
+    <tbody>
+${rows}
+    </tbody>
+    <tfoot>
+      <tr><th colspan="3">Subtotal</th><td class="num">${money(v.subtotalMinor)}</td></tr>
+      ${taxRows}
+      <tr class="grand"><th colspan="3">Total</th><td class="num">${money(v.totalMinor)}</td></tr>
+    </tfoot>
+  </table>
+  <ul class="notes">
+    ${taxNote}
+    ${supply}
+    ${sac}
+    ${paymentRef}
+    <li>This invoice is for an ETicketsGo plan or credits. It is not a ticket receipt.</li>
+  </ul>
+</div>
+</body>
+</html>`;
+}

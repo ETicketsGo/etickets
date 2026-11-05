@@ -1,7 +1,7 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { useParams, useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
+import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import {
   api,
@@ -11,35 +11,30 @@ import {
   Input,
   Spinner,
   errorMessage,
-  useToast,
   PasswordField,
   passwordAcceptable,
   DEFAULT_PASSWORD_FIELD_COPY,
 } from '@eticketsgo/web-kit';
 
+const CODE_FIELD = /^\d{6}$/;
+
 /**
  * Where an invited back-office colleague claims their account.
  *
- * ── WHY THIS PAGE EXISTS HERE, TOO ─────────────────────────────────────────────────
- * The staff screen used to refuse anybody without an account, and said why: minting
- * credentials there would mean handing out a password the holder never chose and an
- * administrator has seen. Invitations answer that — the invitee sets their own password
- * through a single-use link — so the limitation is lifted by reusing the mechanism rather
- * than by relaxing the principle.
+ * A back-office invitation always creates the account (the staff screen refuses an address that
+ * already has one), and its duties are granted when it is sent - inert until the account has a
+ * password. So claiming the account IS accepting here: there is no team to join afterwards.
  *
- * A near-copy of the organizer console's page, and deliberately not shared: a back-office
- * invitee must never be sent into the organizer app to set a password for a product they
- * have no account in, and then told to sign in somewhere they were never shown. The API is
- * one implementation; the landing page belongs to whichever console the person is joining.
+ * ── WHAT CHANGED (owner decision, 2026-10-26) ─────────────────────────────────────
+ * The link alone used to set the password, and the inviting administrator was shown the link -
+ * so the inviter could choose a new colleague's password and sign in as them, with their
+ * duties. Now the link is emailed to the invitee only, and claiming needs a code sent to that
+ * address as well: the mailbox is proved, whoever else sees the link.
  *
- * It sits OUTSIDE `/admin` because everything under that path requires a session, and an
- * invitation that only opens for somebody who can already sign in is a door that opens from
- * the inside.
+ * It sits OUTSIDE `/admin` because everything under that path requires a session.
  */
 export default function AcceptInvitePage() {
   const { token } = useParams<{ token: string }>();
-  const router = useRouter();
-  const toast = useToast();
 
   const summary = useQuery({
     queryKey: ['invitation', token],
@@ -47,28 +42,25 @@ export default function AcceptInvitePage() {
     retry: false,
   });
 
+  const [codeSent, setCodeSent] = useState(false);
+  const [code, setCode] = useState('');
   const [fullName, setFullName] = useState('');
   const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
 
-  const accept = useMutation({
-    mutationFn: () =>
-      api.invitations.accept(token, {
-        ...(summary.data?.needsPassword ? { fullName, password } : {}),
-      }),
-    onSuccess: (result) => {
-      toast.push(`You have joined ${result.organizationName}.`, 'success');
-      /*
-        Sent to sign in rather than signed in automatically.
-
-        Accepting proves they hold the link, which is not the same as proving they are the
-        person — and for an invitee who already had an account we never asked for a password
-        at all. Signing somebody in on the strength of a forwarded URL is exactly the hole
-        the token was meant to close.
-      */
-      router.push('/login');
-    },
-    onError: (e) => toast.push(errorMessage(e), 'error'),
-  });
+  const run = async (step: () => Promise<void>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await step();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   if (summary.isLoading) {
     return (
@@ -83,13 +75,9 @@ export default function AcceptInvitePage() {
       <main className="grid min-h-screen place-items-center p-6">
         <Card className="w-full max-w-md">
           <h1 className="text-title font-semibold text-text-primary">
-            This invitation can&rsquo;t be used
+            This invitation cannot be used
           </h1>
-          {/*
-            The server's own words. It distinguishes expired from spent from withdrawn, and
-            each has a different thing the reader should do next — replacing all three with
-            "invalid link" would throw away the only actionable part.
-          */}
+          {/* The server's own words: expired, spent and withdrawn each say what to do next. */}
           <p className="mt-2 text-[0.9375rem] text-text-secondary">{errorMessage(summary.error)}</p>
           <ButtonLink href="/login" className="mt-5 w-full">
             Go to sign in
@@ -100,59 +88,107 @@ export default function AcceptInvitePage() {
   }
 
   const invite = summary.data!;
-  const canSubmit =
-    !invite.needsPassword ||
-    (fullName.trim().length > 0 &&
-      passwordAcceptable(password, { email: invite.email, name: fullName }));
+  const canClaim =
+    CODE_FIELD.test(code.trim()) &&
+    fullName.trim().length > 0 &&
+    passwordAcceptable(password, { email: invite.email, name: fullName });
 
   return (
     <main className="grid min-h-screen place-items-center p-6">
       <Card className="w-full max-w-md">
         <h1 className="text-title font-semibold text-text-primary">Join the back office</h1>
-        <p className="mt-2 text-[0.9375rem] text-text-secondary">
-          You&rsquo;ve been invited to the ETicketsGo back office, for {invite.email}. Your duties
-          are already set — signing in is all that is left.
-        </p>
 
-        <div className="mt-5 space-y-4">
-          {invite.needsPassword ? (
-            <>
-              {/*
-                Only asked of somebody the invitation created. An invitee who already had an
-                account keeps the password they know — offering to set a new one would let
-                anybody holding a forwarded link take over an existing user.
-              */}
-              <Input
-                id="fullName"
-                label="Your name"
-                value={fullName}
-                autoComplete="name"
-                onChange={(e) => setFullName(e.target.value)}
-              />
-              <PasswordField
-                id="password"
-                value={password}
-                onChange={setPassword}
-                context={{ email: invite.email, name: fullName }}
-                copy={{ ...DEFAULT_PASSWORD_FIELD_COPY, label: 'Choose a password' }}
-              />
-            </>
-          ) : (
-            <p className="rounded-md border border-border bg-background-canvas p-3 text-caption text-text-secondary">
-              You already have an ETicketsGo account for this address. Accepting adds back-office
-              access to it — your password does not change.
+        {done ? (
+          <>
+            <p className="mt-2 text-[0.9375rem] text-text-secondary">
+              Your account for {invite.email} is ready. Sign in with your new password. You will
+              then set up your authenticator app.
             </p>
-          )}
-
-          <Button
-            className="w-full"
-            loading={accept.isPending}
-            disabled={!canSubmit}
-            onClick={() => accept.mutate()}
-          >
-            {invite.needsPassword ? 'Create account and join' : 'Accept invitation'}
-          </Button>
-        </div>
+            <ButtonLink href="/login" className="mt-5 w-full">
+              Go to sign in
+            </ButtonLink>
+          </>
+        ) : !invite.needsPassword ? (
+          <>
+            <p className="mt-2 text-[0.9375rem] text-text-secondary">
+              You already have an ETicketsGo account for {invite.email}. Sign in with it.
+            </p>
+            <ButtonLink href="/login" className="mt-5 w-full">
+              Go to sign in
+            </ButtonLink>
+          </>
+        ) : (
+          <>
+            <p className="mt-2 text-[0.9375rem] text-text-secondary">
+              You have been invited to the ETicketsGo back office, for {invite.email}. Your duties
+              are already set. We send a code to that address to check that it is yours, then you
+              choose a password.
+            </p>
+            <div className="mt-5 space-y-4">
+              {!codeSent ? (
+                <Button
+                  className="w-full"
+                  loading={busy}
+                  onClick={() =>
+                    run(async () => {
+                      await api.invitations.requestAccountCode(token);
+                      setCodeSent(true);
+                    })
+                  }
+                >
+                  Send me a code
+                </Button>
+              ) : (
+                <form
+                  className="space-y-4"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!canClaim) return;
+                    void run(async () => {
+                      await api.invitations.claimAccount(token, {
+                        code: code.trim(),
+                        fullName: fullName.trim(),
+                        password,
+                      });
+                      setDone(true);
+                    });
+                  }}
+                >
+                  <Input
+                    id="invite-code"
+                    label={`The code we sent to ${invite.email}`}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                  />
+                  <Input
+                    id="fullName"
+                    label="Your name"
+                    value={fullName}
+                    autoComplete="name"
+                    onChange={(e) => setFullName(e.target.value)}
+                  />
+                  <PasswordField
+                    id="password"
+                    value={password}
+                    onChange={setPassword}
+                    context={{ email: invite.email, name: fullName }}
+                    copy={{ ...DEFAULT_PASSWORD_FIELD_COPY, label: 'Choose a password' }}
+                  />
+                  <Button type="submit" className="w-full" loading={busy} disabled={!canClaim}>
+                    Create account
+                  </Button>
+                </form>
+              )}
+              {error && (
+                <p role="alert" className="text-[0.9375rem] text-status-error">
+                  {error}
+                </p>
+              )}
+            </div>
+          </>
+        )}
       </Card>
     </main>
   );

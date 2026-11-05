@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { PRIVATE_ROBOTS } from '@/lib/seo';
 
 /*
   A screen with a name.
@@ -14,6 +15,8 @@ import type { Metadata } from 'next';
 export const metadata: Metadata = {
   title: 'Checkout',
   description: 'Finish your purchase.',
+  // Somebody's own account, purchase or link: never a search result.
+  robots: PRIVATE_ROBOTS,
 };
 
 export default function SectionLayout({ children }: { children: React.ReactNode }) {

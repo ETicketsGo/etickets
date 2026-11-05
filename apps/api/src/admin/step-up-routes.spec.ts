@@ -8,6 +8,10 @@ import { PaymentAdminController } from '../payments/admin/payment-admin.controll
 import { PaymentOutageController } from '../payments/outage/payment-outage.controller';
 import { PromotionController } from '../payments/promotion/promotion.controller';
 import { AdminOrganizationsController } from '../organizations/organizations.controller';
+import { AdminBillingController } from '../billing/billing-admin.controller';
+import { AdminCampaignsController } from '../campaigns/campaigns.controller';
+import { PlatformFeePoliciesController } from './platform-fee-policies.controller';
+import { FeeSchedulesController } from './fee-schedules.controller';
 
 /*
   The staff writes that now also need a fresh second-factor check, beside the ones listed in
@@ -27,6 +31,7 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
     [
       'createFeeRule',
       'updateFeeRule',
+      'deleteFeeRule',
       'createTaxRule',
       'updateTaxRule',
       'supersedeTaxRule',
@@ -38,6 +43,12 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
       'disableCinemaPricingPolicy',
     ],
   ],
+  [
+    'platform fee policies',
+    PlatformFeePoliciesController,
+    ['createPlatformFeePolicy', 'deactivatePlatformFeePolicy'],
+  ],
+  ['fee schedule publish', FeeSchedulesController, ['publishFeeSchedule']],
   [
     'payment config',
     PaymentAdminController,
@@ -51,14 +62,48 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
   ['payment promotion', PromotionController, ['approve', 'apply']],
   ['organizers', AdminOrganizationsController, ['setSuspension', 'removeOrganization']],
   ['accounts', AdminUsersController, ['suspend', 'reinstate', 'revokeSessions']],
+  /*
+    Organizer billing: what organizers pay (plans, prices) and what they get without paying
+    (trials, complimentary plans, credits, discounts, single-feature grants).
+  */
+  [
+    'organizer billing',
+    AdminBillingController,
+    [
+      'loadCatalog',
+      'updatePlan',
+      'setPlanEntitlements',
+      'createPrice',
+      'updatePrice',
+      'deactivatePrice',
+      'grantTrial',
+      'grantComplimentary',
+      'endGrant',
+      'grantCredits',
+      'recordDiscount',
+      'grantOverride',
+      'revokeOverride',
+      // Credit pack prices and their publication (owner decision 2026-10-27).
+      'setCreditPackPrice',
+      'publishCreditPack',
+      'unpublishCreditPack',
+    ],
+  ],
+  // Stopping, or releasing, an organizer's campaign: mail going out under the platform's name.
+  ['organizer campaigns', AdminCampaignsController, ['pause', 'release']],
 ];
 
 /** Reads on the same controllers: a fresh code must NOT be demanded to look. */
 const NOT_STEP_UP: Array<[new (...a: never[]) => unknown, string[]]> = [
   [AdminController, ['feeRules', 'taxRules', 'cinemaPricingPolicies']],
+  [PlatformFeePoliciesController, ['list', 'detail', 'preview']],
+  // Drafts change no price; only the publish does.
+  [FeeSchedulesController, ['overview', 'draft', 'createDraft', 'saveDraft', 'discardDraft']],
   [PaymentAdminController, ['overview', 'health']],
   [PaymentOutageController, ['status']],
   [AdminOrganizationsController, ['list', 'reviewSignals']],
+  [AdminBillingController, ['plans', 'searchSubscriptions', 'account', 'metrics', 'creditPacks']],
+  [AdminCampaignsController, ['list', 'health']],
 ];
 
 /** A verified session whose last check was this long ago. */

@@ -1,5 +1,6 @@
 import '../global.css';
 import { useEffect } from 'react';
+import { Platform } from 'react-native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import {
@@ -9,10 +10,17 @@ import {
   Inter_600SemiBold,
   Inter_700Bold,
 } from '@expo-google-fonts/inter';
+import {
+  BricolageGrotesque_600SemiBold,
+  BricolageGrotesque_700Bold,
+  BricolageGrotesque_800ExtraBold,
+} from '@expo-google-fonts/bricolage-grotesque';
+import { palette } from '@/theme';
 import { AppProviders } from '@/components/providers';
 import { useAuthStore } from '@/application/auth-store';
 import { initSentry, Sentry } from '@/services/sentry';
 import { useDeepLinks } from '@/hooks/use-deep-links';
+import { syncPushRegistration } from '@/services/push-registration';
 
 initSentry();
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
@@ -23,6 +31,11 @@ function RootLayout() {
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
+    // The storefront's display face (DESIGN-SYSTEM.md section 2): titles only. Bundled
+    // into the binary by the package, so nothing is fetched from Google at run time.
+    BricolageGrotesque_600SemiBold,
+    BricolageGrotesque_700Bold,
+    BricolageGrotesque_800ExtraBold,
   });
   const status = useAuthStore((s) => s.status);
   const hydrate = useAuthStore((s) => s.hydrate);
@@ -43,9 +56,17 @@ function RootLayout() {
   return (
     <AppProviders>
       <DeepLinkHandler />
-      <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
-        <Stack.Screen name="index" />
-        <Stack.Screen name="(tabs)" />
+      {/* iOS pushes slide like every other iPhone app; Android keeps the fade it has always had. */}
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          animation: Platform.OS === 'ios' ? 'default' : 'fade',
+          // Paper behind every screen, so a transition never flashes white.
+          contentStyle: { backgroundColor: palette.canvas },
+        }}
+      >
+        <Stack.Screen name="index" options={{ animation: 'fade' }} />
+        <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
         {/* Auth is a modal presented over whatever the user was doing, so signing in
             returns them to that screen instead of resetting them to Home. */}
         <Stack.Screen
@@ -66,5 +87,14 @@ export default Sentry.wrap(RootLayout);
  */
 function DeepLinkHandler() {
   useDeepLinks();
+  usePushSync();
   return null;
+}
+
+/** Register this phone for push once a session exists (no prompt; see push-registration). */
+function usePushSync() {
+  const status = useAuthStore((s) => s.status);
+  useEffect(() => {
+    if (status === 'authenticated') void syncPushRegistration();
+  }, [status]);
 }

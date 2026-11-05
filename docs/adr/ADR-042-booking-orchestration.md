@@ -1,6 +1,7 @@
 # ADR-042: Provider-Neutral Booking Orchestration
 
 - **Status:** Accepted (P5.1 local-authoritative orchestrator + shadow shipped; provider-authoritative/allocated/compensation in progress)
+- **Status (2026-11-01):** current. P5 is closed: the orchestrator is off by default (`BOOKING_ORCHESTRATOR_ENABLED`, mode `shadow`); booking scope is frozen.
 - **Date:** 2026-07-27
 - **Deciders:** Principal Architect
 - **Builds on:** ADR-037 (sourcing), ADR-038 (events), ADR-039 (locking), ADR-040 (sync), ADR-041 (outbox)

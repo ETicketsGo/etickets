@@ -119,9 +119,24 @@
     "subject": "'{event}' is on sale again",
     "body": "ETicketsGo lifted the pause on '{event}'. Tickets are on sale again."
   },
+  "BILLING_PAYMENT_FAILED": {
+    "yourPlan": "paid",
+    "PAST_DUE": {
+      "subject": "The payment for your {plan} plan did not go through",
+      "body": "We could not take the payment for your {plan} plan. Your plan still works while the payment is tried again. To keep it, check your payment method in Billing & plans in your organizer console."
+    },
+    "GRACE": {
+      "subject": "Action needed: your {plan} plan ends on {deadline}",
+      "body": "We could not take the payment for your {plan} plan after several tries. Your plan works until {deadline}. After that date, your organization moves to the Free plan. To keep your plan, update your payment method in Billing & plans in your organizer console."
+    },
+    "GRACE_ENDING": {
+      "subject": "Reminder: your {plan} plan ends on {deadline}",
+      "body": "The payment for your {plan} plan is still not complete. Your plan works until {deadline}. After that date, your organization moves to the Free plan. To keep your plan, update your payment method in Billing & plans in your organizer console."
+    }
+  },
   "SUPPORT_REQUEST_RECEIVED": {
-    "subject": "New {kind} message: {topic}",
-    "subjectNoTopic": "New {kind} message from {sender}",
+    "subject": "New {kind} message [{reference}]: {topic}",
+    "subjectNoTopic": "New {kind} message [{reference}] from {sender}",
     "intro": "New {kind} message from {sender}.",
     "lead": "A message came in through a support form.",
     "replyHint": "Reply to this email to answer the sender. Your reply goes to {email}.",
@@ -148,7 +163,7 @@
     }
   },
   "SUPPORT_REQUEST_ACKNOWLEDGED": {
-    "subject": "We have your message",
+    "subject": "We have your message [{reference}]",
     "body": "Thank you for writing to ETicketsGo. We have your message and we will reply to {email}. Your reference is {reference}. If you write to us again about this, please give this reference."
   },
   "PAYOUT_ACCOUNT_AWAITING_VERIFICATION": {
@@ -212,6 +227,15 @@
     "subject": "Reset your ETicketsGo password",
     "body": "Open this link to choose a new password: {link}. It works once and expires in {minutes} minutes. If you did not ask for this, ignore this message - your password has not changed."
   },
+  "EMAIL_VERIFICATION_CODE": {
+    "subject": "Your ETicketsGo email code",
+    "body": "Your code is {code}. Type it on ETicketsGo to add this email address to your account. It expires in {minutes} minutes. If you did not ask for this, ignore this message - nothing has changed.",
+    "confirmBody": "Your code is {code}. Type it on ETicketsGo to confirm that this email address is yours. It expires in {minutes} minutes. If you did not ask for this, ignore this message - nothing has changed."
+  },
+  "TEAM_INVITATION": {
+    "subject": "You are invited to join {organizationName} on ETicketsGo",
+    "body": "{inviterName} invited you to join {organizationName} on ETicketsGo as {role}. To accept, open this link and sign in with this email address: {link}. The link works once and expires in {days} days. Only you can accept it. If you did not expect this, ignore this message - nothing changes."
+  },
   "PASSWORD_CHANGED": {
     "subject": "Your ETicketsGo password was changed",
     "body": "Your password was just changed and you have been signed out everywhere. If this was not you, reset your password immediately and contact support."
@@ -248,5 +272,23 @@
   "leads": {
     "BOOKING_CONFIRMED": "Your booking is confirmed. Here are the details.",
     "EVENT_REMINDER": "Your show is coming up."
+  },
+  "campaign": {
+    "why": "You are getting this email because you agreed to hear from {organizer} about {topic}.",
+    "topic": {
+      "ORGANIZER_UPDATES": "their events",
+      "EARLY_ACCESS": "early access and presales",
+      "OFFERS": "offers"
+    },
+    "unsubscribe": "Unsubscribe from {organizer}",
+    "unsubscribePrompt": "Do not want these emails?",
+    "unsubscribeAll": "Unsubscribe from all marketing email",
+    "sentBy": "Sent by {organizer} with ETicketsGo.",
+    "operator": "ETicketsGo is operated by {legalName}.",
+    "book": "Book tickets",
+    "when": "When",
+    "where": "Where",
+    "code": "Your code",
+    "testBanner": "This is a test email. It was not sent to your audience."
   }
 }

@@ -11,11 +11,13 @@ import {
   portableImageUrl,
   type PublicEventCard,
   type PublicMovieCard,
+  whenAlreadyFailed,
 } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
 import { ContentLabelBadge } from '../content-label-badge';
 import { useFormat } from '@/lib/format';
 import { eventZone } from '@/lib/event-when';
+import { useReaderZone } from '@/lib/reader-zone';
 import { priceSlot, type Buyability } from '@/lib/home-feed';
 
 /*
@@ -32,17 +34,10 @@ import { priceSlot, type Buyability } from '@/lib/home-feed';
  * day of the week is what people plan around. The zone is the audit's C4: an unzoned time on
  * an international platform is a missed show waiting to happen.
  */
-/** The reader's own zone; undefined where Intl cannot say, which then names every zone. */
-function readerZone(): string | undefined {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone;
-  } catch {
-    return undefined;
-  }
-}
-
 export function useVenueWhen() {
   const fmt = useFormat();
+  // The same on the server and while hydrating: see `lib/reader-zone.tsx`. Undefined names every zone.
+  const readerZone = useReaderZone();
   const locale = fmt.locale ?? 'en-IN';
   return (iso: string | null, timeZone?: string | null) => {
     if (!iso) return null;
@@ -73,7 +68,7 @@ export function useVenueWhen() {
       on every Indian card for an Indian reader.
     */
     const venueZone = zone ? fmt.zoneAbbrev(at, zone) : null;
-    const named = venueZone && venueZone !== fmt.zoneAbbrev(at, readerZone()) ? venueZone : null;
+    const named = venueZone && venueZone !== fmt.zoneAbbrev(at, readerZone) ? venueZone : null;
     return { day, time: named ? `${time} ${named}` : time };
   };
 }
@@ -224,6 +219,7 @@ function RowThumb({ event }: { event: PublicEventCard }) {
           height={300}
           loading="lazy"
           decoding="async"
+          ref={whenAlreadyFailed(() => setFailed(true))}
           onError={() => setFailed(true)}
           className="absolute inset-0 h-full w-full object-cover"
         />
@@ -480,6 +476,7 @@ export function StageHero({ event }: { event: PublicEventCard }) {
             loading="eager"
             fetchPriority="high"
             decoding="async"
+            ref={whenAlreadyFailed(() => setFailed(true))}
             onError={() => setFailed(true)}
             className="h-full w-full object-cover"
           />

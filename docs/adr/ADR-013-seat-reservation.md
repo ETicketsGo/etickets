@@ -1,6 +1,7 @@
 # ADR-013: Seat Reservation
 
 - **Status:** Accepted
+- **Status (2026-11-01):** current.
 - **Date:** 2026-07-13
 - **Relates to:** ADR-010 (Inventory Strategy), ADR-011 (Movie Domain)
 - **Scope:** PR-3 — seat maps, seat-level inventory, customer movie booking

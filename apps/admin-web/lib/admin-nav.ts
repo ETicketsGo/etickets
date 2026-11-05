@@ -1,20 +1,28 @@
 import {
   Activity,
+  BadgePercent,
   Banknote,
   BarChart3,
   Building2,
+  CalendarClock,
   CalendarRange,
   ClipboardCheck,
+  ClipboardList,
   CreditCard,
   Film,
   GitBranch,
+  Handshake,
+  KanbanSquare,
   HandCoins,
   Landmark,
   LayoutDashboard,
   LifeBuoy,
+  MessageSquareText,
   Percent,
   KeyRound,
+  Mail,
   Receipt,
+  ReceiptText,
   RotateCcw,
   Scale,
   ScrollText,
@@ -23,8 +31,12 @@ import {
   SlidersHorizontal,
   Sparkles,
   Store,
+  Target,
   Ticket,
+  UserRoundSearch,
   Users,
+  UsersRound,
+  Wallet,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -67,8 +79,17 @@ export interface AdminNavLink {
    * Absent only for a page every operator can use.
    */
   needs?: string;
+  /**
+   * Further capabilities the page ALSO needs, when the API requires several (all-of), e.g. an
+   * acquisition manager page that needs CRM_AGENT and CRM_MANAGER.
+   */
+  alsoNeeds?: string[];
   /** Other words somebody might type into quick navigation. */
   keywords?: string[];
+  /** The section's own pages, folded under it in the menu and shown as tabs on each page. */
+  children?: AdminNavLink[];
+  /** This link's name as the first tab of its section, where `label` would repeat it. */
+  tabLabel?: string;
 }
 
 export interface AdminNavGroup {
@@ -148,10 +169,89 @@ export const ADMIN_NAV: AdminNavGroup[] = [
       // ORGANIZER_REVIEW, not ORGANIZER_READ: GET /admin/organizers is the review queue.
       {
         label: 'Organizers',
+        tabLabel: 'Review queue',
         href: '/admin/organizers',
         icon: Building2,
         needs: 'ORGANIZER_REVIEW',
         keywords: ['verification', 'kyc', 'approve'],
+        /*
+          Organizer email campaigns: what goes out under the platform's name, the bounce and
+          complaint rates, and the brake. A tab of Organizers, not a menu row, for the same
+          768px menu-height reason as Organizer Acquisition. Reading is ORGANIZER_READ; the
+          pause control also needs ORGANIZER_REVIEW and is hidden from a reader.
+        */
+        children: [
+          {
+            label: 'Email campaigns',
+            href: '/admin/campaigns',
+            icon: Mail,
+            needs: 'ORGANIZER_READ',
+            keywords: ['campaigns', 'marketing email', 'bounces', 'complaints', 'spam'],
+          },
+        ],
+      },
+      /*
+        Organizer Acquisition, the sales desk: prospects the platform would like to sell for.
+        A SECTION of this group rather than a group of its own: one more group heading made the
+        expanded menu taller than a 768px window (console-navigation e2e). Its pages fold under
+        it, show as tabs on each page, and quick navigation finds every one.
+
+        Every page needs CRM_AGENT (GET /admin/crm/*); Team Performance and Reports also need
+        CRM_MANAGER, as their API does. An operator holding neither sees none of it.
+      */
+      {
+        label: 'Organizer Acquisition',
+        tabLabel: 'Overview',
+        href: '/admin/acquisition',
+        icon: Target,
+        needs: 'CRM_AGENT',
+        keywords: ['crm', 'sales', 'acquisition', 'prospects', 'leads'],
+        children: [
+          {
+            label: 'Prospects',
+            href: '/admin/acquisition/prospects',
+            icon: UserRoundSearch,
+            needs: 'CRM_AGENT',
+            keywords: ['leads', 'crm', 'import', 'export'],
+          },
+          {
+            label: 'Pipeline',
+            href: '/admin/acquisition/pipeline',
+            icon: KanbanSquare,
+            needs: 'CRM_AGENT',
+            keywords: ['stages', 'funnel', 'crm'],
+          },
+          {
+            label: 'Follow-ups',
+            href: '/admin/acquisition/follow-ups',
+            icon: CalendarClock,
+            needs: 'CRM_AGENT',
+            keywords: ['tasks', 'overdue', 'crm'],
+          },
+          {
+            label: 'Activities',
+            href: '/admin/acquisition/activities',
+            icon: MessageSquareText,
+            needs: 'CRM_AGENT',
+            keywords: ['calls', 'outreach', 'crm'],
+          },
+          {
+            label: 'Team Performance',
+            href: '/admin/acquisition/team',
+            icon: UsersRound,
+            needs: 'CRM_AGENT',
+            alsoNeeds: ['CRM_MANAGER'],
+            keywords: ['agents', 'interns', 'crm team'],
+          },
+          {
+            label: 'Reports',
+            href: '/admin/acquisition/reports',
+            icon: Handshake,
+            needs: 'CRM_AGENT',
+            alsoNeeds: ['CRM_MANAGER'],
+            keywords: ['india', 'usa', 'conversion', 'crm reports'],
+          },
+        ],
       },
     ],
   },
@@ -212,10 +312,60 @@ export const ADMIN_NAV: AdminNavGroup[] = [
       { label: 'Settlements', href: '/admin/settlements', icon: Landmark, needs: 'PAYOUT_MANAGE' },
       {
         label: 'Finance reconciliation',
+        tabLabel: 'Reconciliation',
         href: '/admin/finance-reconciliation',
         icon: Scale,
         needs: 'FINANCE_READ',
         keywords: ['discrepancies'],
+        /*
+          Platform fee policies: exceptions to the fee schedule for one event or one organizer
+          (waive, fixed, percentage). Under Finance, where waivers are decided (owner decision
+          2026-10-27), as a page of this section rather than a row of its own: one more
+          top-level row made the menu taller than a 768px window (console-navigation e2e).
+          GET /admin/platform-fee-policies needs PLATFORM_CONFIG_READ; creating and
+          deactivating need PLATFORM_CONFIG and a fresh MFA code.
+        */
+        children: [
+          {
+            label: 'Platform fee policies',
+            href: '/admin/fee-policies',
+            icon: BadgePercent,
+            needs: 'PLATFORM_CONFIG_READ',
+            keywords: ['fee waiver', 'waive fee', 'fee override', 'promotion', 'finance'],
+          },
+        ],
+      },
+      /*
+        Organizer billing: the platform's own plans for organizers, not ticket money. A SECTION
+        here rather than a group of its own, for the same 768px menu-height reason as
+        Organizer Acquisition. Every page loads GET /admin/billing/* (BILLING_READ); the write
+        controls on each page also need BILLING_MANAGE, BILLING_ADJUST or ENTITLEMENT_GRANT
+        and are hidden from a reader (`useHolds`). An account page (/admin/billing/accounts/...)
+        is reached from the subscriptions list and the overview's search box.
+      */
+      {
+        label: 'Billing & subscriptions',
+        tabLabel: 'Overview',
+        href: '/admin/billing',
+        icon: Wallet,
+        needs: 'BILLING_READ',
+        keywords: ['plans', 'pricing', 'subscriptions', 'mrr', 'arr', 'trials', 'credits'],
+        children: [
+          {
+            label: 'Plans & prices',
+            href: '/admin/billing/plans',
+            icon: ReceiptText,
+            needs: 'BILLING_READ',
+            keywords: ['plans', 'pricing', 'catalogue', 'entitlements'],
+          },
+          {
+            label: 'Subscriptions',
+            href: '/admin/billing/subscriptions',
+            icon: ClipboardList,
+            needs: 'BILLING_READ',
+            keywords: ['trials', 'complimentary', 'organizer plans'],
+          },
+        ],
       },
     ],
   },
@@ -337,14 +487,19 @@ export const ADMIN_NAV: AdminNavGroup[] = [
  * carrying the group's name and rail icon, every one carrying its capability.
  */
 export function adminNavItems(nav: AdminNavGroup[] = ADMIN_NAV): NavItem[] {
+  const item = (l: AdminNavLink): NavItem => ({
+    label: l.label,
+    href: l.href,
+    icon: l.icon,
+    exact: l.exact,
+    capabilities: l.needs ? [l.needs, ...(l.alsoNeeds ?? [])] : undefined,
+    keywords: l.keywords,
+    tabLabel: l.tabLabel,
+    children: l.children?.map(item),
+  });
   return nav.flatMap((g) =>
     g.links.map((l, i) => ({
-      label: l.label,
-      href: l.href,
-      icon: l.icon,
-      exact: l.exact,
-      capabilities: l.needs ? [l.needs] : undefined,
-      keywords: l.keywords,
+      ...item(l),
       ...(i === 0 ? { group: g.label, groupIcon: g.icon } : {}),
     })),
   );
@@ -352,7 +507,7 @@ export function adminNavItems(nav: AdminNavGroup[] = ADMIN_NAV): NavItem[] {
 
 /** Every link, flattened, in menu order. */
 export function allNavLinks(nav: AdminNavGroup[] = ADMIN_NAV): AdminNavLink[] {
-  return nav.flatMap((g) => g.links);
+  return nav.flatMap((g) => g.links.flatMap((l) => [l, ...(l.children ?? [])]));
 }
 
 export function isLinkActive(pathname: string, link: Pick<AdminNavLink, 'href' | 'exact'>) {
@@ -380,5 +535,5 @@ export function activeHref(pathname: string, nav: AdminNavGroup[] = ADMIN_NAV): 
 export function activeGroupKey(pathname: string, nav: AdminNavGroup[] = ADMIN_NAV): string | null {
   const href = activeHref(pathname, nav);
   if (!href) return null;
-  return nav.find((g) => g.links.some((l) => l.href === href))?.key ?? null;
+  return nav.find((g) => allNavLinks([g]).some((l) => l.href === href))?.key ?? null;
 }

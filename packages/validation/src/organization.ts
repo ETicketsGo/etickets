@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Role } from '@eticketsgo/shared-types';
+import { Role, contactEmailProblem, isReservedEmail } from '@eticketsgo/shared-types';
 import {
   deliverableEmailSchema,
   emailSchema,
@@ -40,16 +40,54 @@ const optionalUrl = z
   })
   .optional();
 
+/*
+  A picture field also accepts the API path an UPLOAD writes (`/public/organizers/<id>/logo?v=…`).
+  Without this, the profile form echoed that path back on every save and was refused as "not a
+  valid URL", so once an organizer had uploaded a picture no other profile field could be saved.
+*/
+const ORG_IMAGE_PATH = /^\/public\/organizers\/[A-Za-z0-9_-]+\/(logo|cover)(\?v=[0-9a-f]+)?$/;
+const optionalImageUrl = z
+  .string()
+  .trim()
+  .max(500)
+  .refine((v) => v === '' || /^https?:\/\/.+/i.test(v) || ORG_IMAGE_PATH.test(v), {
+    message: 'Enter a valid URL starting with http:// or https://',
+  })
+  .optional();
+
+/*
+  A contact address on Settings: trimmed, '' clears it, and anything else must be a real
+  address. Not zod's `.email()`, which refuses internationalised domains ("info@bücher.de"):
+  `contactEmailProblem` is the rule the console checks as the person types, so the two agree.
+*/
+const contactEmail = z
+  .string()
+  .trim()
+  .max(254)
+  .superRefine((v, ctx) => {
+    const problem = contactEmailProblem(v);
+    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+  })
+  .transform((v) => v.toLowerCase())
+  .optional();
+
 // Public organizer profile (v1.2 WS6). Every field is optional; '' clears it.
 export const updateOrganizationProfileSchema = z.object({
   description: z.string().trim().max(2000).optional(),
-  logoUrl: optionalUrl,
-  coverImageUrl: optionalUrl,
+  logoUrl: optionalImageUrl,
+  coverImageUrl: optionalImageUrl,
   website: optionalUrl,
   twitterUrl: optionalUrl,
   instagramUrl: optionalUrl,
   facebookUrl: optionalUrl,
-  contactEmail: z.union([emailSchema.pipe(deliverableEmailSchema), z.literal('')]).optional(),
+  // Shown to the public, so it must also be an address mail can reach (not a reserved domain).
+  contactEmail: contactEmail.refine((v) => !v || !isReservedEmail(v), {
+    message: 'Add an email address customers can write to.',
+  }),
+  /*
+    E.164 when changed (the console sends it that way); the country rule is applied by the API
+    against the stored value, so an older number saved in another shape keeps saving untouched.
+  */
   contactPhone: z.string().trim().max(40).optional(),
   /**
    * The accent palette this organization's workspace is rendered in.
@@ -111,7 +149,7 @@ export const updateOrganizationLegalIdentitySchema = z.object({
   registeredPostalCode: clearableText(20),
   registeredCountry: clearableText(120),
   financeContactName: clearableText(160),
-  financeContactEmail: z.union([emailSchema, z.literal('')]).optional(),
+  financeContactEmail: contactEmail,
   financeContactPhone: clearableText(40),
   /*
     ── WHO ANSWERS A COMPLAINT ──────────────────────────────────────────────────────
@@ -123,8 +161,21 @@ export const updateOrganizationLegalIdentitySchema = z.object({
     over time and a half-saved form must not be refused. The readiness list is what chases it.
   */
   grievanceOfficerName: clearableText(160),
-  grievanceOfficerEmail: z.union([emailSchema, z.literal('')]).optional(),
+  grievanceOfficerEmail: contactEmail,
   grievanceOfficerPhone: clearableText(40),
+  /*
+    Registrations beyond the main one: a second state's sales tax ID, a PAN beside a GSTIN.
+    Formats and kinds are checked by the API against the organization's country.
+  */
+  additionalTaxRegistrations: z
+    .array(
+      z.object({
+        kind: z.string().trim().min(1).max(40),
+        number: z.string().trim().min(1, 'Enter the number.').max(64),
+      }),
+    )
+    .max(10)
+    .optional(),
 });
 export type UpdateOrganizationLegalIdentityInput = z.infer<
   typeof updateOrganizationLegalIdentitySchema
@@ -143,19 +194,22 @@ export const changeMemberRoleSchema = z.object({
 export type ChangeMemberRoleInput = z.infer<typeof changeMemberRoleSchema>;
 
 /**
- * Accepting a team invitation.
+ * Claiming the account a team invitation CREATED: the code sent to the invited address (which
+ * proves the mailbox), the person's name, and the password they choose.
  *
- * Both fields are optional because the two kinds of invitee need different things. Somebody
- * who already had an account keeps the password they know and supplies neither; somebody the
- * invite created has no usable credential and must choose one. Which case applies is the
- * SERVER's judgement, not the client's — it is derived from the account, and the server
- * refuses a missing password when one is genuinely required.
+ * Accepting the invitation itself takes no body at all: it needs the invited account's own
+ * session and a proved email, never anything the link holder could type (owner decision,
+ * 2026-10-26).
  */
-export const acceptInvitationSchema = z.object({
-  fullName: z.string().trim().min(1).max(120).optional(),
-  password: passwordSchema.optional(),
+export const claimInvitedAccountSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, 'The code is six digits.'),
+  fullName: z.string().trim().min(1).max(120),
+  password: passwordSchema,
 });
-export type AcceptInvitationInput = z.infer<typeof acceptInvitationSchema>;
+export type ClaimInvitedAccountInput = z.infer<typeof claimInvitedAccountSchema>;
 
 export const reviewDecisionSchema = z.object({
   decision: z.enum(['APPROVE', 'REJECT']),

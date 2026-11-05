@@ -1,11 +1,16 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { registerSchema } from '@eticketsgo/validation';
+import { PASSWORD_MIN_LENGTH } from '@eticketsgo/shared-types';
 import { Screen } from '@/components/screen';
-import { Button, Field, IconButton, Text } from '@/ui';
+import { useQuery } from '@tanstack/react-query';
+import { Button, Card, Field, IconButton, Text, haptics } from '@/ui';
+import { BrandMark } from '@/components/brand-mark';
 import { useAuth } from '@/hooks/use-auth';
 import { messageForError } from '@/services/errors';
+import { authRepository } from '@/data/auth-repository';
+import { PhoneSignIn } from '@/features/auth/phone-sign-in';
 
 /**
  * Create a customer account.
@@ -14,6 +19,11 @@ import { messageForError } from '@/services/errors';
  * API validates against. Re-stating the rules here (min length, email shape) is how a
  * client ends up rejecting a password the server would have accepted, or accepting one
  * it won't.
+ *
+ * Mobile | Email, as on the storefront's /register and on this app's sign-in. The Mobile tab is
+ * sign-UP by text code (`PhoneSignIn signUp`): it asks for a name, and when the number already
+ * has an account it says "You already have an account with this number. We signed you in."
+ * instead of behaving as if one had just been made.
  */
 export default function RegisterScreen() {
   const router = useRouter();
@@ -26,6 +36,20 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const reachable = useQuery({
+    queryKey: ['capabilities', 'phoneSignInCountries'],
+    queryFn: authRepository.phoneSignInCountries,
+    staleTime: 10 * 60_000,
+  });
+  const [chosenTab, setChosenTab] = useState<'phone' | 'email' | null>(
+    prefillEmail ? 'email' : null,
+  );
+  // The same rule as sign-in: Mobile first wherever this environment can text a code.
+  const tab = chosenTab ?? (reachable.data && reachable.data.length > 0 ? 'phone' : 'email');
+  const close = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)');
+  };
 
   const onSubmit = async () => {
     const parsed = registerSchema.safeParse({ fullName, email: email.trim(), password });
@@ -65,8 +89,15 @@ export default function RegisterScreen() {
   return (
     <Screen padded={false}>
       <Stack.Screen options={{ headerShown: false }} />
-      <View className="flex-row items-center gap-1 px-2 py-1">
-        <IconButton icon="close" accessibilityLabel="Close" onPress={() => router.back()} />
+      <View className="flex-row items-center justify-between px-3 py-1.5">
+        <IconButton
+          icon="close"
+          accessibilityLabel="Close"
+          tone="outlined"
+          onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
+        />
+        <BrandMark />
+        <View style={{ width: 44 }} />
       </View>
 
       <KeyboardAvoidingView
@@ -76,73 +107,139 @@ export default function RegisterScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView
-          contentContainerClassName="gap-5 px-5 pb-8 pt-2"
+          contentContainerClassName="px-4 pb-10 pt-6"
           keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
         >
-          <View className="gap-1">
-            <Text variant="largeTitle" accessibilityRole="header">
-              Create account
+          <Card className="gap-5 p-6">
+            <View className="gap-1">
+              <Text variant="d1" accessibilityRole="header">
+                Create an account
+              </Text>
+              <Text variant="ui" tone="secondary">
+                Keep every ticket in one place, on any device.
+              </Text>
+            </View>
+
+            <View
+              accessibilityRole="tablist"
+              className="flex-row rounded-control border border-border-strong p-1"
+            >
+              {(
+                [
+                  ['phone', 'Mobile'],
+                  ['email', 'Email'],
+                ] as const
+              ).map(([key, label]) => (
+                <Pressable
+                  key={key}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: tab === key }}
+                  onPress={() => {
+                    haptics.select();
+                    setChosenTab(key);
+                  }}
+                  style={{ minHeight: 44 }}
+                  className={[
+                    'flex-1 items-center justify-center rounded-control',
+                    tab === key ? 'bg-ink' : 'active:bg-sunken',
+                  ].join(' ')}
+                >
+                  <Text
+                    variant="ui"
+                    tone={tab === key ? 'onAccent' : 'primary'}
+                    className="font-semibold"
+                  >
+                    {label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {tab === 'phone' ? (
+              <PhoneSignIn signUp onSignedIn={close} onUseEmail={() => setChosenTab('email')} />
+            ) : (
+              <>
+                <Field
+                  label="Full name"
+                  value={fullName}
+                  onChangeText={setFullName}
+                  error={errors.fullName}
+                  autoComplete="name"
+                  textContentType="name"
+                  editable={!submitting}
+                />
+                <Field
+                  label="Email"
+                  value={email}
+                  onChangeText={setEmail}
+                  error={errors.email}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="email"
+                  textContentType="emailAddress"
+                  editable={!submitting}
+                />
+                <Field
+                  label="Password"
+                  value={password}
+                  onChangeText={setPassword}
+                  error={errors.password}
+                  hint={`At least ${PASSWORD_MIN_LENGTH} characters. Do not use your name or email.`}
+                  secure
+                  autoCapitalize="none"
+                  // `newPassword` prompts the OS to offer a strong password and save it.
+                  autoComplete="new-password"
+                  textContentType="newPassword"
+                  editable={!submitting}
+                />
+
+                {errors.form ? (
+                  <Card tone="sunken" className="border-l-4 border-critical">
+                    <Text
+                      variant="ui"
+                      tone="danger"
+                      accessibilityRole="alert"
+                      className="font-medium"
+                    >
+                      {errors.form}
+                    </Text>
+                  </Card>
+                ) : null}
+
+                <Button
+                  label="Create account"
+                  size="lg"
+                  loading={submitting}
+                  onPress={() => void onSubmit()}
+                />
+              </>
+            )}
+
+            <Text variant="meta" tone="muted">
+              By creating an account you agree to the terms of service and the privacy policy,
+              linked from Account.
             </Text>
-            <Text variant="subhead" tone="muted">
-              Keep every ticket in one place, on any device.
-            </Text>
-          </View>
 
-          <View className="gap-3">
-            <Field
-              label="Full name"
-              value={fullName}
-              onChangeText={setFullName}
-              error={errors.fullName}
-              autoComplete="name"
-              textContentType="name"
-              editable={!submitting}
-            />
-            <Field
-              label="Email"
-              value={email}
-              onChangeText={setEmail}
-              error={errors.email}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="email"
-              textContentType="emailAddress"
-              editable={!submitting}
-            />
-            <Field
-              label="Password"
-              value={password}
-              onChangeText={setPassword}
-              error={errors.password}
-              secure
-              autoCapitalize="none"
-              // `newPassword` is what prompts the OS to offer a strong password and to
-              // save it to the keychain.
-              autoComplete="new-password"
-              textContentType="newPassword"
-              editable={!submitting}
-            />
-          </View>
+            <View className="h-px bg-border" />
 
-          {errors.form ? (
-            <Text variant="subhead" tone="danger" accessibilityRole="alert">
-              {errors.form}
-            </Text>
-          ) : null}
-
-          <Button
-            label="Create account"
-            size="lg"
-            loading={submitting}
-            onPress={() => void onSubmit()}
-          />
-
-          <Button
-            label="I already have an account"
-            variant="ghost"
-            onPress={() => router.replace({ pathname: '/(auth)/login', params: { email } })}
-          />
+            <View className="flex-row flex-wrap items-center gap-1">
+              <Text variant="ui" tone="muted">
+                Already have an account?
+              </Text>
+              <Pressable
+                accessibilityRole="link"
+                onPress={() => router.replace({ pathname: '/(auth)/login', params: { email } })}
+                hitSlop={8}
+                className="border-b border-gold pb-0.5 active:opacity-60"
+              >
+                <Text variant="ui" className="font-semibold">
+                  Sign in
+                </Text>
+              </Pressable>
+            </View>
+          </Card>
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>

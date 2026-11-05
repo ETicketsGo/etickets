@@ -90,6 +90,24 @@ export interface Market {
    */
   regionLabel: string;
   /**
+   * What this country calls its postal code, and the shape one takes - only where that shape
+   * is fixed and public (a US ZIP, an Indian PIN). Absent means "any text": a pattern guessed
+   * for a country nobody checked would refuse real addresses.
+   */
+  postalCode?: { label: string; pattern: string; example: string };
+  /**
+   * `false` where the tax system has no "tax invoice": a US sales-tax registration (or an EIN,
+   * which is not a sales-tax registration at all) does not turn a receipt into one. Absent
+   * means the country's registrations DO make a seller's sale document a tax invoice (India's
+   * GST invoice, a VAT invoice).
+   */
+  taxInvoices?: false;
+  /**
+   * The tax registrations an organizer in this country picks from, in place of free text.
+   * Absent: the field stays free text (the country has not been modelled yet).
+   */
+  taxRegistrationTypes?: readonly TaxRegistrationType[];
+  /**
    * The subdivisions, where a stable public list exists and an address actually uses one.
    *
    * Empty means "this country does not work that way" — Singapore has no meaningful
@@ -251,6 +269,84 @@ const GB_REGIONS: readonly MarketRegion[] = [
   left to whoever adds the next market: a list that is sorted by accident stops being sorted
   the first time somebody appends to it.
 */
+export interface TaxRegistrationType {
+  /** Stored in `taxRegistrationKind`, and printed beside the number on documents. */
+  kind: string;
+  /** What the organizer sees in the dropdown. */
+  label: string;
+  /** Absent for "not registered": that choice carries no number. */
+  number?: { pattern: RegExp; example: string; hint: string; uppercase?: boolean };
+  /** `true` only for the "not registered" choice. */
+  notRegistered?: true;
+  /**
+   * Whether this registration makes a sale document a tax invoice in its country. A PAN is an
+   * income-tax identifier, not a GST registration, so it never does; an EIN never does either
+   * (the US has no tax invoice at all - see `Market.taxInvoices`).
+   */
+  makesTaxInvoice: boolean;
+}
+
+/*
+  US: an EIN identifies a business for federal income tax. It is NOT a sales-tax registration,
+  which each state issues in its own format - so the state ID is checked loosely. A personal
+  SSN or ITIN does not belong here: an organizer is asked for the business's number, and a
+  number written like an SSN (3-2-4) is refused with a message saying why.
+*/
+const US_TAX_TYPES: readonly TaxRegistrationType[] = [
+  {
+    kind: 'EIN',
+    label: 'EIN (federal employer identification number)',
+    number: {
+      pattern: /^\d{2}-?\d{7}$/,
+      example: '12-3456789',
+      hint: '9 digits, written 12-3456789.',
+    },
+    makesTaxInvoice: false,
+  },
+  {
+    kind: 'State sales tax ID',
+    label: 'State sales tax ID',
+    number: {
+      pattern: /^[A-Za-z0-9][A-Za-z0-9 \-/]{3,24}$/,
+      example: '123-4567890',
+      hint: 'As your state issued it. Formats differ by state.',
+    },
+    makesTaxInvoice: false,
+  },
+  { kind: 'Not registered', label: 'Not registered', notRegistered: true, makesTaxInvoice: false },
+];
+
+const IN_TAX_TYPES: readonly TaxRegistrationType[] = [
+  {
+    kind: 'GSTIN',
+    label: 'GSTIN (GST registration)',
+    number: {
+      pattern: /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/,
+      example: '29ABCDE1234F1Z5',
+      hint: '15 characters: state code, PAN, entity number, Z and a check character.',
+      uppercase: true,
+    },
+    makesTaxInvoice: true,
+  },
+  {
+    kind: 'PAN',
+    label: 'PAN (permanent account number)',
+    number: {
+      pattern: /^[A-Z]{5}\d{4}[A-Z]$/,
+      example: 'ABCDE1234F',
+      hint: '10 characters: 5 letters, 4 digits, 1 letter.',
+      uppercase: true,
+    },
+    makesTaxInvoice: false,
+  },
+  {
+    kind: 'Not GST registered',
+    label: 'Not GST registered',
+    notRegistered: true,
+    makesTaxInvoice: false,
+  },
+];
+
 export const MARKETS: readonly Market[] = [
   {
     code: 'IN',
@@ -269,7 +365,10 @@ export const MARKETS: readonly Market[] = [
       'Individual',
     ],
     taxRegistrationLabel: 'GSTIN',
+    taxRegistrationTypes: IN_TAX_TYPES,
     regionLabel: 'State',
+    // Six digits, never starting with 0.
+    postalCode: { label: 'PIN code', pattern: '^[1-9][0-9]{5}$', example: '520010' },
     regions: IN_REGIONS,
     timezones: ['Asia/Kolkata'],
   },
@@ -289,7 +388,11 @@ export const MARKETS: readonly Market[] = [
       'Individual',
     ],
     taxRegistrationLabel: 'EIN',
+    taxRegistrationTypes: US_TAX_TYPES,
     regionLabel: 'State',
+    taxInvoices: false,
+    // Five digits, or ZIP+4.
+    postalCode: { label: 'ZIP code', pattern: '^[0-9]{5}(-[0-9]{4})?$', example: '83642' },
     regions: US_REGIONS,
     timezones: [
       'America/New_York',
@@ -458,6 +561,44 @@ export function marketFor(country: string | null | undefined): Market | null {
         EXTRA_SPELLINGS[m.code]?.includes(needle),
     ) ?? null
   );
+}
+
+/**
+ * Why a postal code cannot belong to this country, or null when it can (or when the country
+ * has no fixed shape to check). Blank is not a problem here: an address is filled in over time.
+ */
+export function postalCodeProblem(
+  country: string | null | undefined,
+  postalCode: string | null | undefined,
+): string | null {
+  const code = postalCode?.trim();
+  const rule = marketFor(country)?.postalCode;
+  if (!code || !rule) return null;
+  return new RegExp(rule.pattern).test(code)
+    ? null
+    : `Enter a valid ${rule.label}, for example ${rule.example}.`;
+}
+
+/**
+ * Whether a seller in this country, holding a tax registration, issues TAX INVOICES rather
+ * than receipts. The registration NUMBER is still printed either way; this decides only the
+ * document's title and series. Unknown country: an EIN is a US identifier and never makes a
+ * tax invoice; anything else keeps the long-standing rule.
+ */
+export function issuesTaxInvoices(
+  country: string | null | undefined,
+  taxRegistrationKind?: string | null,
+): boolean {
+  const market = marketFor(country);
+  if (market) {
+    if (market.taxInvoices === false) return false;
+    // A PAN (or "not GST registered") never makes a GST invoice; a GSTIN, or an older
+    // free-text kind the list does not know, keeps the long-standing rule.
+    const k = (taxRegistrationKind ?? '').trim().toLowerCase();
+    const type = market.taxRegistrationTypes?.find((t) => t.kind.toLowerCase() === k);
+    return type ? type.makesTaxInvoice : true;
+  }
+  return !/^\s*EIN\s*$/i.test(taxRegistrationKind ?? '');
 }
 
 /**

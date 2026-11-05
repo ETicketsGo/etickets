@@ -4,7 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { inCityScope, type CityPreference } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
-import { getRecent } from '@/lib/recent';
+import { getRecent, rememberRecentIds } from '@/lib/recent';
+import { recentEventsQuery } from '@/lib/storefront-queries';
 import { getSaved } from '@/lib/saved';
 
 type LiveEvent = Awaited<ReturnType<typeof api.listEvents>>['data'][number];
@@ -30,11 +31,10 @@ type LiveEvent = Awaited<ReturnType<typeof api.listEvents>>['data'][number];
  */
 function useLiveEventsById(ids: string[]) {
   const query = useQuery({
-    queryKey: ['events', 'by-id', ids.join(',')],
+    ...recentEventsQuery(ids),
     // With no ids there is nothing to ask for, and an empty `ids=` would come back as the
     // whole catalogue — a rail of strangers under "Recently viewed".
     enabled: ids.length > 0,
-    queryFn: () => api.listEvents({ ids: ids.join(','), pageSize: String(ids.length) }),
   });
   const events = useMemo(() => {
     const byId = new Map((query.data?.data ?? []).map((e) => [e.id, e]));
@@ -50,18 +50,28 @@ function useLiveEventsById(ids: string[]) {
  * Scoped because the strip is an invitation to act, and an invitation to a show on another
  * continent is not one worth making; somebody who wants it back can search for its city.
  */
-export function useRecentlyViewed(preference: CityPreference) {
-  const [ids, setIds] = useState<string[]>([]);
+export function useRecentlyViewed(
+  preference: CityPreference,
+  /**
+   * The ids the server read from the cookie mirror (`RECENT_COOKIE`), so the first render - on
+   * the server and in the browser alike - already has the rail. Storage is still the truth: it
+   * is read after mount and wins if the two disagree.
+   */
+  initialIds: readonly string[] = [],
+) {
+  const [ids, setIds] = useState<string[]>(() => [...initialIds]);
   // Read after mount: localStorage does not exist during the server render.
-  useEffect(
-    () =>
-      setIds(
-        getRecent()
-          .map((e) => e.id)
-          .slice(0, 12),
-      ),
-    [],
-  );
+  useEffect(() => {
+    const stored = getRecent()
+      .map((e) => e.id)
+      .slice(0, 12);
+    if (stored.join(',') === initialIds.join(',')) return;
+    setIds(stored);
+    // A history from before the mirror existed, or one the cookie lost: put it back.
+    rememberRecentIds(stored);
+    // Only on mount: the ids the page started with are the ones to compare against.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const { events, isLoading } = useLiveEventsById(ids);
   const scoped = useMemo(
     () => events.filter((e) => inCityScope(e, preference)),

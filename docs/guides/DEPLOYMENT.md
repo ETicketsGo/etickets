@@ -11,6 +11,9 @@
 > repo (Dockerfiles, `docker-compose.prod.yml`, the `deploy.yml` pipeline, and the
 > backup/restore scripts). It changes **no application behaviour** — the only app
 > change is `output: 'standalone'` in each web app's `next.config.mjs`.
+>
+> **Status (2026-11-01):** this is the generic Docker-host guide; it is not how QA, UAT or
+> production run. Those run on Railway: see [DEPLOYMENT-GUIDE](../DEPLOYMENT-GUIDE.md).
 
 ---
 
@@ -49,10 +52,10 @@ Five stateless application services over two stateful backing services:
 - The web apps call the API **from the browser** using the build-time
   `NEXT_PUBLIC_API_URL` (inlined into the bundle), so it must be the **public**
   API URL reachable by end users, including the `/api` prefix.
-- **Blob storage (future):** the storage abstraction defaults to a `local` driver
-  (ephemeral container path). For durable uploads/exports, point it at an
-  S3-compatible bucket (`STORAGE_DRIVER`, `S3_*`). No object storage is wired in
-  yet — see the Runbooks "Planned" section.
+- **Object storage:** event and organization images use `OBJECT_STORE_DRIVER`:
+  `postgres` (default; stored in the `StoredObject` table and served by the API) or
+  `r2` (Cloudflare R2 through the S3 client; needs the `R2_*` variables). `STORAGE_DRIVER` is
+  still parsed by the config schema but no code reads it.
 
 ### Image design (monorepo-aware, multi-stage)
 
@@ -263,7 +266,8 @@ Walk the [Go-Live Checklist](../reports/GO-LIVE-CHECKLIST.md) before announcing.
 
 ## 9. CI/CD pipeline (`.github/workflows/deploy.yml`)
 
-Triggered on push to `main` and via **manual `workflow_dispatch`** with an
+**Status (2026-11-01): manual `workflow_dispatch` only** (the push trigger was removed so it
+cannot race the Railway pipeline, `deploy-railway.yml`). Originally triggered on push to `main` and via **manual `workflow_dispatch`** with an
 `environment` input (`dev` | `staging` | `production`). Jobs:
 
 1. **gate** — reuses the full CI gate (`ci.yml` via `workflow_call`): format,

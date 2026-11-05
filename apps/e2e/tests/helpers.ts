@@ -47,6 +47,19 @@ export async function seedBrowserAuth(context: BrowserContext, tokens: AuthToken
   }, tokens);
 }
 
+/**
+ * Makes the storefront leave every read to the browser, as it did before it rendered its lists
+ * on the server (`apps/customer-web/lib/prefetch.ts`). For a journey that stands in for the API
+ * with `page.route`: the server cannot see a stand-in, so without this it answers first with the
+ * real data and the stand-in is never asked.
+ */
+export async function browserFetchesStorefrontData(context: BrowserContext): Promise<void> {
+  const url = new URL(CUSTOMER);
+  await context.addCookies([
+    { name: 'etg_prefetch', value: 'off', domain: url.hostname, path: '/' },
+  ]);
+}
+
 export function uniqueEmail(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1000)}@e2e.test`;
 }

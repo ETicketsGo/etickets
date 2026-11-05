@@ -119,6 +119,11 @@ export class MarketingConsentController {
       userAgent,
       country: jurisdiction,
       policyVersion,
+      /*
+        This is the account-wide settings page. Turning marketing email on here is the one
+        decision that lifts an earlier "unsubscribe from all marketing email".
+      */
+      accountWide: true,
     });
     return this.consent.stateFor({ userId: user.id, email: user.email }, [...CONSENT_CHANNELS]);
   }

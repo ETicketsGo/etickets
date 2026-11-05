@@ -1,4 +1,9 @@
-import { FailureClass, parseEnabledMarkets, phoneOnlyEmail } from '@eticketsgo/shared-types';
+import {
+  DeliveryState,
+  FailureClass,
+  parseEnabledMarkets,
+  phoneOnlyEmail,
+} from '@eticketsgo/shared-types';
 import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
@@ -41,7 +46,7 @@ import { OtpSmsGuard, type OtpSendRefusal } from './otp-sms-guard';
  */
 
 /** Long enough to arrive and be typed, short enough that a stolen code is usually dead. */
-const OTP_TTL_MINUTES = 10;
+const OTP_TTL_MINUTES = 5;
 
 /**
  * How many wrong guesses one code survives.
@@ -156,6 +161,8 @@ export class PhoneOtpService {
     const reservation = await this.guard.reserve(phone, market);
     if (reservation.status === 'refused') throw this.refusal(market, reservation);
 
+    // The row this send is for, so the provider's message id can be kept on it afterwards.
+    let otpId: string | undefined;
     if (reservation.status === 'allowed') {
       // A new code invalidates the old one: two live codes double an attacker's odds for no
       // benefit to anybody who simply pressed the button twice.
@@ -163,7 +170,11 @@ export class PhoneOtpService {
         where: { phone, consumedAt: null },
         data: { consumedAt: new Date() },
       });
-      await this.prisma.phoneOtp.create({ data: row(await bcrypt.hash(code, 10)) });
+      const created = await this.prisma.phoneOtp.create({
+        data: row(await bcrypt.hash(code, 10)),
+        select: { id: true },
+      });
+      otpId = created?.id;
     } else {
       /*
         Redis could not be asked. The same limits are decided in Postgres instead, and the
@@ -179,7 +190,8 @@ export class PhoneOtpService {
           where: { phone, consumedAt: null },
           data: { consumedAt: new Date() },
         });
-        await tx.phoneOtp.create({ data });
+        const created = await tx.phoneOtp.create({ data, select: { id: true } });
+        otpId = created?.id;
         return decided;
       });
       if (fallback.status === 'refused') throw this.refusal(market, fallback);
@@ -194,7 +206,7 @@ export class PhoneOtpService {
     */
     const template =
       this.config.get<string>('OTP_SMS_TEMPLATE') ??
-      '{code} is your ETicketsGo sign-in code. It expires in {minutes} minutes. Never share it with anyone.';
+      'Your ETicketsGo verification code is {code}. Valid for 5 minutes. Do not share this code.';
     const body = template.replace('{code}', code).replace('{minutes}', String(OTP_TTL_MINUTES));
     let outcome;
     try {
@@ -263,6 +275,22 @@ export class PhoneOtpService {
     */
     if (messageContentLoggable(this.config)) {
       this.logger.debug(`[dev only] OTP for ${phone} is ${code}`);
+    }
+
+    /*
+      Kept so the provider's delivery report can be matched to this code (see
+      `phone-otp-delivery.sink.ts`); without it MSG91's report sits AWAITING_CORRELATION. Only
+      for a real send: a log-mode send has no report to wait for. Best effort - the code is
+      already on its way, so failing to note its id must not fail the sign-in.
+    */
+    const providerMessageId = outcome?.providerMessageId;
+    if (otpId && !undelivered && providerMessageId) {
+      await this.prisma.phoneOtp
+        .updateMany({
+          where: { id: otpId },
+          data: { provider, providerMessageId, deliveryStatus: DeliveryState.ACCEPTED },
+        })
+        .catch(() => this.logger.warn('could not record the sign-in code SMS message id'));
     }
 
     this.metrics?.recordOtpSms(market, 'sent');
@@ -475,7 +503,15 @@ export class PhoneOtpService {
     return { phone };
   }
 
-  async verifyCode(rawPhone: string, code: string): Promise<{ id: string; isNewAccount: boolean }> {
+  async verifyCode(
+    rawPhone: string,
+    code: string,
+    /**
+     * What the request knew about where it came from. Written only onto an account this call
+     * CREATES (never onto an existing one), labelled with its source.
+     */
+    signup: { detectedCountry?: string | null } = {},
+  ): Promise<{ id: string; isNewAccount: boolean }> {
     const phone = await this.consumeCode(rawPhone, code);
 
     const existing = await this.prisma.user.findUnique({ where: { phone } });
@@ -506,6 +542,9 @@ export class PhoneOtpService {
           passwordHash: `phone-only$${await bcrypt.hash(`${phone}:${Date.now()}`, 10)}`,
           fullName: '',
           roles: ['CUSTOMER'],
+          ...(signup.detectedCountry
+            ? { detectedCountry: signup.detectedCountry, detectedCountrySource: 'network' }
+            : {}),
         },
         select: { id: true },
       });

@@ -21,7 +21,11 @@ import {
 import type { InventoryLine } from '../inventory/inventory-strategy.interface';
 import type { CreateBookingInput, QuoteBookingInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
-import { PricingService } from '../pricing/pricing.service';
+import { PricingService, buyerFees, type PricedFees } from '../pricing/pricing.service';
+import {
+  FeePolicyUnavailableError,
+  reserveFeePolicyRedemption,
+} from '../pricing/fee-policy-redemption';
 import { PricingStrategiesService } from '../pricing/pricing-strategies.service';
 import { computeCouponDiscountMinor } from '../pricing/coupon-pricing';
 import { AuditService } from '../audit/audit.service';
@@ -96,6 +100,9 @@ interface CommerceResolution {
  * which would produce an Invalid Date and a hold that never expires.
  */
 const DEFAULT_HOLD_MINUTES = 10;
+
+/** `createAttempt`'s answer when the fee policy it priced with is gone; see `create`. */
+const FEE_POLICY_RETRY = Symbol('FEE_POLICY_RETRY');
 
 /**
  * How many times a buyer may ask for more time before the hold is final.
@@ -218,8 +225,26 @@ export class BookingsService {
    * Creates a PENDING_PAYMENT booking with an atomic, oversell-proof inventory
    * hold. Fee amounts are snapshotted onto the booking so later rule changes
    * never alter historical orders.
+   *
+   * ── PRICED AT MOST TWICE ──────────────────────────────────────────────────────────
+   * When the platform fee policy this checkout was priced under runs out (its last order
+   * went to somebody else) or is switched off between pricing and the hold, the attempt rolls
+   * back entirely and the booking is priced once more from the start, when the next level of
+   * precedence answers. A second miss is a real race and the buyer is asked to try again.
    */
-  async create(
+  async create(...args: Parameters<BookingsService['createAttempt']>) {
+    const first = await this.createAttempt(...args);
+    if (first !== FEE_POLICY_RETRY) return first;
+    const second = await this.createAttempt(...args);
+    if (second !== FEE_POLICY_RETRY) return second;
+    throw new AppException(
+      ErrorCodes.CONFLICT,
+      'The booking fee for this event has just changed. Please try again.',
+      HttpStatus.CONFLICT,
+    );
+  }
+
+  private async createAttempt(
     user: RequestUser | null,
     input: CreateBookingInput,
     idempotencyKey?: string,
@@ -590,7 +615,35 @@ export class BookingsService {
       */
       taxAdmissionLines(admissionLines),
       policy.effect,
+      /*
+        A platform fee waiver or override for this event, else for its organizer, at the same
+        instant as everything else here. The booking snapshots which one (below) and is never
+        re-priced by a later policy change.
+      */
+      {
+        context: {
+          eventId: session.eventId,
+          organizationId: session.event.organizationId,
+          at: now,
+        },
+      },
     );
+
+    /*
+      ── THE QUOTE'S FEE SCHEDULE ─────────────────────────────────────────────────────
+      The buyer's client sends the fee schedule fingerprint of the quote it showed. When an
+      admin published a new schedule in between, the fee just computed may differ from the one
+      on screen, so the booking is refused and the client re-quotes. Without a version (older
+      clients) nothing changes: the booking is priced, as always, by the live schedule.
+    */
+    if (input.feeScheduleVersion && input.feeScheduleVersion !== fees.feeScheduleVersion) {
+      throw new AppException(
+        ErrorCodes.FEE_SCHEDULE_CHANGED,
+        'The booking fee changed while you were checking out. Check the new total and try again.',
+        HttpStatus.CONFLICT,
+        { reason: 'FEE_SCHEDULE_CHANGED' },
+      );
+    }
 
     /*
       ── THE PILOT'S LIMITS ───────────────────────────────────────────────────────────
@@ -740,6 +793,14 @@ export class BookingsService {
               now,
             })
           : null;
+      /*
+        The fee policy this price was quoted under takes one of its orders HERE, in the hold's
+        transaction, so an order limit is exact under concurrency and a refused hold gives it
+        back by rolling back. See fee-policy-redemption.ts.
+      */
+      if (fees.appliedFeePolicy) {
+        await reserveFeePolicyRedemption(tx, fees.appliedFeePolicy, now);
+      }
       // Create the pending booking first so the strategy can bind held seats to
       // it, then perform the atomic, oversell-/double-book-proof hold. If the
       // hold fails the whole transaction (booking + items + payment) rolls back.
@@ -784,6 +845,20 @@ export class BookingsService {
             matchedOn: policy.resolution.explanation,
           },
           complianceStatus: policy.resolution.status,
+          /*
+            Which platform fee policy priced the booking fee, and what the schedule would
+            have charged. The money columns below stay the charged amounts.
+          */
+          feePolicyId: fees.appliedFeePolicy?.id ?? null,
+          feePolicyKind: fees.appliedFeePolicy?.kind ?? null,
+          feePolicyVersion: fees.appliedFeePolicy?.version ?? null,
+          baseBookingFeeMinor: fees.appliedFeePolicy ? (fees.baseBookingFeeMinor ?? null) : null,
+          feeWaivedMinor: fees.appliedFeePolicy ? (fees.feeWaivedMinor ?? null) : null,
+          /*
+            How a per-ticket fee (COMBINED or FIXED_PER_TICKET) was worked out, so it can be
+            explained after the band or policy is edited or deleted. Absent otherwise.
+          */
+          ...platformFeeBreakdownData(fees),
           status: BookingStatus.PENDING_PAYMENT,
           // Settled here so confirmation and refund reach for the same strategy this hold
           // used, whatever happens to the session afterwards.
@@ -899,10 +974,13 @@ export class BookingsService {
           const earlier = await this.replayFor(idem, { afterConflict: true });
           if (earlier) return { replay: earlier };
         }
+        // The fee policy priced in is gone: everything rolled back; `create` prices it again.
+        if (err instanceof FeePolicyUnavailableError) return { retryFeePolicy: true as const };
         throw err;
       },
     );
     if ('replay' in outcome) return outcome.replay;
+    if ('retryFeePolicy' in outcome) return FEE_POLICY_RETRY;
     const booking = outcome.created;
 
     await this.audit.record({
@@ -993,7 +1071,7 @@ export class BookingsService {
       status: freeStatus ?? booking.status,
       currency: booking.currency,
       holdExpiresAt: booking.holdExpiresAt,
-      fees,
+      fees: buyerFees(fees),
       paymentMethod: wantsCash ? 'CASH' : 'ONLINE',
       // A free or cash booking has no Payment row, and says so rather than reporting an
       // empty one — a client that saw `payment: {}` would send the buyer to a checkout.
@@ -1097,6 +1175,7 @@ export class BookingsService {
    * must not advertise itself on another's checkout.
    */
   async publicOffers(eventSessionId: string) {
+    if (this.couponsDisabled()) return [];
     const session = await this.prisma.eventSession.findUnique({
       where: { id: eventSessionId },
       select: { event: { select: { organizationId: true } } },
@@ -1427,6 +1506,14 @@ export class BookingsService {
       // The same tax lines `create` rates, so the quote and the booking cannot disagree.
       taxAdmissionLines(quoteAdmissionLines),
       quotePolicy.effect,
+      // The same fee policy `create` will resolve, at the same instant, so quote == booking.
+      {
+        context: {
+          eventId: session.eventId,
+          organizationId: session.event.organizationId,
+          at: now,
+        },
+      },
     );
 
     /*
@@ -1443,7 +1530,9 @@ export class BookingsService {
     }
 
     return {
-      fees,
+      fees: buyerFees(fees),
+      // Send it back on the booking: a schedule published in between is refused, not charged.
+      feeScheduleVersion: fees.feeScheduleVersion ?? null,
       // Stated rather than inferred from a zero discount: "the code you typed was not
       // recognised" and "you typed no code" are different answers and the screen says which.
       coupon: input.couponCode
@@ -1782,6 +1871,16 @@ export class BookingsService {
       */
       admissionLinesFromItems(booking.items ?? [], booking.event),
       snapshotEffect,
+      /*
+        The platform fee policy from the SNAPSHOT, never a fresh lookup: a coupon must not
+        hand a booking a waiver created after it was priced, nor take away one that has since
+        been switched off. Terms never change after creation, so the row is what it meant.
+      */
+      {
+        pinned: booking.feePolicyId
+          ? await this.prisma.platformFeePolicy.findUnique({ where: { id: booking.feePolicyId } })
+          : null,
+      },
     );
 
     await this.prisma.$transaction(async (tx) => {
@@ -1799,6 +1898,16 @@ export class BookingsService {
           organizerFeeMinor: fees.organizerFeeMinor,
           taxMinor: fees.taxMinor,
           totalMinor: fees.totalMinor,
+          // Restated with the fee: the re-priced breakdown, or none when it is no longer per ticket.
+          platformFeeBreakdown:
+            platformFeeBreakdownData(fees).platformFeeBreakdown ?? Prisma.DbNull,
+          // The policy stays the one it was priced under; only its arithmetic is restated.
+          ...(booking.feePolicyId
+            ? {
+                baseBookingFeeMinor: fees.baseBookingFeeMinor ?? fees.bookingFeeMinor,
+                feeWaivedMinor: fees.feeWaivedMinor ?? 0,
+              }
+            : {}),
           // Re-priced from scratch, so any previous tax lines are replaced rather than
           // added to — leaving stale ones would double-count on the receipt.
           taxLines: {
@@ -1826,7 +1935,7 @@ export class BookingsService {
       });
     });
 
-    return { applied: Boolean(couponId), code: trimmed ?? null, fees };
+    return { applied: Boolean(couponId), code: trimmed ?? null, fees: buyerFees(fees) };
   }
 
   /**
@@ -1845,6 +1954,17 @@ export class BookingsService {
    * counted at confirmation, so concurrent unpaid bookings can each pass this check; making
    * the cap exact is the confirmation path's job, not this lookup's.
    */
+  /*
+    The platform-wide switch for discount codes (COUPONS_ENABLED). Off, every code is refused
+    with a plain reason and no discount is taken, the public offers list is empty, and
+    organizers cannot create new codes. It exists because a code with a redemption cap can be
+    over-redeemed when two checkouts race past the cap (the cap is checked at hold time and
+    counted at confirmation); until that is reserved atomically, production keeps codes off.
+  */
+  private couponsDisabled(): boolean {
+    return this.config?.get<string>('COUPONS_ENABLED') === 'false';
+  }
+
   private async resolveCoupon(
     code: string | undefined,
     subtotal: number,
@@ -1852,6 +1972,13 @@ export class BookingsService {
     currency: string,
   ): Promise<{ discountMinor: number; couponId: string | null; refusal?: string }> {
     if (!code) return { discountMinor: 0, couponId: null };
+    if (this.couponsDisabled()) {
+      return {
+        discountMinor: 0,
+        couponId: null,
+        refusal: 'Discount codes are not available right now.',
+      };
+    }
     const coupon = await this.prisma.coupon.findUnique({ where: { code } });
     const now = new Date();
     const valid =
@@ -2497,6 +2624,8 @@ export class BookingsService {
             refundsEnabled: true,
             refundCutoffHours: true,
             refundPolicy: true,
+            // Who ran it: the confirmation offers to follow them. Public profile fields only.
+            organization: { select: { id: true, name: true } },
             // The venue's clock, for events that are not cinema showings — which is most
             // of them, and which the first pass at this missed entirely.
             // Name and city too: the confirmation said "Seat A4 - Screen 1" and never where.
@@ -2611,6 +2740,22 @@ export class BookingsService {
     const data = rows.map((booking) => ({ ...booking, timeZone: bookingTimeZone(booking) }));
     return { data, meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) } };
   }
+}
+
+/**
+ * The per-ticket fee snapshot for a booking row: the breakdown plus where the terms came from
+ * (the schedule's band, or a policy). Empty for every other fee, so nothing else is written.
+ */
+function platformFeeBreakdownData(fees: PricedFees): {
+  platformFeeBreakdown?: Prisma.InputJsonObject;
+} {
+  if (!fees.platformFeeBreakdown) return {};
+  return {
+    platformFeeBreakdown: {
+      ...fees.platformFeeBreakdown,
+      source: fees.appliedFeePolicy ? 'POLICY' : 'SCHEDULE',
+    },
+  };
 }
 
 /**

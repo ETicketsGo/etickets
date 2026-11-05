@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { ToastProvider } from './components';
 import { HumanCheckProvider, type HumanCheckLabels } from './human-check';
+import { SessionHintProvider } from './hooks';
+import { SidebarPreferenceProvider } from './shell';
 
 /**
  * Shared app providers: React Query + toasts + the human-check dialog.
@@ -16,8 +18,17 @@ export function WebProviders({
   children,
   humanCheckLabels,
   humanCheckLanguage,
+  sessionHint = false,
+  sidebarCollapsed = false,
 }: {
   children: ReactNode;
+  /**
+   * Whether the server saw the session-hint cookie (`SESSION_HINT_COOKIE`). A console's root
+   * layout reads it so `RequireAuth` can draw the console frame from the first paint.
+   */
+  sessionHint?: boolean;
+  /** Whether the server saw `SIDEBAR_COLLAPSED_COOKIE` set: the console draws the rail at once. */
+  sidebarCollapsed?: boolean;
   /** Translated dialog copy. Unset: English. */
   humanCheckLabels?: HumanCheckLabels;
   /** Turnstile's own language (e.g. `fr`). Unset: the browser's. */
@@ -33,7 +44,11 @@ export function WebProviders({
     <QueryClientProvider client={client}>
       <ToastProvider>
         <HumanCheckProvider labels={humanCheckLabels} language={humanCheckLanguage}>
-          {children}
+          <SessionHintProvider signedIn={sessionHint}>
+            <SidebarPreferenceProvider collapsed={sidebarCollapsed}>
+              {children}
+            </SidebarPreferenceProvider>
+          </SessionHintProvider>
         </HumanCheckProvider>
       </ToastProvider>
     </QueryClientProvider>

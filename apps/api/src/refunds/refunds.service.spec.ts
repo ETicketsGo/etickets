@@ -331,7 +331,11 @@ describe('RefundsService.process', () => {
       providerStatus: 'PROCESSING',
     });
     await service.process(ADMIN, 'rf-1', 'APPROVE');
-    const sent = notifications.sendCritical.mock.calls.map((c) => c[1]);
+    // The booking ended, so a BOOKING_CANCELLED (SMS only) is also written: see
+    // paid-cancellation-sms.spec.ts. This test is about the refund notice alone.
+    const sent = notifications.sendCritical.mock.calls
+      .map((c) => c[1])
+      .filter((n) => n.type !== 'BOOKING_CANCELLED');
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({
       type: 'REFUND_COMPLETED',

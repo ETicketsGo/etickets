@@ -29,6 +29,23 @@ import type {
   LayoutDocument,
   LayoutDocumentCounts,
 } from '@eticketsgo/shared-types';
+import type {
+  AdminCampaignRow,
+  AudiencePreview,
+  Campaign,
+  CampaignAnalyticsOverview,
+  CampaignAudienceDefinition,
+  CampaignDraftBody,
+  CampaignHistoryItem,
+  CampaignPreview,
+  CampaignPurpose,
+  CampaignReview,
+  CampaignSendingHealth,
+  CampaignsStatus,
+  CampaignStats,
+  CampaignStatus,
+  SavedSegment,
+} from './campaign-types';
 
 /*
   The guest view is declared once, in shared-types, and re-exported here.
@@ -59,6 +76,42 @@ export type {
 } from '@eticketsgo/shared-types';
 
 import { markApiReachable, markApiUnreachable } from './connectivity';
+import type { PlatformFeeBreakdown } from './price-breakdown';
+import type {
+  AdminBillingAccountDetail,
+  AdminBillingMetrics,
+  AdminBillingPlan,
+  AdminBillingPrice,
+  AdminCreditPack,
+  AdminSubscriptionPage,
+  BillingCheckoutSession,
+  BillingCheckoutStatus,
+  BillingPlanQuote,
+  OrganizationEntitlements,
+  OrganizerBilling,
+  OrganizerInvoiceRow,
+} from './billing-types';
+import type {
+  CrmActivity,
+  CrmActivityReport,
+  CrmAgingReport,
+  CrmConversionReport,
+  CrmCsvReport,
+  CrmDuplicateMatch,
+  CrmEmployeeReport,
+  CrmFollowUp,
+  CrmFunnel,
+  CrmGroupRow,
+  CrmImportResult,
+  CrmLead,
+  CrmLeadDetail,
+  CrmLeadFilters,
+  CrmMe,
+  CrmOrganizationMatch,
+  CrmOverview,
+  CrmReportFilters,
+  CrmTeam,
+} from './crm-types';
 
 export const API_URL =
   (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_API_URL) ||
@@ -102,6 +155,8 @@ const notifyTokenChange = (): void => {
  * a cookie that will not set in development is a cookie nobody tests.
  */
 const SESSION_HINT = 'etg_session';
+/** The hint's name, for a server layout that reads it (`SessionHintProvider` in hooks.tsx). */
+export const SESSION_HINT_COOKIE = SESSION_HINT;
 
 function writeSessionHint(signedIn: boolean): void {
   if (typeof document === 'undefined') return;
@@ -109,6 +164,16 @@ function writeSessionHint(signedIn: boolean): void {
   document.cookie = signedIn
     ? `${SESSION_HINT}=1; Path=/; Max-Age=31536000; SameSite=Lax${secure}`
     : `${SESSION_HINT}=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
+}
+
+/**
+ * Writes the hint for a session that predates it (it exists since 2026-09), so the next page
+ * load is drawn right. Only ever writes the signed-in direction, and only when it is missing.
+ */
+export function backfillSessionHintCookie(): void {
+  if (typeof document === 'undefined' || !localStorage.getItem(ACCESS_KEY)) return;
+  if (document.cookie.split('; ').includes(`${SESSION_HINT}=1`)) return;
+  writeSessionHint(true);
 }
 
 export const tokenStore = {
@@ -194,6 +259,27 @@ export function apiAssetUrl(path: string | null | undefined): string | null {
 
 /** The API's code for a session that a team removal ended (see JwtStrategy). */
 export const ACCESS_REMOVED_CODE = 'ACCESS_REMOVED';
+/**
+ * The API's code for an organizer API refused because the ORGANIZATION is suspended (owner
+ * decision, 2026-10-26). The organizer console shows its suspended screen on it.
+ */
+export const ORGANIZATION_SUSPENDED_CODE = 'ORGANIZATION_SUSPENDED';
+/** A team invitation opened while signed in as a different account than the one invited. */
+export const INVITATION_WRONG_ACCOUNT_CODE = 'INVITATION_WRONG_ACCOUNT';
+/** The account must confirm its email address (a code sent there) before this step. */
+export const EMAIL_NOT_VERIFIED_CODE = 'EMAIL_NOT_VERIFIED';
+
+/*
+  An organization was suspended while its console was open. The console registers ONE handler
+  (it refetches the organization list, which then says SUSPENDED and shows the suspended screen).
+  The error still reaches the caller; nothing is retried.
+*/
+let organizationSuspendedHandler: ((organizationId: string | null) => void) | null = null;
+export function setOrganizationSuspendedHandler(
+  fn: ((organizationId: string | null) => void) | null,
+): void {
+  organizationSuspendedHandler = fn;
+}
 const SIGNED_OUT_NOTICE_KEY = 'etg_signed_out_notice';
 
 /*
@@ -403,6 +489,10 @@ async function request<T>(path: string, options: Options = {}): Promise<T> {
       mfaSetupHandler
     ) {
       mfaSetupHandler(err.code, err.message ?? '');
+    }
+    if (res.status === 403 && err?.code === ORGANIZATION_SUSPENDED_CODE) {
+      const id = (err.details as { organizationId?: unknown } | undefined)?.organizationId;
+      organizationSuspendedHandler?.(typeof id === 'string' ? id : null);
     }
     throw new ApiRequestError(
       err?.code ?? 'ERROR',
@@ -649,6 +739,61 @@ export const api = {
         },
       ).then((r) => refuseChallenge<AuthTokens & { isNewAccount: boolean }>(r)),
     /**
+     * The organizer console's phone sign-in: tokens, or a back-office account's second-factor
+     * challenge to complete there - exactly what `signIn` answers for a password. Same route and
+     * the same human check as the storefront's `verifyPhoneCode`; only the answer is not refused.
+     */
+    verifyPhoneCodeOrChallenge: (phone: string, code: string) =>
+      request<(AuthTokens & { isNewAccount: boolean }) | MfaChallengeResponse>(
+        '/auth/phone/verify',
+        { method: 'POST', body: JSON.stringify({ phone, code }), auth: false },
+      ),
+    /**
+     * A one-time code that carries THIS signed-in session to a console (see the API's
+     * handoff.service.ts). The reply is a code, never a token; it lives 60 seconds and works once.
+     */
+    createHandoff: (audience: 'organizer') =>
+      request<{ code: string; expiresInSeconds: number }>('/auth/handoff', {
+        method: 'POST',
+        body: JSON.stringify({ audience }),
+      }),
+    /** On the console: spend a handoff code for a session of its own, or an MFA challenge. */
+    exchangeHandoff: (code: string, audience: 'organizer') =>
+      request<AuthTokens | MfaChallengeResponse>('/auth/handoff/exchange', {
+        method: 'POST',
+        body: JSON.stringify({ code, audience }),
+        auth: false,
+      }),
+    /** End every session this account has, on every device (POST /auth/logout-all). */
+    logoutAll: () =>
+      request<{ success: boolean; revoked: number }>('/auth/logout-all', { method: 'POST' }),
+    /** A phone-only account adding an email address: send a code to it. */
+    requestEmailCode: (email: string) =>
+      request<{ sent: true; expiresInMinutes: number }>('/auth/email/request-code', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      }),
+    /**
+     * Confirm the address this account ALREADY has: a code is sent there. Asked before a team
+     * invitation can be accepted, when the account has never proved its email.
+     */
+    requestEmailConfirmCode: () =>
+      request<{ sent: true; expiresInMinutes: number; email: string }>(
+        '/auth/email/confirm/request-code',
+        { method: 'POST' },
+      ),
+    confirmEmail: (code: string) =>
+      request<{ email: string; emailVerifiedAt: string }>('/auth/email/confirm/verify', {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      }),
+    /** Prove the code; the address becomes the account's email. No password is involved. */
+    verifyEmailCode: (email: string, code: string) =>
+      request<{ email: string }>('/auth/email/verify', {
+        method: 'POST',
+        body: JSON.stringify({ email, code }),
+      }),
+    /**
      * Send a code to a number the SIGNED-IN customer wants to add to their account.
      *
      * `auth: true`, unlike the sign-in pair above: these two attach a number to the account the
@@ -713,6 +858,12 @@ export const api = {
     profile: () => request<UserProfile>('/users/me'),
     updateProfile: (fullName: string) =>
       request<AuthUser>('/users/me', { method: 'PATCH', body: JSON.stringify({ fullName }) }),
+    /** Where the person says they live, or null to clear it. Optional, never inferred. */
+    updateResidence: (countryOfResidence: string | null) =>
+      request<AuthUser & { countryOfResidence: string | null }>('/users/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ countryOfResidence }),
+      }),
     adminList: (params: PageParams & UserDirectoryFilters) =>
       request<Paged<AdminUser>>(`/users${qs(params)}`),
     directorySummary: () => request<UserDirectorySummary>('/users/directory-summary'),
@@ -770,7 +921,12 @@ export const api = {
      * signed-in user; `auth` is left default so refresh-on-401 still applies.
      */
     submit: (body: FeedbackSubmission) =>
-      request<{ id: string; status: FeedbackStatusValue }>('/support', {
+      request<{
+        id: string;
+        /** The readable reference the sender is given (ETG-SUP-2026-000142). */
+        reference: string | null;
+        status: FeedbackStatusValue;
+      }>('/support', {
         method: 'POST',
         body: JSON.stringify(body),
       }),
@@ -1041,6 +1197,68 @@ export const api = {
       }),
   },
 
+  /**
+   * Organizer billing (plans, usage, platform invoices). Owners and managers; entitlements are
+   * readable by any member. Checkout is refused with BILLING_NOT_ENABLED while paid plans are
+   * not open - the console does not call it then.
+   */
+  billing: {
+    get: (organizationId: string) =>
+      request<OrganizerBilling>(`/organizations/${organizationId}/billing`),
+    entitlements: (organizationId: string) =>
+      request<OrganizationEntitlements>(`/organizations/${organizationId}/entitlements`),
+    invoices: (organizationId: string) =>
+      request<OrganizerInvoiceRow[]>(`/organizations/${organizationId}/billing/invoices`),
+    /** A plan price with tax, itemised, and whether the provider plan charges the same. */
+    quote: (organizationId: string, priceId: string) =>
+      request<BillingPlanQuote>(
+        `/organizations/${organizationId}/billing/quote?priceId=${encodeURIComponent(priceId)}`,
+      ),
+    /** Where a checkout stands, from the server. Never activates anything. */
+    checkoutStatus: (organizationId: string, ref: string) =>
+      request<BillingCheckoutStatus>(
+        `/organizations/${organizationId}/billing/checkout-status?ref=${encodeURIComponent(ref)}`,
+      ),
+    /** A hosted provider page. The plan arrives only when the provider's verified payment does. */
+    checkout: (organizationId: string, priceId: string) =>
+      request<BillingCheckoutSession>(`/organizations/${organizationId}/billing/checkout`, {
+        method: 'POST',
+        body: JSON.stringify({ priceId }),
+      }),
+    /** A hosted one-time page for a credit pack. Credits arrive with the verified payment. */
+    buyCredits: (organizationId: string, packCode: string) =>
+      request<BillingCheckoutSession>(
+        `/organizations/${organizationId}/billing/credit-packs/checkout`,
+        { method: 'POST', body: JSON.stringify({ packCode }) },
+      ),
+    /** Stripe's Billing Portal: payment method and cancellation. Owners only. */
+    portal: (organizationId: string) =>
+      request<{ url: string }>(`/organizations/${organizationId}/billing/portal`, {
+        method: 'POST',
+      }),
+    /** Cancel the paid plan at the end of its period. Owners only. */
+    cancel: (organizationId: string, reason?: string) =>
+      request<{ status: string; cancelAtPeriodEnd: boolean; currentPeriodEnd: string | null }>(
+        `/organizations/${organizationId}/billing/cancel`,
+        { method: 'POST', body: JSON.stringify(reason ? { reason } : {}) },
+      ),
+    /**
+     * Opens a platform invoice (ETG-BIL) as printable HTML in a new tab. Fetched with the token
+     * and handed over as a blob, for the same reason as receipts.openHtml: a plain link sends no
+     * Authorization header.
+     */
+    openInvoiceHtml: async (organizationId: string, invoiceId: string): Promise<void> => {
+      const res = await fetch(
+        `${API_URL}/organizations/${organizationId}/billing/invoices/${invoiceId}/html`,
+        { headers: tokenStore.access ? { authorization: `Bearer ${tokenStore.access}` } : {} },
+      );
+      if (!res.ok) throw new Error(`Could not load the invoice (${res.status}).`);
+      const url = URL.createObjectURL(await res.blob());
+      window.open(url, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    },
+  },
+
   organizations: {
     create: (body: {
       name: string;
@@ -1138,9 +1356,12 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body),
       }),
-    /** A fresh link for somebody who has not accepted yet. Refused once they have joined. */
+    /**
+     * Email a fresh link to somebody who has not accepted yet; the old link stops working.
+     * Refused once they have joined. The answer says whether the email left - never the link.
+     */
     resendInvite: (id: string, memberId: string) =>
-      request<{ inviteUrl: string; email: string }>(
+      request<{ email: string; invitationEmail: InvitationEmailStatus }>(
         `/organizations/${id}/members/${memberId}/resend-invite`,
         { method: 'POST' },
       ),
@@ -1156,15 +1377,34 @@ export const api = {
   },
 
   /**
-   * Accepting a team invitation — unauthenticated, because the invitee may have no account.
-   * The token in the URL is the credential.
+   * A team invitation, as its link reaches the invitee.
+   *
+   * Owner decision (2026-10-26): only the invited person accepts. Describing the link is public;
+   * an account the invitation CREATED is claimed with a code sent to the invited address; and
+   * accepting needs the invited account's own session with its email confirmed. The link alone
+   * never signs anybody in or joins anybody to a team.
    */
   invitations: {
-    describe: (token: string) => request<InvitationSummary>(`/public/invitations/${token}`),
-    accept: (token: string, body: { fullName?: string; password?: string }) =>
-      request<AcceptedInvitation>(`/public/invitations/${token}/accept`, {
+    describe: (token: string) =>
+      request<InvitationSummary>(`/public/invitations/${token}`, { auth: false }),
+    /** Send a code to the invited address, to claim the account the invitation made. */
+    requestAccountCode: (token: string) =>
+      request<{ sent: true; expiresInMinutes: number; email: string }>(
+        `/public/invitations/${token}/account/request-code`,
+        { method: 'POST', auth: false },
+      ),
+    /** Claim it: the code, a name and a password. Joining a team is a separate step. */
+    claimAccount: (token: string, body: { code: string; fullName: string; password: string }) =>
+      request<{ email: string; accepted: boolean }>(`/public/invitations/${token}/account`, {
         method: 'POST',
         body: JSON.stringify(body),
+        auth: false,
+      }),
+    /** Accept, signed in as the invited account (sends the session; no body). */
+    accept: (token: string) =>
+      request<AcceptedInvitation>(`/public/invitations/${token}/accept`, {
+        method: 'POST',
+        body: JSON.stringify({}),
       }),
   },
 
@@ -1255,6 +1495,210 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(body),
       }),
+  },
+
+  /**
+   * Following organizers (the signed-in person's own follows). Following grants NO email
+   * consent: the email switches live on the preferences and write their own consent rows.
+   */
+  following: {
+    list: (params: { page?: number; pageSize?: number } = {}) =>
+      request<FollowingList>(`/me/following${qs(params)}`),
+    status: (organizationId: string) =>
+      request<FollowStatus>(`/me/following/${encodeURIComponent(organizationId)}`),
+    follow: (organizationId: string, source: FollowSource = 'ORGANIZER_PAGE') =>
+      request<FollowStatus>(`/me/following/${encodeURIComponent(organizationId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ source }),
+      }),
+    unfollow: (organizationId: string) =>
+      request<FollowStatus>(`/me/following/${encodeURIComponent(organizationId)}`, {
+        method: 'DELETE',
+      }),
+    preferences: (organizationId: string) =>
+      request<FollowPreferences>(`/me/following/${encodeURIComponent(organizationId)}/preferences`),
+    setPreferences: (
+      organizationId: string,
+      body: Partial<Omit<FollowPreferences, 'organizationId'>>,
+    ) =>
+      request<FollowPreferences>(
+        `/me/following/${encodeURIComponent(organizationId)}/preferences`,
+        { method: 'PUT', body: JSON.stringify(body) },
+      ),
+  },
+
+  /** Marketing email from ETicketsGo, email from each organizer, and the full history. */
+  communicationConsent: {
+    get: () => request<CommunicationConsentView>('/me/communication-consent'),
+    setMarketingEmail: (granted: boolean) =>
+      request<CommunicationConsentView>('/me/communication-consent/marketing-email', {
+        method: 'PUT',
+        body: JSON.stringify({ granted }),
+      }),
+    setOrganizer: (organizationId: string, purpose: OrganizerConsentPurpose, granted: boolean) =>
+      request<CommunicationConsentView>(
+        `/me/communication-consent/organizers/${encodeURIComponent(organizationId)}`,
+        { method: 'PUT', body: JSON.stringify({ purpose, granted }) },
+      ),
+  },
+
+  /**
+   * The signed unsubscribe link. No session: the signature is the authority. `preview`
+   * changes nothing (mail scanners open links); `confirm` unsubscribes.
+   */
+  unsubscribe: {
+    preview: (token: string) =>
+      request<UnsubscribePreview>(`/public/unsubscribe/${encodeURIComponent(token)}`, {
+        auth: false,
+      }),
+    confirm: (token: string) =>
+      request<UnsubscribePreview & { unsubscribed: true }>(
+        `/public/unsubscribe/${encodeURIComponent(token)}`,
+        { method: 'POST', auth: false },
+      ),
+  },
+
+  /**
+   * Organizer email campaigns. Owners and managers; every route also checks the plan. Counts
+   * and statuses only - the API never returns a recipient.
+   */
+  campaigns: {
+    status: (orgId: string) =>
+      request<CampaignsStatus>(`/organizations/${encodeURIComponent(orgId)}/campaigns/status`),
+    list: (
+      orgId: string,
+      params: { status?: CampaignStatus; page?: number; pageSize?: number } = {},
+    ) =>
+      request<{ total: number; page: number; pageSize: number; items: Campaign[] }>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns${qs(params)}`,
+      ),
+    get: (orgId: string, id: string) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}`,
+      ),
+    create: (orgId: string, body: CampaignDraftBody) =>
+      request<Campaign>(`/organizations/${encodeURIComponent(orgId)}/campaigns`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    update: (orgId: string, id: string, body: CampaignDraftBody & { version: number }) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        },
+      ),
+    duplicate: (orgId: string, id: string) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/duplicate`,
+        { method: 'POST' },
+      ),
+    previewAudience: (
+      orgId: string,
+      body: { audience: CampaignAudienceDefinition; purpose: CampaignPurpose },
+    ) =>
+      request<AudiencePreview>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/audience-preview`,
+        {
+          method: 'POST',
+          body: JSON.stringify(body),
+        },
+      ),
+    preview: (orgId: string, id: string) =>
+      request<CampaignPreview>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/preview`,
+      ),
+    testSend: (orgId: string, id: string, to: string[]) =>
+      request<{ sent: number; results: { email: string; accepted: boolean }[] }>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/test-send`,
+        { method: 'POST', body: JSON.stringify({ to }) },
+      ),
+    review: (orgId: string, id: string) =>
+      request<CampaignReview>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/review`,
+        { method: 'POST' },
+      ),
+    schedule: (
+      orgId: string,
+      id: string,
+      body: { version: number; scheduledAt: string; confirmationToken: string },
+    ) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/schedule`,
+        { method: 'POST', body: JSON.stringify(body) },
+      ),
+    reschedule: (orgId: string, id: string, body: { version: number; scheduledAt: string }) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/reschedule`,
+        { method: 'POST', body: JSON.stringify(body) },
+      ),
+    unschedule: (orgId: string, id: string, version: number) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/unschedule`,
+        { method: 'POST', body: JSON.stringify({ version }) },
+      ),
+    send: (orgId: string, id: string, body: { version: number; confirmationToken: string }) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/send`,
+        { method: 'POST', body: JSON.stringify(body) },
+      ),
+    cancel: (orgId: string, id: string, version: number) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/cancel`,
+        { method: 'POST', body: JSON.stringify({ version }) },
+      ),
+    pause: (orgId: string, id: string, version: number) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/pause`,
+        { method: 'POST', body: JSON.stringify({ version }) },
+      ),
+    resume: (orgId: string, id: string, version: number) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/resume`,
+        { method: 'POST', body: JSON.stringify({ version }) },
+      ),
+    history: (orgId: string, id: string) =>
+      request<{ total: number; items: CampaignHistoryItem[] }>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/history`,
+      ),
+    stats: (orgId: string, id: string) =>
+      request<CampaignStats>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/stats`,
+      ),
+    segments: (orgId: string) =>
+      request<SavedSegment[]>(`/organizations/${encodeURIComponent(orgId)}/campaigns/segments`),
+    createSegment: (
+      orgId: string,
+      body: { name: string; definition: Omit<CampaignAudienceDefinition, 'savedSegmentId'> },
+    ) =>
+      request<SavedSegment>(`/organizations/${encodeURIComponent(orgId)}/campaigns/segments`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    deleteSegment: (orgId: string, segmentId: string) =>
+      request<{ deleted: boolean }>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/segments/${encodeURIComponent(segmentId)}`,
+        { method: 'DELETE' },
+      ),
+    analytics: (orgId: string, params: { from?: string; to?: string; windowDays?: number } = {}) =>
+      request<CampaignAnalyticsOverview>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/analytics${qs(params)}`,
+      ),
+    /** Aggregates only, never a row per person. */
+    downloadAnalyticsCsv: (orgId: string, params: { from?: string; to?: string } = {}) =>
+      downloadCsv(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/analytics/export${qs(params)}`,
+        'audience-and-campaigns.csv',
+      ),
+  },
+
+  /** The organizer's audience as counts. No follower is ever named. */
+  audience: {
+    summary: (organizationId: string) =>
+      request<AudienceSummary>(
+        `/organizations/${encodeURIComponent(organizationId)}/audience/summary`,
+      ),
   },
 
   venues: {
@@ -1982,6 +2426,8 @@ export const api = {
     }) =>
       request<{
         fees: BookingResult['fees'];
+        /** Send back on the booking, so a schedule published in between is not charged. */
+        feeScheduleVersion?: string | null;
         coupon: { code: string | null; applied: boolean };
       }>('/bookings/quote', { method: 'POST', body: JSON.stringify(body), auth: false }),
     /** Codes the organizer chose to advertise. Private codes are never listed. */
@@ -2208,6 +2654,341 @@ export const api = {
   admin: {
     dashboard: () => request<AdminDashboard>('/admin/dashboard'),
 
+    /**
+     * Organizer campaigns across the platform. Reading is ORGANIZER_READ; pausing and lifting a
+     * pause are ORGANIZER_REVIEW with a recent second factor. No recipient is ever returned.
+     */
+    campaigns: {
+      list: (
+        params: {
+          status?: CampaignStatus;
+          organizationId?: string;
+          page?: number;
+          pageSize?: number;
+        } = {},
+      ) =>
+        request<{ total: number; page: number; pageSize: number; items: AdminCampaignRow[] }>(
+          `/admin/campaigns${qs(params)}`,
+        ),
+      health: () => request<CampaignSendingHealth>('/admin/campaigns/health'),
+      pause: (id: string, reason: string) =>
+        request<{ id: string; status: CampaignStatus }>(
+          `/admin/campaigns/${encodeURIComponent(id)}/pause`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ reason }),
+          },
+        ),
+      release: (id: string) =>
+        request<{ id: string; status: CampaignStatus }>(
+          `/admin/campaigns/${encodeURIComponent(id)}/release`,
+          {
+            method: 'POST',
+          },
+        ),
+    },
+
+    /**
+     * Organizer billing. Reads need BILLING_READ; catalogue writes BILLING_MANAGE; offers
+     * BILLING_ADJUST; single-feature grants ENTITLEMENT_GRANT. Every write needs a recent
+     * second factor (the step-up handler retries once).
+     */
+    billing: {
+      plans: () => request<AdminBillingPlan[]>('/admin/billing/plans'),
+      loadProvisional: () =>
+        request<{ plansCreated: number; entitlementsWritten: number; pricesCreated: number }>(
+          '/admin/billing/catalog/load-provisional',
+          { method: 'POST', body: JSON.stringify({}) },
+        ),
+      /** Point the Stripe catalogue prices at their Stripe prices by lookup key (all or nothing). */
+      syncProviderRefs: (mode: 'live' | 'test', dryRun: boolean) =>
+        request<{
+          mode: 'live' | 'test';
+          dryRun: boolean;
+          written: Array<{ lookupKey: string; providerPriceRef: string }>;
+          unchanged: Array<{ lookupKey: string; providerPriceRef: string }>;
+        }>(
+          `/admin/billing/catalog/sync-provider-refs?mode=${mode}&dryRun=${dryRun ? 'true' : 'false'}`,
+          { method: 'POST', body: JSON.stringify({}) },
+        ),
+      updatePlan: (
+        id: string,
+        body: { name?: string; description?: string | null; active?: boolean; sortOrder?: number },
+      ) =>
+        request<AdminBillingPlan>(`/admin/billing/plans/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        }),
+      setPlanEntitlements: (
+        id: string,
+        entitlements: { key: string; boolValue?: boolean | null; intValue?: number | null }[],
+      ) =>
+        request<unknown>(`/admin/billing/plans/${id}/entitlements`, {
+          method: 'PUT',
+          body: JSON.stringify({ entitlements }),
+        }),
+      createPrice: (body: {
+        planId: string;
+        country: string;
+        currency: string;
+        interval: 'MONTH' | 'YEAR';
+        amountMinor: number;
+        trialDays?: number | null;
+      }) =>
+        request<AdminBillingPrice>('/admin/billing/prices', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      updatePrice: (id: string, body: { amountMinor?: number; trialDays?: number | null }) =>
+        request<AdminBillingPrice>(`/admin/billing/prices/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        }),
+      deactivatePrice: (id: string) =>
+        request<AdminBillingPrice>(`/admin/billing/prices/${id}/deactivate`, { method: 'POST' }),
+      /** Email credit packs and their per-country prices. Writes need BILLING_MANAGE + step-up. */
+      creditPacks: () => request<AdminCreditPack[]>('/admin/billing/credit-packs'),
+      setCreditPackPrice: (
+        packCode: string,
+        country: string,
+        body: { currency: string; amountMinor: number; expectedVersion?: number },
+      ) =>
+        request<unknown>(`/admin/billing/credit-packs/${packCode}/prices/${country}`, {
+          method: 'PUT',
+          body: JSON.stringify(body),
+        }),
+      publishCreditPack: (packCode: string, country: string, expectedVersion?: number) =>
+        request<unknown>(`/admin/billing/credit-packs/${packCode}/prices/${country}/publish`, {
+          method: 'POST',
+          body: JSON.stringify({ expectedVersion }),
+        }),
+      unpublishCreditPack: (packCode: string, country: string, expectedVersion?: number) =>
+        request<unknown>(`/admin/billing/credit-packs/${packCode}/prices/${country}/unpublish`, {
+          method: 'POST',
+          body: JSON.stringify({ expectedVersion }),
+        }),
+      subscriptions: (
+        params: {
+          status?: string;
+          planCode?: string;
+          country?: string;
+          search?: string;
+          currentOnly?: 'true' | 'false';
+          page?: number;
+          pageSize?: number;
+        } = {},
+      ) =>
+        request<AdminSubscriptionPage>(
+          `/admin/billing/subscriptions${qs(params as Record<string, unknown>)}`,
+        ),
+      account: (organizationId: string) =>
+        request<AdminBillingAccountDetail>(`/admin/billing/accounts/${organizationId}`),
+      metrics: (days = 30) => request<AdminBillingMetrics>(`/admin/billing/metrics${qs({ days })}`),
+      grantTrial: (
+        organizationId: string,
+        body: { planCode: 'PRO' | 'PREMIUM'; days: number; reason: string },
+      ) =>
+        request<unknown>(`/admin/billing/accounts/${organizationId}/trial`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      grantComplimentary: (
+        organizationId: string,
+        body: { planCode: 'PRO' | 'PREMIUM'; endsAt?: string | null; reason: string },
+      ) =>
+        request<unknown>(`/admin/billing/accounts/${organizationId}/complimentary`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      endGrant: (organizationId: string, reason: string) =>
+        request<unknown>(`/admin/billing/accounts/${organizationId}/end-grant`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }),
+      grantCredits: (
+        organizationId: string,
+        body: { amount: number; reason: string; idempotencyKey: string },
+      ) =>
+        request<unknown>(`/admin/billing/accounts/${organizationId}/credits`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      recordDiscount: (
+        organizationId: string,
+        body: {
+          percentOffBps?: number | null;
+          amountMinor?: number | null;
+          endsAt?: string | null;
+          reason: string;
+        },
+      ) =>
+        request<unknown>(`/admin/billing/accounts/${organizationId}/discounts`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      grantOverride: (
+        organizationId: string,
+        body: {
+          key: string;
+          boolValue?: boolean | null;
+          intValue?: number | null;
+          startsAt?: string | null;
+          endsAt?: string | null;
+          reason: string;
+        },
+      ) =>
+        request<unknown>(`/admin/billing/accounts/${organizationId}/overrides`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      revokeOverride: (id: string, reason: string) =>
+        request<unknown>(`/admin/billing/overrides/${id}/revoke`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }),
+    },
+
+    /**
+     * Organizer acquisition (sales CRM). Every call needs CRM_AGENT; the team routes also
+     * CRM_MANAGER. The server narrows each answer to the caller's teams.
+     */
+    crm: {
+      me: () => request<CrmMe>('/admin/crm/me'),
+      leads: (params: CrmLeadFilters = {}) =>
+        request<Paged<CrmLead>>(`/admin/crm/leads${qs(params as Record<string, unknown>)}`),
+      lead: (id: string) => request<CrmLeadDetail>(`/admin/crm/leads/${id}`),
+      createLead: (body: Record<string, unknown>) =>
+        request<CrmLead>('/admin/crm/leads', { method: 'POST', body: JSON.stringify(body) }),
+      checkDuplicates: (body: Record<string, unknown>) =>
+        request<{ matches: CrmDuplicateMatch[] }>('/admin/crm/leads/duplicates', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      updateLead: (id: string, body: Record<string, unknown> & { version: number }) =>
+        request<{ lead: CrmLead; duplicates: CrmDuplicateMatch[] }>(`/admin/crm/leads/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        }),
+      assign: (
+        id: string,
+        body: { version: number; assignedToUserId: string | null; note?: string },
+      ) =>
+        request<CrmLead>(`/admin/crm/leads/${id}/assign`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      changeStage: (
+        id: string,
+        body: { version: number; stage: string; note?: string; lostReason?: string },
+      ) =>
+        request<CrmLead>(`/admin/crm/leads/${id}/stage`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      archive: (id: string, body: { version: number; archived: boolean }) =>
+        request<CrmLead>(`/admin/crm/leads/${id}/archive`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      searchOrganizations: (q: string) =>
+        request<CrmOrganizationMatch[]>(`/admin/crm/organizations${qs({ q })}`),
+      linkOrganization: (id: string, body: { version: number; organizationId: string }) =>
+        request<CrmLead>(`/admin/crm/leads/${id}/organization`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      unlinkOrganization: (id: string, body: { version: number }) =>
+        request<CrmLead>(`/admin/crm/leads/${id}/organization/unlink`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      logActivity: (id: string, body: Record<string, unknown>) =>
+        request<{ activity: CrmActivity; followUp: CrmFollowUp | null }>(
+          `/admin/crm/leads/${id}/activities`,
+          { method: 'POST', body: JSON.stringify(body) },
+        ),
+      createFollowUp: (id: string, body: Record<string, unknown>) =>
+        request<CrmFollowUp>(`/admin/crm/leads/${id}/follow-ups`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      activities: (params: Record<string, unknown> = {}) =>
+        request<Paged<CrmActivity>>(`/admin/crm/activities${qs(params)}`),
+      followUps: (params: Record<string, unknown> = {}) =>
+        request<Paged<CrmFollowUp>>(`/admin/crm/follow-ups${qs(params)}`),
+      completeFollowUp: (id: string, body: { version: number; note?: string }) =>
+        request<CrmFollowUp>(`/admin/crm/follow-ups/${id}/complete`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      cancelFollowUp: (id: string, body: { version: number }) =>
+        request<CrmFollowUp>(`/admin/crm/follow-ups/${id}/cancel`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      reassignFollowUp: (
+        id: string,
+        body: { version: number; ownerUserId: string; dueAt?: string },
+      ) =>
+        request<CrmFollowUp>(`/admin/crm/follow-ups/${id}/reassign`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      importLeads: (body: {
+        teamId: string;
+        csv: string;
+        commit: boolean;
+        onDuplicate?: 'skip' | 'create';
+      }) =>
+        request<CrmImportResult>('/admin/crm/leads/import', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      downloadLeads: (params: CrmLeadFilters = {}) =>
+        downloadCsv(
+          `/admin/crm/leads/export${qs(params as Record<string, unknown>)}`,
+          'prospects.csv',
+        ),
+      teams: () => request<CrmTeam[]>('/admin/crm/teams'),
+      candidates: (teamId: string) =>
+        request<Array<{ id: string; fullName: string; email: string; holdsManager: boolean }>>(
+          `/admin/crm/teams/${teamId}/candidates`,
+        ),
+      setMember: (teamId: string, userId: string, role: 'AGENT' | 'MANAGER') =>
+        request<{ teamId: string; userId: string; role: string }>(
+          `/admin/crm/teams/${teamId}/members/${userId}`,
+          { method: 'PUT', body: JSON.stringify({ role }) },
+        ),
+      removeMember: (teamId: string, userId: string) =>
+        request<{ removed: boolean; stillAssigned: number }>(
+          `/admin/crm/teams/${teamId}/members/${userId}`,
+          { method: 'DELETE' },
+        ),
+      reports: {
+        overview: (f: CrmReportFilters = {}) =>
+          request<CrmOverview>(`/admin/crm/reports/overview${qs({ ...f })}`),
+        funnel: (f: CrmReportFilters = {}) =>
+          request<CrmFunnel>(`/admin/crm/reports/funnel${qs({ ...f })}`),
+        byCountry: (f: CrmReportFilters = {}) =>
+          request<{ rows: CrmGroupRow[] }>(`/admin/crm/reports/by-country${qs({ ...f })}`),
+        bySource: (f: CrmReportFilters = {}) =>
+          request<{ rows: CrmGroupRow[] }>(`/admin/crm/reports/by-source${qs({ ...f })}`),
+        byEmployee: (f: CrmReportFilters = {}) =>
+          request<CrmEmployeeReport>(`/admin/crm/reports/by-employee${qs({ ...f })}`),
+        activity: (f: CrmReportFilters = {}) =>
+          request<CrmActivityReport>(`/admin/crm/reports/activity${qs({ ...f })}`),
+        aging: (f: CrmReportFilters = {}) =>
+          request<CrmAgingReport>(`/admin/crm/reports/aging${qs({ ...f })}`),
+        conversion: (f: CrmReportFilters = {}) =>
+          request<CrmConversionReport>(`/admin/crm/reports/conversion${qs({ ...f })}`),
+        downloadCsv: (report: CrmCsvReport, f: CrmReportFilters = {}) =>
+          downloadCsv(
+            `/admin/crm/reports/${report}${qs({ ...f, format: 'csv' })}`,
+            `acquisition-${report}.csv`,
+          ),
+      },
+    },
+
     /** Back-office staff and what each of them may do. Needs ADMIN_MANAGE. */
     staff: {
       catalogue: () =>
@@ -2220,14 +3001,14 @@ export const api = {
       resetMfa: (userId: string) =>
         request<{ success: boolean }>(`/admin/staff/${userId}/mfa/reset`, { method: 'POST' }),
       /**
-       * Add somebody who has no account yet. Returns the link that lets them claim it and
-       * choose their own password, so no administrator ever sees a credential.
+       * Add somebody who has no account yet. The link that lets them claim it is EMAILED to
+       * them; the answer only says whether the email left, so no administrator ever holds it.
        */
       invite: (email: string, permissions: string[]) =>
-        request<{ id: string; email: string; inviteUrl: string }>('/admin/staff/invite', {
-          method: 'POST',
-          body: JSON.stringify({ email, permissions }),
-        }),
+        request<{ id: string; email: string; invitationEmail: InvitationEmailStatus }>(
+          '/admin/staff/invite',
+          { method: 'POST', body: JSON.stringify({ email, permissions }) },
+        ),
       setPermissions: (userId: string, permissions: string[], note?: string) =>
         request<{ userId: string; permissions: string[] }>(`/admin/staff/${userId}/permissions`, {
           method: 'PUT',
@@ -2494,7 +3275,44 @@ export const api = {
         organizationId ? `/admin/payout-settings/${organizationId}` : '/admin/payout-settings',
         { method: 'POST', body: JSON.stringify(body) },
       ),
-    feeRules: () => request<FeeRule[]>('/admin/fee-rules'),
+    /**
+     * Booking-fee schedules edited as a draft and published whole (see FeeSchedulesService).
+     * Saving a draft changes no price; only `publish` does, and it asks for a fresh second
+     * factor through the shared step-up handler.
+     */
+    feeSchedules: {
+      overview: (currency: string) =>
+        request<FeeScheduleOverview>(`/admin/fee-schedules/${encodeURIComponent(currency)}`),
+      draft: (id: string) =>
+        request<FeeScheduleDraft>(`/admin/fee-schedules/drafts/${encodeURIComponent(id)}`),
+      createDraft: (currency: string) =>
+        request<FeeScheduleDraft>('/admin/fee-schedules/drafts', {
+          method: 'POST',
+          body: JSON.stringify({ currency }),
+        }),
+      saveDraft: (id: string, bands: FeeScheduleBand[]) =>
+        request<FeeScheduleDraft>(`/admin/fee-schedules/drafts/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          body: JSON.stringify({ bands }),
+        }),
+      discardDraft: (id: string) =>
+        request<{ id: string; status: 'DISCARDED' }>(
+          `/admin/fee-schedules/drafts/${encodeURIComponent(id)}`,
+          { method: 'DELETE' },
+        ),
+      publish: (id: string) =>
+        request<FeeSchedulePublished>(
+          `/admin/fee-schedules/drafts/${encodeURIComponent(id)}/publish`,
+          { method: 'POST' },
+        ),
+    },
+    /**
+     * Fee bands. Deleted ones are left out unless `includeDeleted` is set. Read only: bands
+     * change through `feeSchedules` (draft, check, publish); the old single-band writes answer
+     * 410 Gone.
+     */
+    feeRules: (opts: { includeDeleted?: boolean } = {}) =>
+      request<FeeRule[]>(`/admin/fee-rules${opts.includeDeleted ? '?includeDeleted=true' : ''}`),
 
     /** Every tax rule, with whether each is in force right now. */
     taxRules: () => request<TaxRule[]>('/admin/tax-rules'),
@@ -2523,37 +3341,6 @@ export const api = {
     /** Delete a rule that is switched off. A live one is refused. */
     deleteTaxRule: (id: string) =>
       request<{ deleted: true }>(`/admin/tax-rules/${id}`, { method: 'DELETE' }),
-    /** Create a band. `currency` is required — a band only means anything within one. */
-    createFeeRule: (input: Omit<FeeRule, 'id'>) =>
-      request<FeeRule>('/admin/fee-rules', { method: 'POST', body: JSON.stringify(input) }),
-    /**
-     * Update one fee rule. `currency` is not editable — the amounts are minor units, so
-     * switching currency would reinterpret ₹5 as $5. Omit a field to leave it unchanged;
-     * pass `maxMinor: null` to make a band open-ended ("and above").
-     */
-    updateFeeRule: (
-      id: string,
-      patch: Partial<
-        Pick<
-          FeeRule,
-          | 'label'
-          | 'minMinor'
-          | 'maxMinor'
-          | 'feeMinor'
-          | 'feeType'
-          | 'feePercentBps'
-          | 'minFeeMinor'
-          | 'maxFeeMinor'
-          | 'country'
-          | 'region'
-          | 'active'
-        >
-      >,
-    ) =>
-      request<FeeRule>(`/admin/fee-rules/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(patch),
-      }),
 
     // ─── Marketplace settlements (admin/finance) ───
     /**
@@ -2912,6 +3699,8 @@ export interface AuthUser {
   phoneVerified?: boolean;
   memberSince?: string;
   locale?: string | null;
+  /** Where the person says they live (ISO alpha-2), or null. Absent from an older API. */
+  countryOfResidence?: string | null;
 }
 export interface UserProfile extends AuthUser {
   status: string;
@@ -2929,23 +3718,45 @@ export interface AdminUser {
   status: string;
   createdAt: string;
   /**
-   * The countries this account belongs to, derived from what it did.
-   *
-   * A `User` has no country column and should not get one: nobody is asked at sign-up, a locale
-   * is a language setting, and a calling code cannot tell the United States from Canada. These
-   * are the countries of the venues the account bought at, plus the countries of the
-   * organizations it belongs to. Empty means we do not know, which is a real answer.
+   * ACTIVITY countries: where the account bought tickets, plus where the organizations it belongs
+   * to are registered. Kept under its old name for compatibility; `activityCountries` is the same.
    */
   countries: string[];
+  /*
+    Country EVIDENCE, each kind kept apart and labelled by where it came from. All optional:
+    an API older than them sends none, and the console then shows activity only, as before.
+  */
+  /** Same as `countries`. */
+  activityCountries?: string[];
+  /** Where the person says they live (chosen in their profile), ISO alpha-2. Never inferred. */
+  countryOfResidence?: string | null;
+  /** The network's country at sign-up (edge header) - a hint, not a residence. */
+  detectedCountry?: string | null;
+  /** How `detectedCountry` was obtained ('network'). */
+  detectedCountrySource?: string | null;
+  /** The VERIFIED number's calling code, `+91` / `+1` - a fact about the number, not the person. */
+  phoneCallingCode?: string | null;
+  /** The same with the countries sharing it, `+1 (US/CA)`. */
+  phoneCallingCodeLabel?: string | null;
 }
 
 /** Account counts by country, role and status, for the directory overview. */
 export interface UserDirectorySummary {
   total: number;
-  /** Accounts no country could be derived for - the same rows the list shows as unknown. */
+  /** Accounts with no ACTIVITY country (no booking or organizer country). */
   withoutCountry: number;
-  /** An account active in two countries is counted in both, so these exceed `total`. */
+  /** ACTIVITY countries. An account active in two is counted in both, so these exceed `total`. */
   byCountry: { country: string; count: number }[];
+  /** Same as `withoutCountry`, under the name that says what it counts. */
+  withoutActivityCountry?: number;
+  /** Accounts with no country evidence of any kind (no residence, network, phone or activity). */
+  withoutAnyCountryEvidence?: number;
+  /** Residence, as chosen by the person. */
+  byResidence?: { country: string; count: number }[];
+  /** The network's country at sign-up. */
+  byDetected?: { country: string; count: number }[];
+  /** Verified numbers by calling code, `+1 (US/CA)`. */
+  byPhoneCallingCode?: { code: string; count: number }[];
   byRole: { role: string; count: number }[];
   byStatus: { status: string; count: number }[];
 }
@@ -3122,6 +3933,11 @@ export interface BookingRequest {
   couponCode?: string;
   /** Ask to pay in cash at the venue. Refused unless the organizer has enabled it. */
   paymentMethod?: 'ONLINE' | 'CASH';
+  /**
+   * The `feeScheduleVersion` of the quote the buyer was shown. When the booking fee schedule
+   * changed since, the API refuses with 409 FEE_SCHEDULE_CHANGED and the client re-quotes.
+   */
+  feeScheduleVersion?: string | null;
 }
 export interface BookingResult {
   id: string;
@@ -3160,6 +3976,8 @@ export interface BookingResult {
     /** The combined rate inside that figure — 1800 for 18%, 0 when nothing is taxed. */
     feeTaxRateBasisPoints?: number;
     feeTaxMinor?: number;
+    /** How a per-ticket platform fee (COMBINED or FIXED_PER_TICKET) was worked out. */
+    platformFeeBreakdown?: PlatformFeeBreakdown | null;
     totalMinor: number;
     discountMinor: number;
     /** Zero unless the seller's market has a configured tax rule. */
@@ -3202,6 +4020,8 @@ export interface BookingDetail {
   maintenanceMinor?: number;
   maintenanceTreatment?:
     'NOT_APPLICABLE' | 'INCLUDED_IN_TICKET_PRICE' | 'ADDED_TO_TICKET_PRICE' | 'UNCONFIRMED';
+  /** The booking's snapshot of a per-ticket platform fee, when one priced it. */
+  platformFeeBreakdown?: PlatformFeeBreakdown | null;
   buyerName: string;
   buyerEmail: string;
   event: {
@@ -3214,6 +4034,8 @@ export interface BookingDetail {
     refundCutoffHours?: number;
     /** The organizer's own words about refunds, when they wrote any. */
     refundPolicy?: string | null;
+    /** Who ran it. The confirmation offers to follow them. */
+    organization?: { id: string; name: string };
   };
   eventSession: { id: string; startsAt: string };
   items: {
@@ -3622,6 +4444,8 @@ export interface OrganizationLegalIdentityFields {
   grievanceOfficerName: string | null;
   grievanceOfficerEmail: string | null;
   grievanceOfficerPhone: string | null;
+  /** Registrations beyond the main one, e.g. a PAN beside a GSTIN. Recorded, not printed. */
+  additionalTaxRegistrations?: { kind: string; number: string }[] | null;
 }
 
 export interface OrganizationLegalIdentity extends OrganizationLegalIdentityFields {
@@ -3769,14 +4593,18 @@ export interface RemovedMember extends OrgMember {
     signedOut: boolean;
   };
 }
-/** What `invite` returns: the member, plus the link to actually send them. */
+/**
+ * Whether an invitation email left. SENT: a provider took it. NOT_SENT: email is not working
+ * here right now; the member stays invited and "Send again" works once it is.
+ */
+export type InvitationEmailStatus = 'SENT' | 'NOT_SENT';
+/**
+ * What `invite` returns: the member, and whether the invitation email left. Never the link: it
+ * goes to the invitee's address only, so whoever invites cannot accept on their behalf.
+ */
 export interface InvitedMember extends OrgMember {
-  /**
-   * Returned as well as emailed, because `EMAIL_PROVIDER=log` swallows mail in every
-   * environment configured so far. The owner can copy this and send it themselves.
-   */
-  inviteUrl: string;
-  /** True when the invite created the account, so accepting must set a password. */
+  invitationEmail: InvitationEmailStatus;
+  /** True when the invite created the account, so the invitee must claim it first. */
   needsPassword: boolean;
 }
 export interface InvitationSummary {
@@ -5461,6 +6289,7 @@ export interface OrganizationLegalIdentityInput {
   grievanceOfficerName?: string;
   grievanceOfficerEmail?: string;
   grievanceOfficerPhone?: string;
+  additionalTaxRegistrations?: { kind: string; number: string }[];
 }
 
 export type ReceiptKind = 'RECEIPT' | 'TAX_INVOICE' | 'CREDIT_NOTE';
@@ -6831,7 +7660,8 @@ export interface TaxRule {
   id: string;
   label: string;
   rateBasisPoints: number;
-  appliesTo: 'TICKETS' | 'FEES' | 'TICKETS_AND_FEES';
+  /** PLATFORM_SERVICES: tax on organizer plans and email credit packs, never on tickets. */
+  appliesTo: 'TICKETS' | 'FEES' | 'TICKETS_AND_FEES' | 'PLATFORM_SERVICES';
   /** Rules sharing a group are alternatives; one wins. Empty means it always applies. */
   taxGroup: string;
   country: string;
@@ -6857,6 +7687,72 @@ export interface TaxRule {
   inForceNow?: boolean;
 }
 
+/** One band of a draft fee schedule. Amounts in minor units; a percentage in basis points. */
+export interface FeeScheduleBand {
+  key: string;
+  /** The live band this row was copied from, or null for a new band. */
+  sourceId: string | null;
+  minMinor: number;
+  maxMinor: number | null;
+  feeType: 'FLAT' | 'PERCENT' | 'COMBINED' | 'FIXED_PER_TICKET';
+  feeMinor: number;
+  feePercentBps: number | null;
+  minFeeMinor: number | null;
+  maxFeeMinor: number | null;
+  country: string;
+  region: string;
+  active: boolean;
+}
+
+/** A problem (error) or a remark (note) the check found in a draft schedule. */
+export interface FeeScheduleIssue {
+  code: 'BAND_INVALID' | 'WRONG_MARKET' | 'OVERLAP' | 'GAP' | 'NO_BAND';
+  severity: 'error' | 'note';
+  message: string;
+  bandKeys: string[];
+  place: string;
+  fromMinor?: number;
+  toMinor?: number | null;
+}
+
+export interface FeeScheduleDraft {
+  id: string;
+  currency: string;
+  status: 'OPEN' | 'PUBLISHED' | 'DISCARDED';
+  version: number | null;
+  createdAt: string;
+  updatedAt: string;
+  publishedAt: string | null;
+  bands: FeeScheduleBand[];
+  /** The live schedule changed after this draft was started; it cannot be published. */
+  stale: boolean;
+  validation: { valid: boolean; issues: FeeScheduleIssue[] };
+  /** Booking fee for sample orders, now and after publish, from the checkout's own engine. */
+  preview: {
+    place: string;
+    rows: { orderMinor: number; tickets: number; liveFeeMinor: number; draftFeeMinor: number }[];
+  };
+}
+
+export interface FeeScheduleOverview {
+  currency: string;
+  /** 0 until the first draft is published. */
+  liveVersion: number;
+  liveFingerprint: string;
+  live: FeeScheduleBand[];
+  openDraft: { id: string; createdAt: string; createdByUserId: string; updatedAt: string } | null;
+  history: { id: string; version: number; publishedAt: string; publishedByUserId: string }[];
+}
+
+export interface FeeSchedulePublished {
+  id: string;
+  currency: string;
+  version: number;
+  created: number;
+  updated: number;
+  deleted: number;
+}
+
 export interface FeeRule {
   id: string;
   label: string;
@@ -6869,12 +7765,13 @@ export interface FeeRule {
    * How the band charges. Optional on input (a band with no type is a fixed amount, as every
    * band was before percentages); always present on what the API returns.
    */
-  feeType?: 'FLAT' | 'PERCENT';
-  /** PERCENT: the share of the order in basis points. 500 is 5%. */
+  feeType?: 'FLAT' | 'PERCENT' | 'COMBINED' | 'FIXED_PER_TICKET';
+  /** PERCENT and COMBINED: the share of the order in basis points. 500 is 5%. COMBINED also
+   * charges `feeMinor` once per paid ticket; FIXED_PER_TICKET charges only that. */
   feePercentBps?: number | null;
-  /** PERCENT, optional: the least the band charges, in minor units. */
+  /** PERCENT, COMBINED, FIXED_PER_TICKET, optional: the least the band charges an order. */
   minFeeMinor?: number | null;
-  /** PERCENT, optional: the most the band charges, in minor units. */
+  /** PERCENT, COMBINED, FIXED_PER_TICKET, optional: the most the band charges an order. */
   maxFeeMinor?: number | null;
   /**
    * Where the band applies — '*' for anywhere.
@@ -6886,6 +7783,15 @@ export interface FeeRule {
   country: string;
   region: string;
   active: boolean;
+  /**
+   * The name to show, written by the API from the band's boundaries ("Tickets ₹0 -
+   * ₹499", "Tickets $50.00 and above"). Always present on what the API returns. `label`
+   * is the stored historical name and is no longer shown.
+   */
+  displayLabel?: string;
+  /** Set when the band was deleted (soft). Deleted bands price nothing. */
+  deletedAt?: string | null;
+  deletedByUserId?: string | null;
 }
 
 // ─── Runtime payment configuration (admin) ───
@@ -7246,6 +8152,8 @@ export interface FeedbackSubmission {
 /** A support submission row as returned by the admin inbox. */
 export interface FeedbackRow {
   id: string;
+  /** The readable reference the sender was given (ETG-SUP-2026-000142); null only on a row from before references. */
+  reference: string | null;
   kind: FeedbackKindValue;
   status: FeedbackStatusValue;
   email: string | null;
@@ -7279,7 +8187,107 @@ export interface OrganizerProfile {
   twitterUrl?: string | null;
   instagramUrl?: string | null;
   facebookUrl?: string | null;
+  /** How many people follow this organizer. A count only; never who. */
+  followerCount?: number;
   events: PublicEventCard[];
+}
+
+// ─── Following organizers and communication consent ───
+
+export type FollowSource =
+  'ORGANIZER_PAGE' | 'BOOKING_CONFIRMATION' | 'EVENT_PAGE' | 'LOCAL_MIGRATION';
+export type OrganizerConsentPurpose = 'ORGANIZER_UPDATES' | 'EARLY_ACCESS' | 'OFFERS';
+
+export interface FollowStatus {
+  organizationId: string;
+  following: boolean;
+  followedAt?: string | null;
+  created?: boolean;
+}
+
+export interface FollowPreferences {
+  organizationId: string;
+  /** In the account. On by default: the person asked by following. */
+  newEvents: boolean;
+  /** Email about presales. Off by default. */
+  earlyAccess: boolean;
+  /** Email with offers. Off by default. */
+  offers: boolean;
+  cadence: 'INSTANT' | 'WEEKLY_DIGEST';
+  /** Email about new events. Off by default. */
+  emailUpdates: boolean;
+  /**
+   * True while the person's "unsubscribe from all marketing email" stands. The email choices
+   * are still saved, but no organizer email is sent until marketing email is turned back on in
+   * the account notification settings. Optional for an older API that does not send it.
+   */
+  globalMarketingUnsubscribed?: boolean;
+}
+
+export interface FollowedOrganizer {
+  followedAt: string;
+  organization: {
+    id: string;
+    name: string;
+    logoUrl: string | null;
+    verified: boolean;
+    memberSince: string;
+    eventCount: number;
+  };
+  preferences: FollowPreferences;
+}
+
+export interface FollowingList {
+  items: FollowedOrganizer[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface CommunicationConsentView {
+  marketingEmail: { granted: boolean; decidedAt: string | null };
+  organizers: {
+    organizationId: string;
+    name: string;
+    following: boolean;
+    purposes: Record<OrganizerConsentPurpose, { granted: boolean; decidedAt: string | null }>;
+  }[];
+  history: {
+    purpose: string;
+    organizationId: string | null;
+    organizationName: string | null;
+    channel: string;
+    granted: boolean;
+    source: string;
+    createdAt: string;
+  }[];
+}
+
+export interface UnsubscribePreview {
+  scope: 'global' | 'organizer';
+  purposes: string[];
+  organization: { id: string; name: string } | null;
+  emailMask: string;
+}
+
+export interface AudienceSeriesPoint {
+  start: string;
+  newFollowers: number;
+  followers: number;
+}
+
+export interface AudienceSummary {
+  organizationId: string;
+  generatedAt: string;
+  followers: { total: number; new7d: number; new30d: number };
+  eligibleSubscribers: number;
+  returningBuyers: number;
+  growth: { daily: AudienceSeriesPoint[]; weekly: AudienceSeriesPoint[] };
+  cities: {
+    buckets: { city: string; country: string | null; followers: number }[];
+    hiddenBuckets: number;
+    threshold: number;
+  };
 }
 
 // ─── Internal operations console ───

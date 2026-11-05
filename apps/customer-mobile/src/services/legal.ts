@@ -11,10 +11,10 @@ import { env } from './env';
  * The paths mirror the customer-web routes. If a page moves, it moves here once.
  */
 const LEGAL_PATHS = {
-  terms: '/legal/terms',
-  privacy: '/legal/privacy',
-  refunds: '/legal/refund-policy',
-  support: '/support',
+  terms: '/terms',
+  privacy: '/privacy',
+  refunds: '/refunds',
+  support: '/contact',
 } as const;
 
 export type LegalDocument = keyof typeof LEGAL_PATHS;
@@ -26,7 +26,9 @@ export type LegalDocument = keyof typeof LEGAL_PATHS;
  * that 404s is worse than one pointing at the canonical published document, and these
  * pages are public, static and identical in content across environments.
  */
-const FALLBACK_HOST = 'eticketsgo.com';
+// www, not the bare domain: eticketsgo.com/privacy is a 404 (only the bare root redirects),
+// so every legal link in a production build pointed at a missing page. Checked 2026-10-24.
+const FALLBACK_HOST = 'www.eticketsgo.com';
 
 export function legalUrl(document: LegalDocument): string {
   const host = env.webHost ?? FALLBACK_HOST;
@@ -40,4 +42,12 @@ export function legalLinks(): { key: LegalDocument; label: string; url: string }
     { key: 'privacy', label: 'Privacy policy', url: legalUrl('privacy') },
     { key: 'refunds', label: 'Refund & cancellation policy', url: legalUrl('refunds') },
   ];
+}
+
+/**
+ * A page on the storefront, from the same configured host as the legal links. For flows
+ * that live on the website and are not rebuilt in the app (password reset).
+ */
+export function webUrl(path: `/${string}`): string {
+  return `https://${env.webHost ?? FALLBACK_HOST}${path}`;
 }

@@ -1,23 +1,16 @@
 'use client';
 
 import { Heart, MapPin } from 'lucide-react';
-import { useId, useSyncExternalStore } from 'react';
+import { useId } from 'react';
 import { useTranslations } from 'next-intl';
 import type { CinemaShowtimes } from '@eticketsgo/web-kit';
 import { useFormat } from '@/lib/format';
 import { ShowtimePill } from './showtime-pill';
 import { focusRing } from './styles';
+import { useReaderZone } from '@/lib/reader-zone';
 
-const noSubscription = () => () => undefined;
-
-/** The reader's own zone on the client; undefined on the server, so hydration agrees. */
-function useViewerTimeZone(): string | undefined {
-  return useSyncExternalStore(
-    noSubscription,
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
-    () => undefined,
-  );
-}
+/** The reader's own zone, agreed between server and browser (`lib/reader-zone.tsx`). */
+const useViewerTimeZone = useReaderZone;
 
 /**
  * One cinema's screenings on the chosen day.

@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   api,
   Badge,
@@ -43,11 +43,17 @@ import {
  * fetched, so "show me the suspended accounts" returned the suspended accounts AMONG THOSE
  * TWENTY, under a pager that still counted the whole directory. Both are fixed in the database.
  *
- * ── WHERE THE COUNTRY COMES FROM ───────────────────────────────────────────────────
- * Not from the account: nobody is asked at sign-up, a locale is a language setting, and a phone
- * calling code cannot tell the United States from Canada. It comes from what the account did -
- * the countries of the venues it bought at, and of the organizations it belongs to. An account
- * with neither is counted as "country not known", said out loud rather than guessed at.
+ * ── FOUR KINDS OF COUNTRY EVIDENCE, NEVER MIXED ────────────────────────────────────
+ * "Country not known" used to be the answer for 7 of 8 production accounts, because the only
+ * country shown was derived from bookings and organizer memberships. The platform knows more
+ * than that, and each thing it knows means something different, so each is shown under its own
+ * label and none is promoted into another:
+ *   - Lives in: what the person chose in their profile. The only "residence" there is.
+ *   - Phone: the verified number's calling code. +1 is the United States AND Canada, so it is
+ *     shown as "+1 (US/CA)" and never as a country.
+ *   - Detected: where the network placed the sign-up (edge header). A hint, labelled as one.
+ *   - Active in: where the account bought, or belongs to an organizer (unchanged).
+ * The country filter still filters by ACTIVITY, and says so.
  */
 const ROLES = [
   'CUSTOMER',
@@ -127,17 +133,8 @@ export default function AdminUsers() {
     },
     {
       key: 'countries',
-      header: 'Country',
-      render: (u) =>
-        u.countries.length === 0 ? (
-          <span className="text-caption text-text-muted">Not known</span>
-        ) : (
-          <div className="flex flex-wrap gap-1">
-            {u.countries.map((c) => (
-              <CountryLabel key={c} stored={c} />
-            ))}
-          </div>
-        ),
+      header: 'Country evidence',
+      render: (u) => <CountryEvidence account={u} />,
     },
     {
       key: 'roles',
@@ -192,7 +189,7 @@ export default function AdminUsers() {
       ) : (
         summary.data && (
           <>
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <MetricCard label="Accounts" value={String(summary.data.total)} />
               <MetricCard
                 label="Countries active in"
@@ -200,22 +197,63 @@ export default function AdminUsers() {
                 hint="Where an account has bought, or belongs to an organizer"
               />
               <MetricCard
-                label="Country not known"
-                value={String(summary.data.withoutCountry)}
-                hint="No booking and no organization yet"
+                label="No activity country yet"
+                value={String(summary.data.withoutActivityCountry ?? summary.data.withoutCountry)}
+                hint="No booking and no organizer with a country. Other evidence may still exist."
                 tone="neutral"
               />
+              {summary.data.withoutAnyCountryEvidence !== undefined && (
+                <MetricCard
+                  label="No country evidence at all"
+                  value={String(summary.data.withoutAnyCountryEvidence)}
+                  hint="No residence, no verified phone, no network country and no activity"
+                  tone="neutral"
+                />
+              )}
             </div>
 
-            <Card title="By country">
+            {(summary.data.byPhoneCallingCode ||
+              summary.data.byResidence ||
+              summary.data.byDetected) && (
+              <Card title="Other country evidence">
+                <dl className="grid gap-4 sm:grid-cols-3">
+                  <EvidenceCounts
+                    term="Verified phone, by calling code"
+                    note="A fact about the number. +1 is the US and Canada."
+                    rows={(summary.data.byPhoneCallingCode ?? []).map((r) => ({
+                      label: r.code,
+                      count: r.count,
+                    }))}
+                  />
+                  <EvidenceCounts
+                    term="Lives in (chosen by the person)"
+                    note="Only what the person picked in their profile."
+                    rows={(summary.data.byResidence ?? []).map((r) => ({
+                      label: r.country,
+                      count: r.count,
+                    }))}
+                  />
+                  <EvidenceCounts
+                    term="Detected at sign-up (network)"
+                    note="Where the network placed the sign-up. A hint, not a residence."
+                    rows={(summary.data.byDetected ?? []).map((r) => ({
+                      label: r.country,
+                      count: r.count,
+                    }))}
+                  />
+                </dl>
+              </Card>
+            )}
+
+            <Card title="Active in, by country">
               {/*
                 Clickable, because a count nobody can act on is decoration. Each one filters the
                 list below, and pressing it again clears it.
               */}
               {summary.data.byCountry.length === 0 ? (
                 <p className="text-sm text-text-secondary">
-                  No account has bought a ticket or joined an organizer yet, so no country can be
-                  derived for anybody.
+                  No account has bought a ticket or joined an organizer yet, so no activity country
+                  can be derived for anybody.
                 </p>
               ) : (
                 <div className="flex flex-wrap gap-2">
@@ -341,6 +379,86 @@ export default function AdminUsers() {
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+/**
+ * One account's country evidence, each kind under its own label. Never merged into one
+ * "country": a calling code is not a residence, and a network hint is not either.
+ */
+function CountryEvidence({ account: u }: { account: AdminUser }) {
+  const activity = u.activityCountries ?? u.countries;
+  const lines: ReactNode[] = [];
+  if (u.countryOfResidence) {
+    lines.push(
+      <p key="res" className="flex flex-wrap items-center gap-1 text-caption">
+        <span className="text-text-muted">Lives in:</span>
+        <CountryLabel stored={u.countryOfResidence} />
+      </p>,
+    );
+  }
+  if (u.phoneCallingCodeLabel) {
+    lines.push(
+      <p key="phone" className="text-caption text-text-secondary">
+        <span className="text-text-muted">Phone:</span>{' '}
+        <span className="tabular-nums">{u.phoneCallingCodeLabel}</span>
+      </p>,
+    );
+  }
+  if (u.detectedCountry) {
+    lines.push(
+      <p key="det" className="text-caption text-text-secondary">
+        <span className="text-text-muted">Detected:</span>{' '}
+        {`${u.detectedCountry} (${u.detectedCountrySource ?? 'network'})`}
+      </p>,
+    );
+  }
+  if (activity.length > 0) {
+    lines.push(
+      <div key="act" className="flex flex-wrap items-center gap-1 text-caption">
+        <span className="text-text-muted">Active in:</span>
+        {activity.map((c) => (
+          <CountryLabel key={c} stored={c} />
+        ))}
+      </div>,
+    );
+  }
+  if (lines.length === 0) {
+    return <span className="text-caption text-text-muted">No country evidence</span>;
+  }
+  return <div className="space-y-0.5">{lines}</div>;
+}
+
+function EvidenceCounts({
+  term,
+  note,
+  rows,
+}: {
+  term: string;
+  note: string;
+  rows: { label: string; count: number }[];
+}) {
+  return (
+    <div className="space-y-1">
+      <dt className="text-sm font-medium text-text-primary">{term}</dt>
+      <dd className="text-sm text-text-secondary">
+        {rows.length === 0 ? (
+          <span className="text-text-muted">None yet</span>
+        ) : (
+          <span className="flex flex-wrap gap-2">
+            {rows.map((r) => (
+              <span
+                key={r.label}
+                className="rounded-full border border-border px-3 py-1 tabular-nums"
+              >
+                {r.label} <span className="text-text-muted">{r.count}</span>
+              </span>
+            ))}
+          </span>
+        )}
+      </dd>
+      <dd className="text-caption text-text-muted">{note}</dd>
     </div>
   );
 }

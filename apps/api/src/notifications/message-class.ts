@@ -41,6 +41,9 @@ export const MESSAGE_CLASS: Record<NotificationType, MessageClass> = {
   */
   [NotificationType.PASSWORD_RESET_REQUESTED]: 'TRANSACTIONAL',
   [NotificationType.PASSWORD_CHANGED]: 'TRANSACTIONAL',
+  [NotificationType.EMAIL_VERIFICATION_CODE]: 'TRANSACTIONAL',
+  // Somebody asked this address to join their team. A marketing opt-out must never swallow it.
+  [NotificationType.TEAM_INVITATION]: 'TRANSACTIONAL',
 
   // ── The customer's own transaction ──────────────────────────────────────────────
   [NotificationType.BOOKING_CONFIRMED]: 'TRANSACTIONAL',
@@ -102,6 +105,11 @@ export const MESSAGE_CLASS: Record<NotificationType, MessageClass> = {
   // The platform stopped (or restarted) their sales. About their own listing, never optional.
   [NotificationType.EVENT_PAUSED_BY_ADMIN]: 'TRANSACTIONAL',
   [NotificationType.EVENT_RESUMED_BY_ADMIN]: 'TRANSACTIONAL',
+  /*
+    Their organization's plan payment failed. About a contract they entered into with the
+    platform; the consequence of not reading it is losing the plan. Never optional.
+  */
+  [NotificationType.BILLING_PAYMENT_FAILED]: 'TRANSACTIONAL',
 
   // ── Operational messages to organizers and admins about their own money ─────────
   [NotificationType.PAYOUT_ACCOUNT_UPDATED]: 'TRANSACTIONAL',
@@ -170,6 +178,9 @@ export const MESSAGE_AUDIENCE: Record<NotificationType, MessageAudience> = {
   */
   [NotificationType.PASSWORD_RESET_REQUESTED]: 'CUSTOMER',
   [NotificationType.PASSWORD_CHANGED]: 'CUSTOMER',
+  [NotificationType.EMAIL_VERIFICATION_CODE]: 'CUSTOMER',
+  // The invitee is not on any team yet: the message is to the account holder about their account.
+  [NotificationType.TEAM_INVITATION]: 'CUSTOMER',
 
   // ── The person who bought, holds, or was given a ticket ─────────────────────────
   [NotificationType.BOOKING_CONFIRMED]: 'CUSTOMER',
@@ -206,6 +217,7 @@ export const MESSAGE_AUDIENCE: Record<NotificationType, MessageAudience> = {
   [NotificationType.EVENT_REJECTED]: 'ORGANIZER',
   [NotificationType.EVENT_PAUSED_BY_ADMIN]: 'ORGANIZER',
   [NotificationType.EVENT_RESUMED_BY_ADMIN]: 'ORGANIZER',
+  [NotificationType.BILLING_PAYMENT_FAILED]: 'ORGANIZER',
 
   // ── The platform's own moderation queue ─────────────────────────────────────────
   [NotificationType.ORGANIZATION_REGISTERED]: 'ADMIN',

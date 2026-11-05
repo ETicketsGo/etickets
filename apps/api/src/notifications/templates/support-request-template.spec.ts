@@ -14,13 +14,18 @@ const templates = new NotificationTemplateService();
 function render(type: NotificationType, locale: string, payload: Record<string, unknown>) {
   const text = templates.render(type, locale, payload);
   const html = renderEmailHtml(
-    buildEmailView({ type, locale, ...text, payload, helpUrl: 'https://qa.eticketsgo.com/help' }),
+    buildEmailView({ type, locale, ...text, payload, helpUrl: 'https://www.eticketsgo.com/help' }),
   );
   return { ...text, html };
 }
 
+/** The database id. Carried in the payload for tracing; no mail may show it. */
+const ID = 'cmvncaxg10015uo2zxo94825e';
+const REF = 'ETG-SUP-2026-000142';
+
 const inboxPayload = {
-  reference: 'cmg123',
+  reference: REF,
+  feedbackId: ID,
   kind: 'CONTACT',
   topic: '[Support] Website enquiry',
   message:
@@ -31,7 +36,7 @@ const inboxPayload = {
   accountEmail: '',
   organizationName: 'Bengaluru Live',
   bookingReference: 'ETG-IND-2026-000024',
-  link: 'https://admin-qa.eticketsgo.com/admin/support?q=cmg123',
+  link: `https://admin.eticketsgo.com/admin/support?q=${REF}`,
 };
 
 describe('SUPPORT_REQUEST_RECEIVED (the support mailbox copy)', () => {
@@ -41,20 +46,26 @@ describe('SUPPORT_REQUEST_RECEIVED (the support mailbox copy)', () => {
       'en',
       inboxPayload,
     );
-    expect(subject).toBe('New contact message: [Support] Website enquiry');
+    expect(subject).toBe(`New contact message [${REF}]: [Support] Website enquiry`);
     expect(body).toContain('New contact message from Asha Rao.');
     expect(body).toContain('Your reply goes to asha@gmail.com.');
     expect(body).toContain('Organizer: Bengaluru Live');
     expect(body).toContain('Booking: ETG-IND-2026-000024');
-    expect(body).toContain('Reference: cmg123');
+    expect(body).toContain(`Reference: ${REF}`);
     expect(body).toContain('Signed in as: not signed in');
     expect(body).toContain('Charged twice for ETG-IND-2026-000024.\nPlease check.');
     expect(body).toContain(
-      'Open it in the admin console: https://admin-qa.eticketsgo.com/admin/support?q=cmg123',
+      `Open it in the admin console: https://admin.eticketsgo.com/admin/support?q=${REF}`,
     );
 
     expect(html).toContain('Open in the admin console');
-    expect(html).toContain('href="https://admin-qa.eticketsgo.com/admin/support?q=cmg123"');
+    expect(html).toContain(`href="https://admin.eticketsgo.com/admin/support?q=${REF}"`);
+    expect(html).toContain(REF);
+    // The readable reference only: no database id, and no generated Railway host anywhere.
+    for (const part of [subject, body, html]) {
+      expect(part).not.toContain(ID);
+      expect(part).not.toContain('up.railway.app');
+    }
     // Line breaks the sender typed are kept, and are the only markup in their words.
     expect(html).toContain('Charged twice for ETG-IND-2026-000024.<br />Please check.');
   });
@@ -102,7 +113,7 @@ describe('SUPPORT_REQUEST_RECEIVED (the support mailbox copy)', () => {
       'fr-CA',
       inboxPayload,
     );
-    expect(subject).toBe('Nouveau message (contact) : [Support] Website enquiry');
+    expect(subject).toBe(`Nouveau message (contact) [${REF}] : [Support] Website enquiry`);
     expect(body).toContain('Votre réponse ira à asha@gmail.com.');
     expect(html).toContain('lang="fr-CA"');
     expect(html).toContain('Ouvrir dans la console d&#39;administration');
@@ -110,7 +121,7 @@ describe('SUPPORT_REQUEST_RECEIVED (the support mailbox copy)', () => {
 });
 
 describe('SUPPORT_REQUEST_ACKNOWLEDGED (to the sender)', () => {
-  const payload = { reference: 'cmg123', email: 'asha@gmail.com' };
+  const payload = { reference: REF, feedbackId: ID, email: 'asha@gmail.com' };
 
   it('en: says we have it, where we will reply, and the reference - and nothing they wrote', () => {
     const { subject, body, html } = render(
@@ -118,12 +129,17 @@ describe('SUPPORT_REQUEST_ACKNOWLEDGED (to the sender)', () => {
       'en',
       payload,
     );
-    expect(subject).toBe('We have your message');
+    expect(subject).toBe(`We have your message [${REF}]`);
     expect(body).toBe(
       'Thank you for writing to ETicketsGo. We have your message and we will reply to ' +
-        'asha@gmail.com. Your reference is cmg123. If you write to us again about this, ' +
+        `asha@gmail.com. Your reference is ${REF}. If you write to us again about this, ` +
         'please give this reference.',
     );
+    expect(html).toContain(REF);
+    for (const part of [subject, body, html]) {
+      expect(part).not.toContain(ID);
+      expect(part).not.toContain('up.railway.app');
+    }
     // Plain ASCII, as every new English line of copy is.
     expect(/^[\x20-\x7E]*$/.test(subject + body)).toBe(true);
     expect(html).toContain('because you wrote to ETicketsGo support');
@@ -136,8 +152,8 @@ describe('SUPPORT_REQUEST_ACKNOWLEDGED (to the sender)', () => {
       'fr-CA',
       payload,
     );
-    expect(subject).toBe('Nous avons bien reçu votre message');
+    expect(subject).toBe(`Nous avons bien reçu votre message [${REF}]`);
     expect(body).toContain('nous répondrons à asha@gmail.com');
-    expect(body).toContain('Votre référence est cmg123.');
+    expect(body).toContain(`Votre référence est ${REF}.`);
   });
 });

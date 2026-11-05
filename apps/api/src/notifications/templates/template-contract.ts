@@ -62,7 +62,7 @@ export const TEMPLATE_CONTRACTS: Partial<Record<NotificationType, TemplateContra
   */
   [NotificationType.BOOKING_CONFIRMED]: {
     required: ['reference', 'eventTitle', 'startsAt'],
-    optional: ['seats', 'tickets', 'venue', 'timezone'],
+    optional: ['seats', 'tickets', 'venue', 'timezone', 'currency'],
   },
 
   /*

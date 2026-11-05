@@ -3,7 +3,7 @@
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { BRAND_FOCUS, BrandStatusPill, Wordmark } from '@eticketsgo/web-kit';
-import { INDIA_OPERATOR } from '@eticketsgo/shared-types';
+import { FooterLegalLines } from '@/components/legal/operator-statement';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { FeedbackButton } from '@/components/feedback-widget';
 
@@ -218,14 +218,7 @@ export function SiteFooter({
             compact ? 'mt-6 lg:mt-10' : 'mt-12'
           }`}
         >
-          {/*
-            The year is read at render rather than typed: a literal is wrong on 1 January.
-            The company is the owner's wording for the footer - "DeepTrics Software Solutions
-            Pvt Ltd" - read from the entity registry so it cannot drift from the legal pages.
-          */}
-          <p data-testid="footer-rights">
-            {f('rights', { year: new Date().getFullYear(), entity: INDIA_OPERATOR.shortName })}
-          </p>
+          <FooterLegalLines />
           {buildId && (
             <p data-testid="build-id" className="tabular-nums">
               {f('build', { id: buildId })}

@@ -1,34 +1,53 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Platform } from 'react-native';
-import { useTheme } from '@/theme';
+import { View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { palette } from '@/theme';
 import { haptics } from '@/ui';
 
 /**
- * The app's primary navigation: four destinations, flat, always reachable.
+ * The storefront's phone navigation (DESIGN-SYSTEM.md section 5): four items, Home,
+ * Explore, Tickets, Account; ink icons with labels; the current item marked by ink weight
+ * and a gold dot. The booking flow (event, seats, checkout) is a stack ABOVE these tabs,
+ * so it hides this bar and shows its own sticky booking bar instead.
  *
- * Four rather than five: a tab per top-level noun the customer thinks in — browse,
- * search, what I've bought, me. Anything else (help, settings, payment methods) is a
- * row inside Profile, because a tab bar is a promise that each item is somewhere you
- * return to often, and a fifth rarely-used tab makes the other four smaller targets.
+ * Route names stay `search` and `profile` so deep links and tests keep working; only the
+ * words the customer sees changed, to match the website.
  */
-export default function TabsLayout() {
-  const { colors } = useTheme();
+type IconName = keyof typeof Ionicons.glyphMap;
 
+function TabIcon({ name, focused }: { name: IconName; focused: boolean }) {
+  return (
+    <View className="items-center">
+      {/* The gold dot sits above the current item, as on the website. */}
+      <View
+        className={`mb-0.5 h-1.5 w-1.5 rounded-full ${focused ? 'bg-gold' : 'bg-transparent'}`}
+      />
+      <Ionicons name={name} size={23} color={focused ? palette.text : palette.textMuted} />
+    </View>
+  );
+}
+
+export default function TabsLayout() {
+  // 60 + the gesture-bar inset (the design system asks for at least 56 plus safe area); a fixed height would put the
+  // labels under the system's own bar on a phone with gesture navigation.
+  const insets = useSafeAreaInsets();
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.textMuted,
+        tabBarActiveTintColor: palette.text,
+        tabBarInactiveTintColor: palette.textMuted,
         tabBarStyle: {
-          backgroundColor: colors.surface,
-          borderTopColor: colors.border,
-          // Hairline, not the platform default 1px — matches the separators elsewhere.
-          borderTopWidth: Platform.OS === 'ios' ? 0.33 : 0.5,
+          backgroundColor: palette.canvas,
+          borderTopColor: palette.border,
+          borderTopWidth: 1,
+          height: 60 + insets.bottom,
+          paddingTop: 4,
+          paddingBottom: insets.bottom,
         },
-        tabBarLabelStyle: { fontFamily: 'Inter', fontSize: 11 },
-        // Long market names would otherwise truncate mid-word at large text sizes.
+        tabBarItemStyle: { paddingBottom: 6 },
+        tabBarLabelStyle: { fontFamily: 'Inter_500Medium', fontSize: 11 },
         tabBarAllowFontScaling: true,
       }}
       screenListeners={{ tabPress: () => haptics.tap() }}
@@ -38,18 +57,18 @@ export default function TabsLayout() {
         options={{
           title: 'Home',
           tabBarAccessibilityLabel: 'Home',
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'home' : 'home-outline'} size={size} color={color} />
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name={focused ? 'home' : 'home-outline'} focused={focused} />
           ),
         }}
       />
       <Tabs.Screen
         name="search"
         options={{
-          title: 'Search',
-          tabBarAccessibilityLabel: 'Search events',
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'search' : 'search-outline'} size={size} color={color} />
+          title: 'Explore',
+          tabBarAccessibilityLabel: 'Explore events',
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name={focused ? 'compass' : 'compass-outline'} focused={focused} />
           ),
         }}
       />
@@ -58,18 +77,18 @@ export default function TabsLayout() {
         options={{
           title: 'Tickets',
           tabBarAccessibilityLabel: 'My tickets',
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'ticket' : 'ticket-outline'} size={size} color={color} />
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name={focused ? 'ticket' : 'ticket-outline'} focused={focused} />
           ),
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profile',
-          tabBarAccessibilityLabel: 'Profile and settings',
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'person' : 'person-outline'} size={size} color={color} />
+          title: 'Account',
+          tabBarAccessibilityLabel: 'Account and settings',
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name={focused ? 'person' : 'person-outline'} focused={focused} />
           ),
         }}
       />

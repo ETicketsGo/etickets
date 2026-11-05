@@ -3,10 +3,12 @@ import type { Prisma } from '@prisma/client';
 import {
   AdminPermission,
   BookingStatus,
+  EventStatus,
   NotificationType,
   PaymentStatus,
   RefundStatus,
   Role,
+  SessionStatus,
   TicketStatus,
 } from '@eticketsgo/shared-types';
 import type { RefundRequestInput } from '@eticketsgo/validation';
@@ -1096,7 +1098,19 @@ export class RefundsService {
       include: {
         tickets: true,
         items: true,
-        event: { select: { experienceType: true } },
+        // Title, status and venue: what the cancellation SMS names, and whether the show's
+        // own cancellation already told the buyer (see BOOKING_CANCELLED below).
+        event: {
+          select: {
+            experienceType: true,
+            title: true,
+            status: true,
+            venue: { select: { timezone: true, country: true } },
+          },
+        },
+        eventSession: {
+          select: { startsAt: true, status: true, screen: { select: SHOW_ZONE_SCREEN_SELECT } },
+        },
       },
     });
     if (!booking) {
@@ -1299,6 +1313,45 @@ export class RefundsService {
           stage: settledStatus === RefundStatus.COMPLETED ? 'completed' : 'processing',
         },
       });
+
+      /*
+        ── A PAID BOOKING THAT HAS ENDED: BOOKING_CANCELLED, AS AN SMS ONLY ───────────────
+        Only when this refund ended the booking (nothing live left), in the transaction that
+        ends it, so it commits with the cancellation or not at all.
+
+        SMS only. The email and the inbox already carry REFUND_COMPLETED, written just above;
+        a second email saying the same thing is noise. SMS is not in BOOKING_CANCELLED's policy,
+        so this writes a row only when SMS_TRANSACTIONAL_TYPES names BOOKING_CANCELLED and the
+        account has a verified number in an enabled market. Off (the default), nothing is written.
+
+        The approved wording says "check your account for refund details, if applicable" and
+        claims nothing about the money, so it is true whether the provider has paid
+        (COMPLETED) or only accepted (PROCESSING). No `refundStatus` either: that field means
+        "nothing to refund" to the templates.
+
+        Once per booking: BOOKING_CANCELLED dedupes on the booking id per channel, the same key
+        the free-cancel path uses, and a booking is either free or paid. Not when the show or
+        the event was cancelled: SHOW_CANCELLED is that booking's one message about it.
+      */
+      const showCalledOff =
+        booking.eventSession?.status === SessionStatus.CANCELLED ||
+        booking.event?.status === EventStatus.CANCELLED;
+      if (remainingActive === 0 && !showCalledOff) {
+        await this.notifications.sendCritical(tx, {
+          type: NotificationType.BOOKING_CANCELLED,
+          userId: booking.userId,
+          toEmail: booking.buyerEmail,
+          bookingId: booking.id,
+          channels: ['sms'],
+          payload: {
+            bookingId: booking.id,
+            reference: booking.reference ?? '',
+            eventTitle: booking.event?.title ?? '',
+            startsAt: booking.eventSession?.startsAt?.toISOString() ?? '',
+            timeZone: showTimezone(booking.eventSession?.screen, booking.event?.venue) ?? '',
+          },
+        });
+      }
     });
     await this.audit.record({
       actorUserId: user.id,

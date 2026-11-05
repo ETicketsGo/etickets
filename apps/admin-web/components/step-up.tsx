@@ -14,6 +14,7 @@ import {
   tokenStore,
   type MfaSetupCode,
 } from '@eticketsgo/web-kit';
+import { registerStepUp } from '@/lib/step-up-bridge';
 
 /**
  * Asks for a fresh authenticator code when the API says a sensitive action needs one.
@@ -58,6 +59,12 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
     setMfaSetupHandler((code, message) => setSetup({ code, message }));
     return () => setMfaSetupHandler(null);
   }, []);
+
+  // The same dialog for the requests this app makes itself (`lib/step-up-bridge.ts`).
+  useEffect(() => {
+    registerStepUp(ask, (code, message) => setSetup({ code, message }));
+    return () => registerStepUp(null, null);
+  }, [ask]);
 
   const finish = (ok: boolean) => {
     setOpen(false);

@@ -267,7 +267,7 @@ describe('NotificationService.dispatchDue', () => {
     const summary = await service.dispatchDue(new Date());
     expect(summary).toEqual({ sent: 2, failed: 0, retried: 0 });
     expect(deliver).toHaveBeenCalledTimes(2);
-    expect(prisma.notification.update).toHaveBeenCalledWith(
+    expect(prisma.notification.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'SENT' }) }),
     );
   });
@@ -277,7 +277,7 @@ describe('NotificationService.dispatchDue', () => {
     const { service, prisma } = setup({ dueRows: [row({ id: 'd1', attempts: 0 })], deliver });
     const summary = await service.dispatchDue(new Date(), 3);
     expect(summary).toEqual({ sent: 0, failed: 0, retried: 1 });
-    expect(prisma.notification.update).toHaveBeenCalledWith(
+    expect(prisma.notification.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'd1' },
         data: expect.objectContaining({ attempts: 1, status: 'SCHEDULED', lastError: 'smtp down' }),
@@ -285,12 +285,35 @@ describe('NotificationService.dispatchDue', () => {
     );
   });
 
+  it('a row deleted mid-sweep does not abort the sweep: the next row is still delivered', async () => {
+    /*
+      The flaky CI failure (notification-atomicity) and a real worker race: a row read by the
+      sweep can be deleted before its status is written. A single-row `update` then threw
+      "Record to update not found" and the whole sweep stopped. The write is `updateMany` by
+      id, which matches nothing for a vanished row; the sweep carries on.
+    */
+    const deliver = jest.fn().mockResolvedValue({ provider: 'ses', providerMessageId: 'm' });
+    const { service, prisma } = setup({
+      dueRows: [row({ id: 'gone' }), row({ id: 'still-here' })],
+      deliver,
+    });
+    prisma.notification.updateMany.mockImplementation(({ where }: { where: { id: string } }) =>
+      Promise.resolve({ count: where.id === 'gone' ? 0 : 1 }),
+    );
+    await expect(service.dispatchDue(new Date())).resolves.toBeDefined();
+    expect(deliver).toHaveBeenCalledTimes(2);
+    expect(prisma.notification.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'still-here' } }),
+    );
+    expect(prisma.notification.update).not.toHaveBeenCalled();
+  });
+
   it('on failure reaching maxAttempts: marks FAILED', async () => {
     const deliver = jest.fn().mockRejectedValue(new Error('smtp down'));
     const { service, prisma } = setup({ dueRows: [row({ id: 'd1', attempts: 2 })], deliver });
     const summary = await service.dispatchDue(new Date(), 3);
     expect(summary).toEqual({ sent: 0, failed: 1, retried: 0 });
-    expect(prisma.notification.update).toHaveBeenCalledWith(
+    expect(prisma.notification.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'd1' },
         data: expect.objectContaining({ attempts: 3, status: 'FAILED' }),
@@ -307,8 +330,8 @@ describe('NotificationService.dispatchDue', () => {
  * longer than that permanently failed the message.
  */
 describe('NotificationService.dispatchDue: retry schedule', () => {
-  const updateData = (prisma: { notification: { update: jest.Mock } }) =>
-    prisma.notification.update.mock.calls.at(-1)?.[0].data as Record<string, unknown>;
+  const updateData = (prisma: { notification: { updateMany: jest.Mock } }) =>
+    prisma.notification.updateMany.mock.calls.at(-1)?.[0].data as Record<string, unknown>;
 
   it('pushes a retryable failure into the future instead of leaving it due for the next sweep', async () => {
     const deliver = jest.fn().mockRejectedValue(new Error('socket hang up'));

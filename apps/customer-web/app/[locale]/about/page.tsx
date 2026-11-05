@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata } from '@/lib/seo';
 import { Target, Eye, Cpu, ShieldCheck, Sparkles, Map } from 'lucide-react';
 import {
   Container,
@@ -13,12 +13,11 @@ import { LegalBusinessInformation } from '@/components/legal/legal-business-info
 import { INDIA_OPERATOR_SENTENCE } from '@/lib/legal-entity';
 import { BrandPage } from '@/components/storefront-brand';
 
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/about', {
   title: 'About',
   description:
     'What ETicketsGo is for, who operates it, how we keep tickets and money safe, and what we plan to add next.',
-  alternates: { canonical: '/about' },
-};
+});
 
 export default function AboutPage() {
   return (

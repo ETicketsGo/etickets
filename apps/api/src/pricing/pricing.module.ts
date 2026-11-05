@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TaxModule } from '../tax/tax.module';
 import { PricingService } from './pricing.service';
 import { AdvertisedPriceService } from './advertised-price.service';
+import { FeePolicyResolver } from './fee-policy-resolver.service';
 import {
   FlatPricingStrategy,
   SeatPricingStrategy,
@@ -15,6 +16,7 @@ import { SaleEligibilityService } from './cinema-policy/sale-eligibility.service
   imports: [TaxModule],
   providers: [
     PricingService, // fee calculation (unchanged)
+    FeePolicyResolver, // platform fee overrides and waivers, for live and advertised prices
     AdvertisedPriceService, // what a LISTING advertises, per PRICE_DISPLAY_MODE
     FlatPricingStrategy,
     TierPricingStrategy,
@@ -25,6 +27,7 @@ import { SaleEligibilityService } from './cinema-policy/sale-eligibility.service
   ],
   exports: [
     PricingService,
+    FeePolicyResolver,
     PricingStrategiesService,
     AdvertisedPriceService,
     CinemaPricingPolicyService,

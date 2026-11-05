@@ -427,3 +427,48 @@ describe('proving the caller is who they claim to be', () => {
     expect(verifySharedSecret(undefined, 'anything')).toBe(false);
   });
 });
+
+/**
+ * Which delivery state each SES event type becomes. A Reject is SES refusing the message (not
+ * the address failing); a DeliveryDelay is SES still trying, never a failure.
+ */
+describe('SES event states', () => {
+  const mail = {
+    messageId: 'ses-state',
+    timestamp: '2026-09-07T10:00:00.000Z',
+    destination: ['a@b.test'],
+  };
+
+  it('Reject -> REJECTED, for the envelope destination', () => {
+    const events = parseSesEvent({ eventType: 'Reject', mail, reject: { reason: 'Bad content' } });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      providerMessageId: 'ses-state',
+      providerStatus: 'Reject',
+      eventId: 'ses-state:Reject',
+      state: DeliveryState.REJECTED,
+      destination: 'a@b.test',
+    });
+  });
+
+  it('DeliveryDelay -> ACCEPTED (deferred, still trying), never a failure', () => {
+    const [e] = parseSesEvent({
+      eventType: 'DeliveryDelay',
+      mail,
+      deliveryDelay: { timestamp: '2026-09-07T11:00:00.000Z', delayType: 'MailboxFull' },
+    });
+    expect(e.state).toBe(DeliveryState.ACCEPTED);
+    expect(e.providerStatus).toBe('DeliveryDelay');
+    expect(e.eventId).toBe('ses-state:DeliveryDelay');
+  });
+
+  it('RenderingFailure -> FAILED', () => {
+    const [e] = parseSesEvent({
+      eventType: 'RenderingFailure',
+      mail,
+      failure: { errorMessage: 'Attribute missing', templateName: 't' },
+    });
+    expect(e.state).toBe(DeliveryState.FAILED);
+    expect(e.eventId).toBe('ses-state:RenderingFailure');
+  });
+});

@@ -15,6 +15,7 @@ import {
   useToast,
   errorMessage,
   type AdminStaffMember,
+  type InvitationEmailStatus,
   useAuthUser,
 } from '@eticketsgo/web-kit';
 import { AccountContact, accountContactText } from '../../../components/account-contact';
@@ -97,16 +98,25 @@ export default function StaffPage() {
   });
 
   /*
-    The link for somebody just invited. Held in component state because it is a one-time
-    secret: re-reading the staff list must not reproduce it.
+    Whether the invitation email for somebody just invited left. Never the link: it goes to the
+    invitee's address only, so no administrator holds a credential for an account they did not
+    open (owner decision, 2026-10-26).
   */
-  const [inviteLink, setInviteLink] = useState<{ email: string; url: string } | null>(null);
+  const [inviteSent, setInviteSent] = useState<{
+    email: string;
+    status: InvitationEmailStatus;
+  } | null>(null);
 
   const inviteNew = useMutation({
     mutationFn: () => api.admin.staff.invite(search.trim(), [...selected]),
     onSuccess: (r) => {
-      toast.push('Invitation created. Send them the link.', 'success');
-      setInviteLink({ email: r.email, url: r.inviteUrl });
+      toast.push(
+        r.invitationEmail === 'SENT'
+          ? `Invitation sent to ${r.email}.`
+          : 'Invitation saved, but the email could not be sent.',
+        r.invitationEmail === 'SENT' ? 'success' : 'error',
+      );
+      setInviteSent({ email: r.email, status: r.invitationEmail });
       qc.invalidateQueries({ queryKey: ['admin', 'staff'] });
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
@@ -377,48 +387,30 @@ export default function StaffPage() {
         open={adding}
         onClose={() => {
           setAdding(false);
-          // The link is a one-time secret; it must not still be sitting there next time
-          // somebody opens this dialog for a different person.
-          setInviteLink(null);
+          // Not still sitting there next time somebody opens this dialog for a different person.
+          setInviteSent(null);
         }}
         title="Add back-office staff"
       >
         <div className="space-y-4">
-          {inviteLink && (
+          {inviteSent && (
             <div className="space-y-2 rounded-md border border-border bg-background-canvas p-3">
               <p className="text-[0.9375rem] text-text-primary">
-                Send this link to <strong>{inviteLink.email}</strong>
+                {inviteSent.status === 'SENT' ? (
+                  <>
+                    Invitation sent to <strong>{inviteSent.email}</strong>
+                  </>
+                ) : (
+                  <>
+                    We could not email <strong>{inviteSent.email}</strong>
+                  </>
+                )}
               </p>
               <p className="text-caption text-text-muted">
-                They open it to set a password. It works once and expires in seven days. Their
-                duties are already recorded — the account simply cannot be used until then.
+                {inviteSent.status === 'SENT'
+                  ? 'They open the link in that email, confirm the address with a code and choose a password. It works once and expires in seven days. Their duties are already recorded; the account cannot be used until then.'
+                  : 'Email is not working right now, so nobody has the invitation link. The account cannot be used. Try again once email works.'}
               </p>
-              {/*
-                Readable and selectable, not just a Copy button: clipboard access is blocked
-                in plenty of contexts, and a link nobody can see is one they cannot send by
-                hand when it fails.
-              */}
-              <input
-                readOnly
-                aria-label="Invitation link"
-                value={inviteLink.url}
-                onFocus={(e) => e.currentTarget.select()}
-                className="w-full rounded-md border border-border bg-background-surface px-3 py-2 font-mono text-caption text-text-primary"
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(inviteLink.url);
-                    toast.push('Link copied.', 'success');
-                  } catch {
-                    toast.push('Copy failed — select the link and copy it manually.', 'error');
-                  }
-                }}
-              >
-                Copy
-              </Button>
             </div>
           )}
           <div>

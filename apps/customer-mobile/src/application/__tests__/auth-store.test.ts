@@ -47,6 +47,12 @@ const user = { id: 'u1', email: 'a@b.com', fullName: 'A B', roles: ['CUSTOMER'] 
 jest.mock('@/data/auth-repository', () => ({
   authRepository: {
     login: jest.fn(async () => ({ accessToken: 'a', refreshToken: 'r', user })),
+    verifyPhoneCode: jest.fn(async () => ({
+      accessToken: 'pa',
+      refreshToken: 'pr',
+      user,
+      isNewAccount: false,
+    })),
     me: jest.fn(async () => user),
     logout: jest.fn(async () => undefined),
   },
@@ -189,5 +195,46 @@ describe('hydrate() with an unreachable server', () => {
   it('records a snapshot on login', async () => {
     await useAuthStore.getState().login({ email: 'a@b.com', password: 'x' } as never);
     expect(userState.snapshot).toEqual(user);
+  });
+});
+
+/**
+ * Signing in with a texted code survives the app being closed and opened again.
+ *
+ * The session lives in the keychain (`tokenStore`) and a snapshot of the user beside it; a
+ * fresh launch starts from nothing in memory and has only those to go on. So the test signs in
+ * by phone, throws the in-memory state away as a restart would, and hydrates.
+ */
+describe('phone sign-in persistence across an app restart', () => {
+  const repo = () => authRepository as unknown as { verifyPhoneCode: jest.Mock; me: jest.Mock };
+
+  it('stores the phone session, reports an existing account, and is back after a restart', async () => {
+    const result = await useAuthStore
+      .getState()
+      .loginWithPhone('+919876543210', '123456', { fullName: 'Asha Menon' });
+
+    // The sign-up name is passed through to the API, which applies it only to a NEW account.
+    expect(repo().verifyPhoneCode).toHaveBeenCalledWith('+919876543210', '123456', {
+      fullName: 'Asha Menon',
+    });
+    expect(result).toEqual({ isNewAccount: false });
+    expect(tokenState.tokens).toEqual({ accessToken: 'pa', refreshToken: 'pr' });
+    expect(userState.snapshot).toEqual(user);
+
+    // The restart: nothing in memory, only what is on the device.
+    useAuthStore.setState({ status: 'loading', user: null });
+    await useAuthStore.getState().hydrate();
+
+    expect(useAuthStore.getState().status).toBe('authenticated');
+    expect(useAuthStore.getState().user?.id).toBe('u1');
+    expect(tokenState.tokens).toEqual({ accessToken: 'pa', refreshToken: 'pr' });
+  });
+
+  it('refuses a second-factor challenge rather than storing an empty session', async () => {
+    repo().verifyPhoneCode.mockResolvedValueOnce({ mfaRequired: true, challengeToken: 'c' });
+    await expect(useAuthStore.getState().loginWithPhone('+919876543210', '123456')).rejects.toThrow(
+      /website/,
+    );
+    expect(tokenState.tokens).toBeNull();
   });
 });

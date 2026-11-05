@@ -1,7 +1,7 @@
 # India DLT / SMS template inventory
 
 > **Superseded for template texts and configuration.** The exact wording to register, the
-> variables, the header (DPTRCS, approved; ETKTGO, rejected) and the env keys now live in
+> variables, the headers (ETKTGO and DPTRCS, both approved) and the env keys now live in
 > [notifications/INDIA-DLT-TEMPLATES.md](notifications/INDIA-DLT-TEMPLATES.md), which a unit
 > test keeps identical to the code. This page keeps the history and the failure behaviour.
 
@@ -89,9 +89,19 @@ that would move a credential to a different channel than the one the user chose.
 
 ## 5. What you need to obtain
 
-1. **DLT registration** — done: PE ID recorded, header DPTRCS approved (ETKTGO rejected).
+1. **DLT registration** — done: PE ID recorded; PE-TM chain (MSG91), header ETKTGO and eight
+   templates **approved** (owner statement, 2026-10-25, which replaces the 2026-10-14 record
+   that ETKTGO was rejected). DPTRCS is also approved and still accepted.
 2. **An MSG91 account** with the India SMS route enabled.
-3. **The approved templates** in notifications/INDIA-DLT-TEMPLATES.md, and both ids for each.
+3. **The ids for the approved templates.** Known to the repo: the PE ID, both header names,
+   the wording per kind and the env key names. To be supplied by the owner (never committed):
+   - the 19-digit ETKTGO header ID (a record for the docs; no env key reads it);
+   - for each of the eight approved templates, its 19-digit DLT template id
+     (`DLT_TEMPLATE_ID_<KIND>`) and its MSG91 template id (`MSG91_SMS_TEMPLATE_<KIND>`);
+   - which kind each of the eight is. The code has seven kinds: `OTP`, `SHOW_CANCELLED`,
+     `SHOW_CANCELLED_ONLINE`, `SHOW_CANCELLED_CASH`, `BOOKING_CONFIRMED`, `BOOKING_CANCELLED`,
+     `REFUND_COMPLETED`. The mapping is an **open question**, not recorded here; see
+     notifications/INDIA-DLT-TEMPLATES.md section 1.1.
 4. A decision on `GUEST_BOOKING_ACCESS` (bearer link by SMS: yes or no).
 
 Then set the keys in notifications/INDIA-DLT-TEMPLATES.md section 4.

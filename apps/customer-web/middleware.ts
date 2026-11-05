@@ -1,5 +1,11 @@
+import { NextResponse, type NextRequest } from 'next/server';
 import createMiddleware from 'next-intl/middleware';
 import { routing } from './i18n/routing';
+import { isIndexableDeployment, robotsTagFor } from './lib/indexability.mjs';
+import { signedOutRedirect } from './lib/signed-out-redirect';
+
+/** The prefixes a URL can carry: every locale but the default, which has none (`as-needed`). */
+const PREFIXED_LOCALES = routing.locales.filter((l) => l !== routing.defaultLocale);
 
 /**
  * Decides which language a request is served in, before anything renders.
@@ -9,7 +15,46 @@ import { routing } from './i18n/routing';
  * deliberately absent — IP-based language switching is wrong about bilingual people, wrong
  * about travellers, and cannot be overridden by the person it is wrong about.
  */
-export default createMiddleware(routing);
+const intl = createMiddleware(routing);
+
+/*
+  Read once: both are build arguments, inlined by Next, so they cannot change per request.
+*/
+const INDEXABLE = isIndexableDeployment({
+  siteUrl: process.env.NEXT_PUBLIC_SITE_URL,
+  appEnv: process.env.NEXT_PUBLIC_APP_ENV,
+});
+
+/**
+ * The language decision above, plus one header: `X-Robots-Tag`.
+ *
+ * QA and UAT send `noindex, nofollow` on every page (`next.config.mjs` also sends it on
+ * everything else, static files included). Production sends nothing on www.eticketsgo.com,
+ * and `noindex` when the same build is reached on another public host - the generated
+ * `*.up.railway.app` name - so that copy never competes with the real one. The locale
+ * response itself (redirect, rewrite or pass-through) is returned unchanged otherwise.
+ */
+export default function middleware(request: NextRequest) {
+  /*
+    A signed-out visitor on an account page that only redirects to sign in goes there now,
+    instead of seeing the account page first (`lib/signed-out-redirect.ts`). The cookie is the
+    session hint `tokenStore` writes beside the tokens (`lib/session-hint.ts`).
+  */
+  const signIn = signedOutRedirect(
+    request.nextUrl.pathname,
+    request.cookies.get('etg_session')?.value === '1',
+    PREFIXED_LOCALES,
+  );
+  const response = signIn
+    ? NextResponse.redirect(new URL(signIn, request.url), 307)
+    : intl(request);
+  const tag = robotsTagFor({
+    indexable: INDEXABLE,
+    host: request.headers.get('x-forwarded-host') ?? request.headers.get('host'),
+  });
+  if (tag) response.headers.set('X-Robots-Tag', tag);
+  return response;
+}
 
 export const config = {
   /*
@@ -25,6 +70,18 @@ export const config = {
     — "any character" — and the exclusion then swallows every path with more than one
     character in it, so the middleware runs on `/` alone and every other route 404s while
     looking exactly like a routing problem.
+
+    `opengraph-image` and `twitter-image` are the sharing pictures (`app/opengraph-image.tsx`).
+    They have no extension in their URL and no locale; sent through the locale rewrite they
+    would be looked for under `/en/` and answer 404.
+
+    Unsubscribe links carry a signed token `<payload>.<signature>`. The pattern above skips every
+    path with a dot (static files), so those links never got their locale and answered 404. They
+    are listed explicitly.
   */
-  matcher: ['/((?!api|_next|_vercel|.*\\..*).*)'],
+  matcher: [
+    '/((?!api|_next|_vercel|opengraph-image|twitter-image|.*\\..*).*)',
+    '/unsubscribe/:token*',
+    '/:locale/unsubscribe/:token*',
+  ],
 };

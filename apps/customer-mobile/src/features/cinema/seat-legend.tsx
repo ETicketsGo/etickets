@@ -42,11 +42,11 @@ export function SeatLegend({
                   borderRadius: 3,
                   backgroundColor: style.fill,
                   borderColor: style.border,
-                  borderWidth: 1,
+                  borderWidth: state === 'selected' ? 2 : 1,
                   opacity: style.opacity,
                 }}
               />
-              <Text variant="caption" tone="muted">
+              <Text variant="meta" tone="onStage2">
                 {label}
               </Text>
             </View>
@@ -65,11 +65,11 @@ export function SeatLegend({
                   borderRadius: 7,
                   // The server supplies a zone colour; fall back to a neutral dot rather
                   // than inventing one, so a missing colour is visibly missing.
-                  backgroundColor: c.colorHex ?? '#94A3B8',
+                  backgroundColor: c.colorHex ?? '#ADA497',
                 }}
               />
-              <Text variant="caption" tone="muted">
-                {c.name} · {formatMoney(c.priceMinor, currency)}
+              <Text variant="meta" tone="onStage2">
+                {c.name} - {formatMoney(c.priceMinor, currency)}
                 {c.ticketTypeId ? '' : ' (not on sale)'}
               </Text>
             </View>

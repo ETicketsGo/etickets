@@ -20,8 +20,15 @@ import { regionMatches } from '@eticketsgo/shared-types';
  * alternative — guessing — over- or under-charges real customers.
  */
 
-/** What a rule is levied on. Mirrors the `TaxBase` enum in the Prisma schema. */
-export type TaxBaseKind = 'TICKETS' | 'FEES' | 'TICKETS_AND_FEES' | 'MAINTENANCE';
+/**
+ * What a rule is levied on. Mirrors the `TaxBase` enum in the Prisma schema.
+ *
+ * PLATFORM_SERVICES is the platform's own service to an organizer (plans, credit packs). It is
+ * never a base of a ticket order (`baseFor` returns 0 for it); organizer billing rates it as a
+ * fee in billing-tax.service.ts.
+ */
+export type TaxBaseKind =
+  'TICKETS' | 'FEES' | 'TICKETS_AND_FEES' | 'MAINTENANCE' | 'PLATFORM_SERVICES';
 
 /**
  * How one levy is presented once the place of supply is known.

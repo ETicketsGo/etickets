@@ -25,35 +25,116 @@ replace them.
 2026-10-10. Seeded and bootstrapped
 accounts are `SUPER_ADMIN` and hold everything by role, so this column does not list them.
 
-| Capability                    | What it allows                                                                                                                                                                                      | Presets                                  | Added by the approved preset change (2026-10-10)         |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | -------------------------------------------------------- |
-| `BOOKING_READ`                | See bookings, payments, movies, the dashboard, the support inbox, and the user directory (no longer the audit log: see `AUDIT_READ`)                                                                | SUPPORT, REFUND_DESK, FINANCE            | -                                                        |
-| `ORGANIZER_READ`              | See organizations, their events and their status                                                                                                                                                    | SUPPORT, REFUND_DESK, MODERATOR          | -                                                        |
-| `FINANCE_READ`                | See revenue reports, analytics, compensations (and their dry run), discrepancies (list, CSV, aging), disputes, and notification costs                                                               | FINANCE                                  | -                                                        |
-| `OPS_READ`                    | See queue health, failed jobs, the outbox, inventory sync health and mappings, the maintenance flag, feature flags, and notification delivery and readiness                                         | OPERATIONS                               | OPERATIONS                                               |
-| `REFUND_REVIEW`               | See the refund queue and record a decision that moves no money                                                                                                                                      | REFUND_DESK, FINANCE                     | -                                                        |
-| `REFUND_APPROVE`              | Approve a refund. Money leaves the platform (checked in `RefundsService`)                                                                                                                           | FINANCE                                  | -                                                        |
-| `ORGANIZER_REVIEW`            | Approve or reject organizers; suspend, delete, edit legal identity, set auto-approve                                                                                                                | MODERATOR                                | -                                                        |
-| `EVENT_REVIEW`                | Approve or reject events, set event status                                                                                                                                                          | MODERATOR                                | -                                                        |
-| `PLATFORM_CONFIG_READ` (#291) | See fee rules, tax rules, cinema pricing policies                                                                                                                                                   | FINANCE                                  | FINANCE                                                  |
-| `PLATFORM_CONFIG`             | Change fee, tax and cinema pricing rules; maintenance mode; AI console; notification rates, resend and SNS; test sends                                                                              | none                                     | -                                                        |
-| `PAYOUT_MANAGE`               | Open payouts and settlements, see masked accounts, show one account number (audited), edit payout terms, block a settlement. Verify, pay and release now also need `BANK_VERIFY` / `PAYOUT_EXECUTE` | FINANCE, FINANCE_VERIFIER, FINANCE_PAYER | -                                                        |
-| `BANK_VERIFY`                 | Verify or turn down an organizer bank account (with `PAYOUT_MANAGE`). Never allowed to also pay into an account the holder verified                                                                 | FINANCE_VERIFIER                         | proposed, see docs/pilot/FINANCE-SEPARATION-OF-DUTIES.md |
-| `PAYOUT_EXECUTE`              | Mark a payout paid or failed, approve and release a settlement (with `PAYOUT_MANAGE`). Refused for the verifier of the account                                                                      | FINANCE_PAYER                            | proposed, see docs/pilot/FINANCE-SEPARATION-OF-DUTIES.md |
-| `PAYMENT_ADMIN`               | Payment provider config, routes, onboarding, promotion, outage; reconciliation findings resolve; unresolved-money recheck                                                                           | none                                     | -                                                        |
-| `ADMIN_MANAGE`                | Create back-office accounts and change their capabilities                                                                                                                                           | none                                     | -                                                        |
-| `OPS_EXECUTE`                 | Retry failed queue jobs; retry, batch-retry, cancel, park and recover outbox events; reprocess, park, retry, reconcile, re-map and reset the checkpoint of an inventory sync                        | OPERATIONS                               | OPERATIONS                                               |
-| `FINANCE_APPROVE`             | Approve, retry or release the lease of a booking compensation, which lets it execute                                                                                                                | FINANCE                                  | FINANCE                                                  |
-| `FINANCE_RESOLVE`             | Run discrepancy detection; assign, resolve or ignore a discrepancy; park a compensation for manual review                                                                                           | FINANCE                                  | FINANCE                                                  |
-| `SUPPORT_MANAGE`              | Change the status (open, triaged, closed) of a support submission or complaint                                                                                                                      | SUPPORT                                  | SUPPORT                                                  |
-| `AUDIT_READ`                  | Search the audit log and read a record's history (`GET /admin/audit`, `/admin/audit/summary`)                                                                                                       | FINANCE_REVIEWER                         | sec/admin-authorization                                  |
-| `USER_SUSPEND`                | Suspend or reinstate any account, and sign it out everywhere (`POST /admin/users/:id/suspend`, `/reinstate`, `/revoke-sessions`). Step-up MFA. Not your own; a super admin only by a super admin    | none                                     | sec/admin-authorization                                  |
+| Capability                    | What it allows                                                                                                                                                                                                                                   | Presets                                  | Added by the approved preset change (2026-10-10)         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- | -------------------------------------------------------- |
+| `BOOKING_READ`                | See bookings, payments, movies, the dashboard, the support inbox, and the user directory (no longer the audit log: see `AUDIT_READ`)                                                                                                             | SUPPORT, REFUND_DESK, FINANCE            | -                                                        |
+| `ORGANIZER_READ`              | See organizations, their events and their status                                                                                                                                                                                                 | SUPPORT, REFUND_DESK, MODERATOR          | -                                                        |
+| `FINANCE_READ`                | See revenue reports, analytics, compensations (and their dry run), discrepancies (list, CSV, aging), disputes, and notification costs                                                                                                            | FINANCE                                  | -                                                        |
+| `OPS_READ`                    | See queue health, failed jobs, the outbox, inventory sync health and mappings, the maintenance flag, feature flags, and notification delivery and readiness                                                                                      | OPERATIONS                               | OPERATIONS                                               |
+| `REFUND_REVIEW`               | See the refund queue and record a decision that moves no money                                                                                                                                                                                   | REFUND_DESK, FINANCE                     | -                                                        |
+| `REFUND_APPROVE`              | Approve a refund. Money leaves the platform (checked in `RefundsService`)                                                                                                                                                                        | FINANCE                                  | -                                                        |
+| `ORGANIZER_REVIEW`            | Approve or reject organizers; suspend, delete, edit legal identity, set auto-approve                                                                                                                                                             | MODERATOR                                | -                                                        |
+| `EVENT_REVIEW`                | Approve or reject events, set event status                                                                                                                                                                                                       | MODERATOR                                | -                                                        |
+| `PLATFORM_CONFIG_READ` (#291) | See fee rules, tax rules, cinema pricing policies                                                                                                                                                                                                | FINANCE                                  | FINANCE                                                  |
+| `PLATFORM_CONFIG`             | Change fee, tax and cinema pricing rules; maintenance mode; AI console; notification rates, resend and SNS; test sends                                                                                                                           | none                                     | -                                                        |
+| `PAYOUT_MANAGE`               | Open payouts and settlements, see masked accounts, show one account number (audited), edit payout terms, block a settlement. Verify, pay and release now also need `BANK_VERIFY` / `PAYOUT_EXECUTE`                                              | FINANCE, FINANCE_VERIFIER, FINANCE_PAYER | -                                                        |
+| `BANK_VERIFY`                 | Verify or turn down an organizer bank account (with `PAYOUT_MANAGE`). Never allowed to also pay into an account the holder verified                                                                                                              | FINANCE_VERIFIER                         | proposed, see docs/pilot/FINANCE-SEPARATION-OF-DUTIES.md |
+| `PAYOUT_EXECUTE`              | Mark a payout paid or failed, approve and release a settlement (with `PAYOUT_MANAGE`). Refused for the verifier of the account                                                                                                                   | FINANCE_PAYER                            | proposed, see docs/pilot/FINANCE-SEPARATION-OF-DUTIES.md |
+| `PAYMENT_ADMIN`               | Payment provider config, routes, onboarding, promotion, outage; reconciliation findings resolve; unresolved-money recheck                                                                                                                        | none                                     | -                                                        |
+| `ADMIN_MANAGE`                | Create back-office accounts and change their capabilities                                                                                                                                                                                        | none                                     | -                                                        |
+| `OPS_EXECUTE`                 | Retry failed queue jobs; retry, batch-retry, cancel, park and recover outbox events; reprocess, park, retry, reconcile, re-map and reset the checkpoint of an inventory sync                                                                     | OPERATIONS                               | OPERATIONS                                               |
+| `FINANCE_APPROVE`             | Approve, retry or release the lease of a booking compensation, which lets it execute                                                                                                                                                             | FINANCE                                  | FINANCE                                                  |
+| `FINANCE_RESOLVE`             | Run discrepancy detection; assign, resolve or ignore a discrepancy; park a compensation for manual review                                                                                                                                        | FINANCE                                  | FINANCE                                                  |
+| `SUPPORT_MANAGE`              | Change the status (open, triaged, closed) of a support submission or complaint                                                                                                                                                                   | SUPPORT                                  | SUPPORT                                                  |
+| `AUDIT_READ`                  | Search the audit log and read a record's history (`GET /admin/audit`, `/admin/audit/summary`)                                                                                                                                                    | FINANCE_REVIEWER                         | sec/admin-authorization                                  |
+| `USER_SUSPEND`                | Suspend or reinstate any account, and sign it out everywhere (`POST /admin/users/:id/suspend`, `/reinstate`, `/revoke-sessions`). Step-up MFA. Not your own; a super admin only by a super admin                                                 | none                                     | sec/admin-authorization                                  |
+| `CRM_AGENT`                   | Organizer acquisition CRM only (`/admin/crm/*`): add prospects, work the leads assigned to them in their CRM team, log outreach (logged, never sent), keep their own follow-ups, see their own dashboard. Opens nothing outside the CRM          | CRM_AGENT, CRM_MANAGER                   | feat/organizer-acquisition-crm                           |
+| `CRM_MANAGER`                 | With `CRM_AGENT`, in teams where the holder is the team's MANAGER: every lead in the team, assign and reassign, reopen lost leads, link a lead to an EXISTING organization, import and export leads, team reports. Opens nothing outside the CRM | CRM_MANAGER                              | feat/organizer-acquisition-crm                           |
+| `BILLING_READ`                | Organizer billing only (`GET /admin/billing/*`): plans, prices, credit pack prices, subscriptions, an organization's billing account, invoices, usage ledger, overrides, billing metrics. Changes nothing                                        | FINANCE, FINANCE_REVIEWER, BILLING_DESK  | owner decision 2026-10-27                                |
+| `BILLING_MANAGE`              | Load the plan catalogue; edit plans, plan entitlements and prices; switch a price off; set, publish and unpublish credit pack prices. Step-up MFA                                                                                                | BILLING_DESK (and SUPER_ADMIN by role)   | owner decision 2026-10-27                                |
+| `BILLING_ADJUST`              | Billing operations: grant or end a trial or complimentary plan, grant marketing credits, record a discount, follow up failed payments. Never on a paid subscription. Step-up MFA                                                                 | FINANCE, BILLING_DESK                    | owner decision 2026-10-27                                |
+| `ENTITLEMENT_GRANT`           | Grant or revoke one entitlement for one organization, for a window, outside its plan. Step-up MFA                                                                                                                                                | BILLING_DESK                             | proposed, feat/entitlements-billing-core                 |
 
 Sensitive: `OPS_EXECUTE`, `FINANCE_APPROVE` and `FINANCE_RESOLVE` replay jobs and syncs, let
 compensations execute, or close money findings. When they were split out of the reads, nobody was
 granted them. The owner has since approved putting them in presets (see "Preset change approved
 by the owner"). A preset applies only when somebody assigns it on Staff & duties. No migration
 assigns a capability, and no existing account changed.
+
+## Organizer acquisition CRM (branch `feat/organizer-acquisition-crm`)
+
+- **Two capabilities, one scope.** `CRM_AGENT` and `CRM_MANAGER` are ordinary capabilities in the
+  catalogue (granted on Staff & duties by an `ADMIN_MANAGE` holder; presets "Acquisition agent" and
+  "Acquisition manager"). Inside `/admin/crm`, what a holder sees is narrowed again by `CrmTeamMember`
+  rows (one team per country, IN and US seeded): MANAGER role + `CRM_MANAGER` = every lead in that
+  team; any other membership = only the leads assigned to you; no membership = nothing. A super admin
+  sees every team, by role.
+- **Nothing outside the CRM.** Neither capability is read by any other route.
+  `crm-boundary.http.integration-postgres.spec.ts` calls bookings, payments, users, payouts,
+  settlements, revenue reports, payment config, fee/tax/cinema rules, ops, staff, audit, organizer
+  review and an organizer's own console with an agent-only token and expects every one refused.
+- **IDOR.** A lead outside the caller's scope is answered 404, as for one that does not exist.
+- **No self-escalation.** Nobody changes their own team membership; managers add or remove AGENTS
+  only in teams they manage; only a super admin creates teams or appoints / removes a MANAGER.
+  Membership changes need a recent second factor (`@RequiresRecentMfa`).
+- **Conversion never touches an organization.** Linking a lead to an organization only writes the
+  lead (unique: one organization, at most one lead). "Activated" is derived from the organization's
+  own status (APPROVED) and is the only way the manual ACTIVATED stage can be set.
+- **Audit.** Lead create/edit (field names only), assign, stage change, archive, link/unlink, import
+  and export (counts only), follow-up reassignment and team membership changes are audited with ids;
+  prospect contact details are never copied into audit metadata.
+
+## Organizer billing and entitlements (branch `feat/entitlements-billing-core`)
+
+- **Four capabilities, one surface.** `BILLING_READ` is the class floor of `/admin/billing`. Each
+  write names its own capability and never a read one: `BILLING_MANAGE` (catalogue),
+  `BILLING_ADJUST` (offers), `ENTITLEMENT_GRANT` (single-feature overrides). Every write needs a
+  recent second factor (`@RequiresRecentMfa`); both step-up spec lists name all 13 writes.
+- **Presets (owner decision 2026-10-27).**
+  - **Super admin** (`SUPER_ADMIN` role, not a preset) holds all four billing capabilities by role
+    (`permissionsFor`), including the catalogue, prices, credit pack prices and publication.
+  - **Finance** (FINANCE) holds `BILLING_READ` + `BILLING_ADJUST`: billing operations - credits,
+    complimentary plans and trials, discounts, failed-payment follow-up. NOT `BILLING_MANAGE`
+    (catalogue, plan and credit pack prices) and NOT `ENTITLEMENT_GRANT` (single-feature overrides).
+  - **Finance reviewer** (FINANCE_REVIEWER) holds `BILLING_READ` only.
+  - BILLING_DESK = ORGANIZER_READ + the four billing capabilities, granted to nobody until the
+    owner names people. No other bundle carries `BILLING_MANAGE` or `ENTITLEMENT_GRANT`, and only
+    FINANCE and BILLING_DESK carry `BILLING_ADJUST` (`admin-presets.spec.ts`).
+- **Organizer side.** Only the organization OWNER starts a plan checkout, buys a credit pack,
+  opens the provider portal or cancels; managers read the billing page and invoices only
+  (`billing.controller.ts`, held by `billing-owner-only.spec.ts`).
+- **Nothing outside billing.** None of the four is read by any other route. Billing moves no
+  ticket money and opens no booking, payout or bank data. Fee waivers on ticket sales are a
+  separate workstream and are not here.
+- **Organizer API.** `GET /organizations/:id/entitlements` (any member), `GET /organizations/:id/billing`
+  and `/billing/invoices` (owner, manager) are `NONE` for staff; `POST /organizations/:id/billing/checkout`
+  is `@OrganizerOnly('billing.checkout')` and refused with `BILLING_NOT_ENABLED` while billing is off.
+  The credit-pack checkout, `/billing/portal` and `/billing/cancel` are `@OrganizerOnly` too (owner
+  only); `GET /billing/invoices/:invoiceId/html` is `NONE` for staff, like the invoice list.
+  The billing webhooks (`POST /billing/webhooks/{stripe,razorpay}`) are public and signature-verified.
+- **Audit.** Every billing write records its AuditLog row in the same transaction as the change
+  (`BILLING_*`, `ENTITLEMENT_OVERRIDE_*`), with actor, organization, entity and reason.
+- **Tests.** `billing/billing-admin-authz.spec.ts` (real HTTP through the real guards: each route
+  runs for its holder, is refused to every other billing capability alone, to CRM, finance and
+  config holders, organizers and customers, opens to a preset exactly when it carries the
+  capability); `admin/step-up-routes.spec.ts` (each write through the real MfaGuard);
+  `billing/billing.integration-postgres.spec.ts` (cross-tenant refusal on real Postgres).
+
+## Organizer email campaigns (branch `feat/organizer-campaigns`)
+
+- **No new capability.** `/admin/campaigns` (the list) and `/admin/campaigns/health` (bounce and
+  complaint rates) read under `ORGANIZER_READ`: they are a view of what organizers do. Pausing a
+  campaign and lifting a staff pause (`POST /admin/campaigns/:campaignId/pause`, `/release`) need
+  `ORGANIZER_REVIEW`, the capability that already approves or suspends an organizer, and a recent
+  second factor. Both step-up spec lists name them. No admin route returns a recipient or an
+  address.
+- **Organizer API.** Every `/organizations/:id/campaigns/*` route is `NONE` for staff, except
+  `test-send`, `schedule` and `send`, which are `@OrganizerOnly` (mail under the organization's
+  name is its own decision). Owners and managers only, and each route also checks the plan
+  entitlement (`@RequiresEntitlement`, then again in the service).
+- **Audit.** `CAMPAIGN_*` rows for create, schedule, send confirmed, pause, resume, cancel, test
+  sends, system pauses, and `CAMPAIGN_PAUSED_BY_ADMIN` / `CAMPAIGN_RELEASED_BY_ADMIN` with the
+  staff member and reason.
 
 ## Admin authorization hardening (branch `sec/admin-authorization`)
 
@@ -115,7 +196,7 @@ These stay on the read capability on purpose:
 
 | Route                               | Read needs           | Write needs     |
 | ----------------------------------- | -------------------- | --------------- |
-| `/admin/fee-rules/**`               | PLATFORM_CONFIG_READ | PLATFORM_CONFIG |
+| `/admin/fee-rules/**` (writes: 410) | PLATFORM_CONFIG_READ | PLATFORM_CONFIG |
 | `/admin/tax-rules/**`               | PLATFORM_CONFIG_READ | PLATFORM_CONFIG |
 | `/admin/cinema-pricing-policies/**` | PLATFORM_CONFIG_READ | PLATFORM_CONFIG |
 | `/admin/ops/maintenance`            | OPS_READ             | PLATFORM_CONFIG |
@@ -413,10 +494,17 @@ do these on `/admin` instead, where each has its own capability:
 | `/organizers/:organizerId/payments/razorpay/*`             | `payments.razorpay-route`            |
 | `GET /organizations/:organizationId/receipts`              | `organization.receipts.list`         |
 | `GET /organizations/:organizationId/refunds`               | `organization.refunds.list`          |
+| `POST /organizations/:id/billing/checkout`                 | `billing.checkout`                   |
+| `POST /organizations/:id/billing/credit-packs/checkout`    | `billing.checkout`                   |
+| `POST /organizations/:id/billing/portal`                   | `billing.portal`                     |
+| `POST /organizations/:id/billing/cancel`                   | `billing.cancel`                     |
+| `POST /organizations/:id/campaigns/:campaignId/test-send`  | `campaigns.test-send`                |
+| `POST /organizations/:id/campaigns/:campaignId/schedule`   | `campaigns.schedule`                 |
+| `POST /organizations/:id/campaigns/:campaignId/send`       | `campaigns.send`                     |
 
 ### Every other route
 
-`apps/api/src/tenancy/organizer-route-policy.spec.ts` lists **all 226** non-admin, non-public
+`apps/api/src/tenancy/organizer-route-policy.spec.ts` lists **all** non-admin, non-public (259 as of `feat/entitlements-billing-core`)
 routes, each with its staff policy. If a route is added without an entry, the build fails. The
 policies are:
 

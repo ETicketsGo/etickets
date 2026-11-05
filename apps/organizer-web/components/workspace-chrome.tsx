@@ -8,6 +8,7 @@ import {
   WorkspaceAccent,
 } from '@eticketsgo/web-kit';
 import { useActiveOrgId } from './org-context';
+import { usableOrganizations } from '@/lib/suspension';
 
 /**
  * Who this workspace belongs to, read from above the organization provider.
@@ -44,13 +45,17 @@ export function useWorkspace(): {
   can: OrgPermissions;
   /** This member's role in THIS organization, in words: the line under their name. */
   roleLabel: string | null;
+  /** Where the organization is registered: decides which DeepTrics company the footer names. */
+  registeredCountry: string | null;
 } {
   const activeId = useActiveOrgId();
   const { data } = useQuery({
     queryKey: ['organizations', 'mine'],
     queryFn: () => api.organizations.listMine(),
   });
-  const org = data?.find((o) => o.id === activeId) ?? data?.[0];
+  // Never a suspended organization: its name does not head a console it cannot use.
+  const usable = data ? usableOrganizations(data) : undefined;
+  const org = usable?.find((o) => o.id === activeId) ?? usable?.[0];
   /*
     A neutral placeholder rather than "ETicketsGo" while the name is in flight. Painting the
     platform's name into the organizer's masthead and then swapping it a moment later is worse
@@ -69,6 +74,7 @@ export function useWorkspace(): {
     */
     can: orgPermissions(org?.myRole),
     roleLabel: ORG_ROLE_LABEL[org?.myRole ?? ''] ?? null,
+    registeredCountry: org?.registeredCountry ?? null,
   };
 }
 

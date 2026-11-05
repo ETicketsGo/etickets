@@ -35,14 +35,27 @@ function makeService(over: Record<string, unknown> = {}) {
     payout: { count: jest.fn().mockResolvedValue(0) },
     settlement: { count: jest.fn().mockResolvedValue(0) },
     organizerPayoutAccount: { findMany: jest.fn().mockResolvedValue([]) },
-    $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
-      fn({
-        booking: { count: jest.fn().mockResolvedValue(0) },
-        organization: { delete: jest.fn().mockResolvedValue({ id: 'org-1' }) },
-      }),
-    ),
+    checkInDevice: {
+      findMany: jest.fn().mockResolvedValue([{ id: 'dev-1' }, { id: 'dev-2' }]),
+      updateMany: jest.fn().mockResolvedValue({ count: 2 }),
+      count: jest.fn().mockResolvedValue(2),
+    },
+    offlineActivation: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    $transaction: undefined as unknown,
     ...over,
   };
+  // The transaction sees the same doubles, so a test reads what was written inside it.
+  prisma.$transaction ??= jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+    fn({
+      booking: { count: jest.fn().mockResolvedValue(0) },
+      organization: {
+        delete: jest.fn().mockResolvedValue({ id: 'org-1' }),
+        update: prisma.organization.update,
+      },
+      checkInDevice: prisma.checkInDevice,
+      offlineActivation: prisma.offlineActivation,
+    }),
+  );
   return {
     service: new OrganizationLifecycleService(prisma as never, audit as never),
     prisma,
@@ -72,9 +85,72 @@ describe('suspending an organizer', () => {
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'ORGANIZATION_SUSPENDED',
-        metadata: { previousStatus: 'APPROVED', reason: 'Unanswered compliance request' },
+        metadata: expect.objectContaining({
+          previousStatus: 'APPROVED',
+          reason: 'Unanswered compliance request',
+        }),
       }),
     );
+  });
+
+  it('revokes every check-in device and offline activation in the same transaction', async () => {
+    /*
+      Owner decision (2026-10-26): a suspended organization loses check-in authorization. The
+      devices are revoked with the status change, not by a later sweep, and each is audited.
+    */
+    const { service, prisma, audit } = makeService();
+
+    await service.setSuspended(admin, 'org-1', true, 'Complaint under review');
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.checkInDevice.findMany).toHaveBeenCalledWith({
+      where: { organizationId: 'org-1', status: { not: 'REVOKED' } },
+      select: { id: true },
+    });
+    expect(prisma.checkInDevice.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['dev-1', 'dev-2'] } },
+      data: {
+        status: 'REVOKED',
+        revokedAt: expect.any(Date),
+        revokeReason: 'ORGANIZATION_SUSPENDED',
+        revokeReasons: {
+          push: expect.stringMatching(/^\d{4}-\d\d-\d\dT.*Z ORGANIZATION_SUSPENDED$/),
+        },
+      },
+    });
+    // Devices already revoked for another reason keep it; the suspension is appended.
+    expect(prisma.checkInDevice.updateMany).toHaveBeenCalledWith({
+      where: { organizationId: 'org-1', status: 'REVOKED', id: { notIn: ['dev-1', 'dev-2'] } },
+      data: {
+        revokeReasons: {
+          push: expect.stringMatching(/^\d{4}-\d\d-\d\dT.*Z ORGANIZATION_SUSPENDED$/),
+        },
+      },
+    });
+    expect(prisma.offlineActivation.updateMany).toHaveBeenCalledWith({
+      where: { organizationId: 'org-1', state: 'ACTIVE' },
+      data: expect.objectContaining({ state: 'REVOKED', revokedByUserId: 'admin-1' }),
+    });
+    const actions = audit.record.mock.calls.map((c) => c[0]);
+    expect(actions.filter((e) => e.action === 'CHECKIN_DEVICE_REVOKED')).toHaveLength(2);
+    expect(actions.find((e) => e.action === 'ORGANIZATION_SUSPENDED')?.metadata).toMatchObject({
+      checkInDevicesRevoked: 2,
+      offlineActivationsRevoked: 1,
+    });
+  });
+
+  it('does not bring any device back when it reinstates', async () => {
+    const { service, prisma } = makeService({
+      organization: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'org-1', name: 'A', status: 'SUSPENDED' }),
+        update: jest.fn().mockResolvedValue({ id: 'org-1', status: 'APPROVED' }),
+      },
+    });
+
+    await service.setSuspended(admin, 'org-1', false);
+
+    expect(prisma.checkInDevice.updateMany).not.toHaveBeenCalled();
+    expect(prisma.offlineActivation.updateMany).not.toHaveBeenCalled();
   });
 
   it('reinstates to APPROVED, not back into the review queue', async () => {

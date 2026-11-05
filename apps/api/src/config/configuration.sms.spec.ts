@@ -223,13 +223,30 @@ describe('loadConfig: SMS', () => {
       expect(() => loadConfig()).not.toThrow();
     });
 
-    it('refuses the rejected ETKTGO header by name', () => {
-      process.env = env({ DLT_SENDER_HEADER: 'ETKTGO', MSG91_SENDER_ID: 'ETKTGO' });
-      expect(() => loadConfig()).toThrow(/ETKTGO was REJECTED/);
+    // Owner, 2026-10-25: header ETKTGO, the PE-TM chain and eight templates are approved.
+    it('accepts ETKTGO when configured with valid ids', () => {
+      process.env = env({
+        DLT_SENDER_HEADER: 'ETKTGO',
+        MSG91_SENDER_ID: 'ETKTGO',
+        DLT_PRINCIPAL_ENTITY_ID: '1701179092181018311',
+        MSG91_SMS_TEMPLATE_OTP: 'tmpl-otp',
+        DLT_TEMPLATE_ID_OTP: '1707000000000000009',
+      });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it('refuses MSG91_SENDER_ID that differs from DLT_SENDER_HEADER', () => {
+      process.env = env({ DLT_SENDER_HEADER: 'ETKTGO', MSG91_SENDER_ID: 'DPTRCS' });
+      expect(() => loadConfig()).toThrow(/DLT_SENDER_HEADER and MSG91_SENDER_ID disagree/);
     });
 
     it('refuses a header that is not six letters', () => {
       process.env = env({ DLT_SENDER_HEADER: 'DPTRC5', MSG91_SENDER_ID: 'DPTRC5' });
+      expect(() => loadConfig()).toThrow(/six-letter DLT header/);
+    });
+
+    it('refuses an ETKTGO-like header that is not six letters', () => {
+      process.env = env({ DLT_SENDER_HEADER: 'ETKTG', MSG91_SENDER_ID: 'ETKTG' });
       expect(() => loadConfig()).toThrow(/six-letter DLT header/);
     });
 
@@ -264,7 +281,7 @@ describe('loadConfig: SMS', () => {
     it('accepts an OTP_SMS_TEMPLATE identical to the registered wording', () => {
       process.env = env({
         OTP_SMS_TEMPLATE:
-          '{code} is your ETicketsGo sign-in code. It expires in {minutes} minutes. Never share it with anyone.',
+          'Your ETicketsGo verification code is {code}. Valid for 5 minutes. Do not share this code.',
       });
       expect(() => loadConfig()).not.toThrow();
     });
@@ -279,6 +296,59 @@ describe('loadConfig: SMS', () => {
         MSG91_SMS_BODY_VAR: 'body',
       });
       expect(() => loadConfig()).not.toThrow();
+    });
+  });
+
+  describe('SMS_TRANSACTIONAL_TYPES', () => {
+    it('boots with the setting absent (the default: no type sends an SMS)', () => {
+      process.env = env({ APP_ENV: 'DEV', NODE_ENV: 'development' });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it('boots with eligible types named', () => {
+      process.env = env({
+        APP_ENV: 'DEV',
+        NODE_ENV: 'development',
+        SMS_TRANSACTIONAL_TYPES:
+          'BOOKING_CONFIRMED, booking_cancelled,PASSWORD_CHANGED,EVENT_REMINDER',
+      });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it.each(['PASSWORD_RESET_REQUESTED', 'SHOW_CANCELLED', 'PAYMENT_PENDING', 'NOT_A_TYPE'])(
+      'refuses %s, which may not send a transactional SMS',
+      (name) => {
+        process.env = env({
+          APP_ENV: 'DEV',
+          NODE_ENV: 'development',
+          SMS_TRANSACTIONAL_TYPES: `BOOKING_CONFIRMED,${name}`,
+        });
+        expect(() => loadConfig()).toThrow(new RegExp(`SMS_TRANSACTIONAL_TYPES names ${name}`));
+      },
+    );
+  });
+  describe('SMS_TRANSACTIONAL_MARKETS', () => {
+    it('boots with the setting absent (the default: India only)', () => {
+      process.env = env({ APP_ENV: 'DEV', NODE_ENV: 'development' });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it('boots with IN, US and CA named', () => {
+      process.env = env({
+        APP_ENV: 'DEV',
+        NODE_ENV: 'development',
+        SMS_TRANSACTIONAL_MARKETS: 'IN, us,CA',
+      });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it.each(['GB', 'XX'])('refuses %s, which has no SMS path', (name) => {
+      process.env = env({
+        APP_ENV: 'DEV',
+        NODE_ENV: 'development',
+        SMS_TRANSACTIONAL_MARKETS: `IN,${name}`,
+      });
+      expect(() => loadConfig()).toThrow(new RegExp(`SMS_TRANSACTIONAL_MARKETS names ${name}`));
     });
   });
 });

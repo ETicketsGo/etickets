@@ -2,14 +2,32 @@ import { Body, Controller, Delete, Get, Patch, Query, Req } from '@nestjs/common
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { z } from 'zod';
-import { AdminPermission, Role, UserStatus } from '@eticketsgo/shared-types';
+import { AdminPermission, Role, UserStatus, isResidenceCountry } from '@eticketsgo/shared-types';
 import { paginationSchema } from '@eticketsgo/validation';
 import { UsersService } from './users.service';
 import { AccountDeletionService } from './account-deletion.service';
 import { CurrentUser, RequiresAdmin, Roles } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
-const updateProfileSchema = z.object({ fullName: z.string().trim().min(2).max(120) });
+/*
+  Both fields optional, at least one present: the profile name form sends only `fullName`
+  (unchanged), the residence picker sends only `countryOfResidence`. `null` clears the
+  residence - "I would rather not say" is a real answer.
+*/
+export const updateProfileSchema = z
+  .object({
+    fullName: z.string().trim().min(2).max(120).optional(),
+    countryOfResidence: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .refine(isResidenceCountry, 'Choose a country from the list.')
+      .nullable()
+      .optional(),
+  })
+  .refine((b) => b.fullName !== undefined || b.countryOfResidence !== undefined, {
+    message: 'Nothing to update.',
+  });
 
 /**
  * Optional coarse reason for leaving. Bounded here and reduced to a known category by
@@ -40,9 +58,10 @@ export class UsersController {
   @ApiOperation({ summary: 'Update the current user profile.' })
   updateMe(
     @CurrentUser('id') userId: string,
-    @Body(new ZodValidationPipe(updateProfileSchema)) body: { fullName: string },
+    @Body(new ZodValidationPipe(updateProfileSchema))
+    body: { fullName?: string; countryOfResidence?: string | null },
   ) {
-    return this.users.updateProfile(userId, body.fullName);
+    return this.users.updateProfile(userId, body);
   }
 
   /**

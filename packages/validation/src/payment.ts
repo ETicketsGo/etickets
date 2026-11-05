@@ -8,9 +8,11 @@ export const organizerIdParamSchema = z.object({
 });
 export type OrganizerIdParam = z.infer<typeof organizerIdParamSchema>;
 
-// Creating/linking a connected account. Country is ISO-3166 alpha-2; US-first.
+// Creating/linking a connected account. The account always opens in the organization's
+// country of registration; `country` (ISO-3166 alpha-2) is optional and, when sent, must
+// match it. It used to default to US, which opened US accounts for any organization.
 export const createConnectAccountSchema = z.object({
-  country: z.string().trim().toUpperCase().length(2).default('US'),
+  country: z.string().trim().toUpperCase().length(2).optional(),
   // The organizer's business email (Stripe prefills onboarding with it). Optional.
   email: z.string().trim().toLowerCase().email().optional(),
 });

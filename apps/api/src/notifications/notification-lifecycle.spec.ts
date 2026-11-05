@@ -37,7 +37,8 @@ function setup(opts: { deliver?: jest.Mock; dueRows?: Record<string, unknown>[] 
       findFirst: jest.fn().mockResolvedValue({ id: 'created-1' }),
       findMany: jest.fn().mockResolvedValue(opts.dueRows ?? []),
       update,
-      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      // The sweep writes per-row with updateMany (a vanished row must not abort it).
+      updateMany: update,
     },
   };
   const service = new NotificationService(

@@ -1,6 +1,7 @@
 # ADR-040: External Inventory Synchronization Platform
 
 - **Status:** Accepted
+- **Status (2026-11-01):** current. Off by default (`INVENTORY_SYNC_ENABLED`).
 - **Date:** 2026-07-27
 - **Deciders:** Principal Architect
 - **Relates to:** ADR-037 (Inventory Sourcing), ADR-038 (Domain Event Bus), ADR-039 (Distributed Locking)

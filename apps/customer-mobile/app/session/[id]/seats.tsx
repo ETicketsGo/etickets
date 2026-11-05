@@ -2,9 +2,11 @@ import { useCallback, useMemo, useState } from 'react';
 import { Alert, ScrollView, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '@/components/screen';
+import { TopBar } from '@/components/top-bar';
+import { BookingBar } from '@/components/booking-bar';
 import { ErrorState, LoadingState, OfflineBanner } from '@/components/states';
 import { useOnline } from '@/hooks/use-online';
-import { Badge, Button, Chip, IconButton, Text, haptics } from '@/ui';
+import { Badge, Button, IconButton, Text, haptics } from '@/ui';
 import { formatMoney } from '@/services/locale';
 import { messageForError } from '@/services/errors';
 import { useEvent } from '@/features/events/api';
@@ -110,10 +112,10 @@ export default function SeatSelectionScreen() {
       Alert.alert(
         `Seat ${seatName(rowLabel, seat)}`,
         state === 'held'
-          ? 'Someone else is checking out with this seat right now. It may free up if they don’t finish.'
+          ? 'Someone else is checking out with this seat right now. It may free up if they do not finish.'
           : state === 'sold'
             ? 'This seat has already been sold.'
-            : 'This seat isn’t on sale for this screening.',
+            : 'This seat is not on sale for this screening.',
       );
     },
     [map],
@@ -144,7 +146,7 @@ export default function SeatSelectionScreen() {
             .map((c) => `${c.name} is now ${describeConflict(c.status)}`)
             .join(
               '. ',
-            )}. We've removed ${conflicts.length === 1 ? 'it' : 'them'} — please pick again.`,
+            )}. We have removed ${conflicts.length === 1 ? 'it' : 'them'}. Please pick again.`,
         );
         return;
       }
@@ -171,62 +173,61 @@ export default function SeatSelectionScreen() {
   return (
     <Screen padded={false} edges={['top']}>
       <Stack.Screen options={{ headerShown: false }} />
+      <TopBar
+        title={event ? event.title : 'Choose your seats'}
+        right={
+          <IconButton
+            icon={mode === 'map' ? 'list-outline' : 'grid-outline'}
+            tone="outlined"
+            size={20}
+            accessibilityLabel={
+              mode === 'map' ? 'Switch to seat list view' : 'Switch to seat map view'
+            }
+            onPress={() => setMode((m) => (m === 'map' ? 'list' : 'map'))}
+          />
+        }
+      />
       {!online ? <OfflineBanner /> : null}
 
-      <View className="flex-row items-center gap-1 px-2 py-1">
-        <IconButton
-          icon="chevron-back"
-          accessibilityLabel="Go back"
-          onPress={() => router.back()}
-        />
-        <View className="flex-1">
-          <Text variant="callout" className="font-semibold" numberOfLines={1}>
-            Choose your seats
-          </Text>
-          {event ? (
-            <Text variant="caption" tone="muted" numberOfLines={1}>
-              {event.title}
-            </Text>
-          ) : null}
-        </View>
-        <IconButton
-          icon={mode === 'map' ? 'list-outline' : 'grid-outline'}
-          accessibilityLabel={
-            mode === 'map' ? 'Switch to seat list view' : 'Switch to seat map view'
-          }
-          onPress={() => setMode((m) => (m === 'map' ? 'list' : 'map'))}
-        />
-      </View>
-
       {isPending ? (
-        <LoadingState label="Loading seats…" />
+        <LoadingState label="Loading seats..." />
       ) : onWebsiteOnly ? (
         <ErrorState title="Choose seats on the website" message={SEAT_SELECTION_ON_WEBSITE} />
       ) : isError || !map ? (
         <ErrorState
-          title="Couldn't load the seat map"
+          title="We could not load the seat map"
           message={
-            online ? 'Please try again.' : "You're offline. Seat availability needs a connection."
+            online ? 'Please try again.' : 'You are offline. Seat availability needs a connection.'
           }
           onRetry={() => void refetch()}
         />
       ) : (
         <>
-          <ScrollView contentContainerClassName="gap-4 px-4 pb-4">
-            <View className="flex-row items-center justify-between">
-              <Text variant="footnote" tone="muted">
-                Up to {maxSeats} seats per order
+          <ScrollView contentContainerClassName="gap-4 px-4 pb-6 pt-1">
+            <View className="gap-1">
+              <Text variant="d2" accessibilityRole="header">
+                Choose your seats
               </Text>
-              {isRefetching ? <Badge label="Refreshing…" tone="neutral" /> : null}
+              <View className="flex-row items-center justify-between">
+                <Text variant="ui" tone="muted">
+                  Up to {maxSeats} seats per order
+                </Text>
+                {isRefetching ? <Badge label="Refreshing..." tone="neutral" /> : null}
+              </View>
             </View>
 
             {mode === 'map' ? (
-              <SeatMapView
-                map={map}
-                selectedSeatIds={selectedSeatIds}
-                onToggleSeat={toggleSeat}
-                onSeatBlocked={explainBlocked}
-              />
+              <View className="gap-4 overflow-hidden rounded-card bg-stage px-1 pb-5 pt-2">
+                <SeatMapView
+                  map={map}
+                  selectedSeatIds={selectedSeatIds}
+                  onToggleSeat={toggleSeat}
+                  onSeatBlocked={explainBlocked}
+                />
+                <View className="px-3">
+                  <SeatLegend categories={map.categories} currency={currency} />
+                </View>
+              </View>
             ) : (
               <SeatListView
                 map={map}
@@ -236,40 +237,37 @@ export default function SeatSelectionScreen() {
               />
             )}
 
-            <SeatLegend categories={map.categories} currency={currency} />
-
-            <Chip
+            <Button
               label="Refresh availability"
-              selected={false}
+              variant="secondary"
               icon="refresh"
+              fullWidth={false}
               onPress={() => void refetch()}
             />
           </ScrollView>
 
-          <View className="border-t border-border bg-background-surface px-5 pb-2 pt-3">
-            <View
-              className="mb-2 flex-row items-end justify-between"
-              accessibilityLiveRegion="polite"
-            >
+          <BookingBar>
+            <View className="flex-row items-center gap-4" accessibilityLiveRegion="polite">
               <View className="flex-1">
-                <Text variant="footnote" tone="muted">
+                <Text variant="meta" tone="muted" numberOfLines={1}>
                   {selectedSeatIds.length === 0
                     ? 'No seats selected'
-                    : `${selectedSeatIds.length} selected · ${selectedNames.join(', ')}`}
+                    : `Seats ${selectedNames.join(', ')}`}
                 </Text>
-                {selectedSeatIds.length > 0 ? (
-                  <Text variant="title3">{formatMoney(totalMinor, currency)}</Text>
-                ) : null}
+                <Text variant="figureSm">
+                  {selectedSeatIds.length > 0 ? formatMoney(totalMinor, currency) : '-'}
+                </Text>
               </View>
+              <Button
+                label="Continue"
+                size="lg"
+                fullWidth={false}
+                disabled={selectedSeatIds.length === 0 || !online}
+                loading={checking}
+                onPress={() => void onContinue()}
+              />
             </View>
-            <Button
-              label={selectedSeatIds.length === 0 ? 'Select seats to continue' : 'Continue'}
-              size="lg"
-              disabled={selectedSeatIds.length === 0 || !online}
-              loading={checking}
-              onPress={() => void onContinue()}
-            />
-          </View>
+          </BookingBar>
         </>
       )}
     </Screen>

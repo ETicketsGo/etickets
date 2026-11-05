@@ -58,6 +58,13 @@ export const createBookingSchema = z
      */
     buyerRegion: z.string().trim().min(2).max(64).optional(),
     paymentMethod: z.enum(['ONLINE', 'CASH']).optional(),
+    /**
+     * The `feeScheduleVersion` of the quote the buyer saw. Optional. When it is sent and the
+     * booking fee schedule has been changed since, the booking is refused (409
+     * FEE_SCHEDULE_CHANGED) so the buyer can see the new total, instead of being charged a fee
+     * they were never shown.
+     */
+    feeScheduleVersion: z.string().trim().min(1).max(64).optional(),
   })
   .refine((v) => v.items.length + (v.addOns?.length ?? 0) + (v.bundles?.length ?? 0) >= 1, {
     message: 'Add at least one item to your cart.',

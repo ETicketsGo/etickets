@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata, siteRobots } from '@/lib/seo';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
 import {
@@ -7,7 +7,7 @@ import {
   LegalDocument,
   BackToLegal,
 } from '@/components/legal/policy-chrome';
-import { resolveJurisdiction } from '@/lib/market';
+import { resolveJurisdiction, resolveSelectedMarket } from '@/lib/market';
 import { BrandPage } from '@/components/storefront-brand';
 
 /**
@@ -24,19 +24,21 @@ import { BrandPage } from '@/components/storefront-brand';
  * its own kind of dishonesty. If a tracker is ever added, this page and that decision change
  * together.
  */
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/cookies', {
   title: 'Cookies',
   description: 'What ETicketsGo stores on your device, and why.',
-  alternates: { canonical: '/cookies' },
-  robots: { index: true, follow: true },
-};
+  robots: siteRobots(),
+});
 
 export default async function CookiesPage({
   searchParams,
 }: {
   searchParams: Promise<{ country?: string | string[] }>;
 }) {
-  const country = await resolveJurisdiction((await searchParams).country);
+  const asked = (await searchParams).country;
+  const country = await resolveJurisdiction(asked);
+  // Which company the operator line names: what the reader chose, never an IP guess.
+  const market = await resolveSelectedMarket(asked);
 
   return (
     <BrandPage>
@@ -86,7 +88,7 @@ export default async function CookiesPage({
             the <Link href="/terms">Terms and Conditions</Link> cover your use of ETicketsGo.
           </p>
         </Prose>
-        <OperatorLine country={country} />
+        <OperatorLine market={market} />
       </LegalDocument>
     </BrandPage>
   );

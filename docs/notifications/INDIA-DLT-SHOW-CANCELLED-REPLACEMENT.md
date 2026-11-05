@@ -38,14 +38,14 @@ templates, one for each kind of buyer.
 
 Register both under:
 
-| Item             | Value                                                                    |
-| ---------------- | ------------------------------------------------------------------------ |
-| Principal Entity | DeepTrics Software Solutions Private Limited (PE ID 1701179092181018311) |
-| Sender header    | **DPTRCS** (header ID 1705179188054799869). Never ETKTGO (rejected).     |
-| Template type    | Transactional (service)                                                  |
-| Content category | **Service Implicit**                                                     |
-| Language         | English, plain ASCII (GSM-7). No Unicode, no rupee sign.                 |
-| URLs             | None. Neither text has a link, so no URL whitelisting is needed.         |
+| Item             | Value                                                                                                     |
+| ---------------- | --------------------------------------------------------------------------------------------------------- |
+| Principal Entity | DeepTrics Software Solutions Private Limited (PE ID 1701179092181018311)                                  |
+| Sender header    | **ETKTGO** (approved, owner 2026-10-25) or **DPTRCS** (header ID 1705179188054799869): the configured one |
+| Template type    | Transactional (service)                                                                                   |
+| Content category | **Service Implicit**                                                                                      |
+| Language         | English, plain ASCII (GSM-7). No Unicode, no rupee sign.                                                  |
+| URLs             | None. Neither text has a link, so no URL whitelisting is needed.                                          |
 
 Copy each text exactly. One changed character, space or full stop and the operator drops the
 message.
@@ -141,13 +141,13 @@ Rules the code keeps:
    its ids exactly as they are. If it was never submitted, you may submit only the two texts on
    this page; online buyers then use template A once it is approved.
 2. On the DLT portal, signed in as DeepTrics Software Solutions Private Limited: Templates >
-   Content Template > add. For each of templates A and B: header DPTRCS, type
+   Content Template > add. For each of templates A and B: the configured header (ETKTGO or DPTRCS), type
    Transactional / Service Implicit, paste the text exactly. Submit. Approval usually takes 1-2
    working days per template.
 3. When each is approved, write down its 19-digit Content Template ID.
 4. In MSG91: SMS > Templates > add. Paste the MSG91 template content shown above (each
    `{#var#}` written as `##name##` with the names in the tables), enter the DLT template ID,
-   choose sender DPTRCS. MSG91 shows its own template id. Write it down.
+   choose the configured sender (ETKTGO or DPTRCS). MSG91 shows its own template id. Write it down.
 5. Set, on the **api and worker** services of the environment, both keys for each approved
    template (values out of band, never in the repository):
    - online: `MSG91_SMS_TEMPLATE_SHOW_CANCELLED_ONLINE`, `DLT_TEMPLATE_ID_SHOW_CANCELLED_ONLINE`

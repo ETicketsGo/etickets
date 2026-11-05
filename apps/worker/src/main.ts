@@ -7,6 +7,8 @@ import * as Sentry from '@sentry/node';
 import {
   AppModule,
   AuthService,
+  BillingSweepService,
+  BillingPriceReconcileService,
   BookingsService,
   LocalBookingOrchestrator,
   EventsService,
@@ -31,6 +33,8 @@ import {
   OutboxRetentionService,
   bullConnectionFromUrl,
   bullPrefix,
+  CampaignDispatchService,
+  campaignSendingConfig,
 } from '@eticketsgo/api';
 import { metricsAccess } from '@eticketsgo/shared-types';
 import { renderWorkerMetrics, sampleQueueMetrics } from './metrics';
@@ -144,6 +148,18 @@ const RAW_METRICS_MS = Number(process.env.QUEUE_METRICS_INTERVAL_MS ?? 15_000);
 const QUEUE_METRICS_MS =
   Number.isFinite(RAW_METRICS_MS) && RAW_METRICS_MS > 0 ? RAW_METRICS_MS : 15_000;
 const QUEUE_NAME = 'holds';
+/*
+  Organizer email campaigns run on a queue of their OWN, never on `holds`.
+
+  `holds` carries ticket emails, hold expiry and payouts. A campaign of ten thousand messages on
+  it would queue a customer's ticket behind somebody else's newsletter. The campaign queue has
+  its own rate limiter (CAMPAIGN_SEND_RATE_PER_SECOND), its own concurrency and its own retry
+  policy; the transactional path is untouched.
+*/
+const CAMPAIGN_QUEUE_NAME = 'campaigns';
+const RAW_CAMPAIGN_TICK_MS = Number(process.env.CAMPAIGN_TICK_INTERVAL_MS ?? 15_000);
+const CAMPAIGN_TICK_MS =
+  Number.isFinite(RAW_CAMPAIGN_TICK_MS) && RAW_CAMPAIGN_TICK_MS > 0 ? RAW_CAMPAIGN_TICK_MS : 15_000;
 
 // Error tracking — a complete no-op unless SENTRY_DSN is set. Manual capture only.
 const SENTRY_ENABLED = Boolean(process.env.SENTRY_DSN);
@@ -284,6 +300,8 @@ async function main(): Promise<void> {
   const settlements = app.get(SettlementService);
   const reversalReconcile = app.get(ReversalReconciliationService);
   const payoutRuns = app.get(PayoutRunService);
+  const billingSweep = app.get(BillingSweepService);
+  const billingPriceCheck = app.get(BillingPriceReconcileService);
   const seatOverrides = app.get(SeatOverridesService);
   const syncProcessor = app.get(SyncEventProcessor);
   const syncPolling = app.get(SyncPollingService);
@@ -308,6 +326,27 @@ async function main(): Promise<void> {
 
   const TOKEN_PRUNE_EVERY_MS =
     Number.isFinite(RAW_TOKEN_PRUNE_MS) && RAW_TOKEN_PRUNE_MS > 0 ? RAW_TOKEN_PRUNE_MS : DAY_MS;
+  /*
+    The organizer billing clock: trial, period and grace ends, dunning reminders, and billing
+    webhook events left for a retry. Fifteen minutes: every deadline it acts on is measured in
+    days, and every step is idempotent (each dunning stage is sent once, by its dedupe key).
+  */
+  const RAW_BILLING_SWEEP_MS = Number(process.env.BILLING_SWEEP_INTERVAL_MS ?? 15 * 60_000);
+  const BILLING_SWEEP_MS =
+    Number.isFinite(RAW_BILLING_SWEEP_MS) && RAW_BILLING_SWEEP_MS > 0
+      ? RAW_BILLING_SWEEP_MS
+      : 15 * 60_000;
+  /*
+    The plan-price check: each catalogue price against its Stripe price. Read-only on both
+    sides - a difference is audited and alerted, never applied (the admin catalogue is
+    authoritative). Daily: a price changed on the Stripe side is rare and costs a checkout, not
+    money, because activation refuses a payment that does not match the catalogue.
+  */
+  const RAW_BILLING_PRICE_CHECK_MS = Number(process.env.BILLING_PRICE_CHECK_INTERVAL_MS ?? DAY_MS);
+  const BILLING_PRICE_CHECK_MS =
+    Number.isFinite(RAW_BILLING_PRICE_CHECK_MS) && RAW_BILLING_PRICE_CHECK_MS > 0
+      ? RAW_BILLING_PRICE_CHECK_MS
+      : DAY_MS;
   /*
     How often the read-only reversal sweep asks whether any ambiguous reversal is worth a
     provider query. Fifteen minutes, because the shortest candidate maturity window is five
@@ -618,9 +657,52 @@ async function main(): Promise<void> {
     },
   );
 
+  await queue.add(
+    'billing-sweep',
+    {},
+    {
+      repeat: { every: BILLING_SWEEP_MS },
+      jobId: 'billing-sweep',
+      removeOnComplete: 20,
+      removeOnFail: 20,
+      attempts: 2,
+      backoff: { type: 'exponential', delay: 30_000 },
+    },
+  );
+
+  await queue.add(
+    'billing-price-check',
+    {},
+    {
+      repeat: { every: BILLING_PRICE_CHECK_MS },
+      jobId: 'billing-price-check',
+      removeOnComplete: 20,
+      removeOnFail: 20,
+      attempts: 2,
+      backoff: { type: 'exponential', delay: 30_000 },
+    },
+  );
+
   const worker = new Worker(
     QUEUE_NAME,
     async (job) => {
+      if (job.name === 'billing-sweep') {
+        const report = await billingSweep.run();
+        if (Object.values(report).some((n) => n > 0)) log('info', 'billing sweep', { ...report });
+        return report;
+      }
+      if (job.name === 'billing-price-check') {
+        const report = await billingPriceCheck.run({ record: true });
+        if (report.checked > 0 || report.unreachable.length > 0) {
+          log('info', 'billing price check', {
+            mode: report.mode,
+            checked: report.checked,
+            mismatches: report.mismatches.length,
+            unreachable: report.unreachable.length,
+          });
+        }
+        return { checked: report.checked, mismatches: report.mismatches.length };
+      }
       if (job.name === 'payout-runs') {
         const run = await payoutRuns.runDue();
         if (run.raised > 0 || run.considered > 0) {
@@ -815,6 +897,115 @@ async function main(): Promise<void> {
   // Dedicated Worker for the durable inventory-sync queue. Jobs carry only a
   // rawEventId; the processor reloads the event from PostgreSQL and claims it
   // atomically. Idempotent + no-op when processing is disabled.
+  /*
+    ── CAMPAIGNS ──────────────────────────────────────────────────────────────────────
+    Three jobs, all safe to run twice:
+      campaign-tick    every CAMPAIGN_TICK_MS: promote due schedules, ask for expansions, and
+                       put about a minute of recipients on the queue per sending campaign;
+      campaign-expand  materialise one campaign's recipients, then start it;
+      campaign-send    one recipient. The job id IS the recipient id, so a recipient is never
+                       on the queue twice, and the handler re-checks consent before sending.
+    Send jobs carry a lower priority than tick and expand, so a backlog of sends never delays
+    the tick that would notice a pause.
+  */
+  const campaignDispatch = app.get(CampaignDispatchService);
+  // The same parser the API uses, reading the same variables, so the two cannot disagree.
+  const campaignRate = campaignSendingConfig({
+    get: <T>(key: string) => process.env[key] as T | undefined,
+  } as never).ratePerSecond;
+  const campaignQueue = new Queue(CAMPAIGN_QUEUE_NAME, {
+    connection: redisConnection,
+    prefix: BULL_PREFIX,
+  });
+  await campaignQueue.add(
+    'campaign-tick',
+    {},
+    {
+      repeat: { every: CAMPAIGN_TICK_MS },
+      jobId: 'campaign-tick',
+      removeOnComplete: 50,
+      removeOnFail: 50,
+      attempts: 1,
+    },
+  );
+  const CAMPAIGN_SEND_ATTEMPTS = 4;
+  const campaignWorker = new Worker(
+    CAMPAIGN_QUEUE_NAME,
+    async (job) => {
+      if (job.name === 'campaign-tick') {
+        const tick = await campaignDispatch.tick();
+        for (const campaignId of tick.expand) {
+          await campaignQueue.add(
+            'campaign-expand',
+            { campaignId },
+            {
+              jobId: `expand-${campaignId}`,
+              removeOnComplete: true,
+              removeOnFail: 100,
+              attempts: 3,
+              backoff: { type: 'exponential', delay: 10_000 },
+            },
+          );
+        }
+        if (tick.send.length > 0) {
+          await campaignQueue.addBulk(
+            tick.send.map((recipientId) => ({
+              name: 'campaign-send',
+              data: { recipientId },
+              opts: {
+                jobId: `cr-${recipientId}`,
+                priority: 10,
+                removeOnComplete: true,
+                removeOnFail: true,
+                attempts: CAMPAIGN_SEND_ATTEMPTS,
+                backoff: { type: 'exponential', delay: 30_000 },
+              },
+            })),
+          );
+        }
+        if (tick.promoted + tick.finished + tick.send.length > 0) {
+          log('info', 'campaign tick', {
+            promoted: tick.promoted,
+            expand: tick.expand.length,
+            enqueued: tick.send.length,
+            finished: tick.finished,
+          });
+        }
+        return { ...tick, send: tick.send.length };
+      }
+      if (job.name === 'campaign-expand') {
+        const campaignId = (job.data as { campaignId?: string })?.campaignId;
+        if (!campaignId) return;
+        const r = await campaignDispatch.expand(campaignId);
+        if (r.started) log('info', 'campaign started', { campaignId, materialised: r.inserted });
+        return r;
+      }
+      if (job.name === 'campaign-send') {
+        const recipientId = (job.data as { recipientId?: string })?.recipientId;
+        if (!recipientId) return;
+        const finalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+        // A RetryableSendError is thrown on a transient failure, and BullMQ retries with backoff.
+        return campaignDispatch.sendOne(recipientId, { finalAttempt });
+      }
+    },
+    {
+      connection: redisConnection,
+      prefix: BULL_PREFIX,
+      concurrency: 2,
+      limiter: { max: campaignRate, duration: 1000 },
+    },
+  );
+  campaignWorker.on('failed', (job, err) => {
+    // Never the recipient or the address: the job id is an opaque recipient id.
+    log(job?.name === 'campaign-send' ? 'warn' : 'error', 'campaign job failed', {
+      jobId: job?.id,
+      jobName: job?.name,
+      error: err.name,
+    });
+    if (job?.name !== 'campaign-send')
+      capture(err, { jobId: job?.id ?? '-', jobName: job?.name ?? '-' });
+  });
+
   const syncWorker = new Worker(
     'inventory-sync-events',
     async (job) => {
@@ -919,6 +1110,8 @@ async function main(): Promise<void> {
     log('info', 'shutting down', { signal });
     clearInterval(metricsTimer);
     await worker.close();
+    await campaignWorker.close();
+    await campaignQueue.close();
     await syncWorker.close();
     await queue.close();
     await connection.quit().catch(() => undefined);

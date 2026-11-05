@@ -25,8 +25,8 @@ const ROOT = join(__dirname, '..');
 
 /** Every file this workstream moved onto the brand layer. */
 const BRAND_FILES = [
-  'app/[locale]/explore/page.tsx',
-  'app/[locale]/movies/page.tsx',
+  'app/[locale]/explore/explore-page.tsx',
+  'app/[locale]/movies/movies-page.tsx',
   'app/[locale]/movies/[slug]/page.tsx',
   'app/[locale]/account/tickets/page.tsx',
   'app/[locale]/account/tickets/[ticketId]/page.tsx',
@@ -64,6 +64,11 @@ const BRAND_FILES = [
   'components/assign-attendee-dialog.tsx',
   'components/push-toggle.tsx',
   'components/sign-in-required.tsx',
+  // Following organizers and the email unsubscribe link (workstream 1).
+  'components/follow-button.tsx',
+  'components/follow-preferences.tsx',
+  'components/follow-preferences-dialog.tsx',
+  'app/[locale]/unsubscribe/[token]/page.tsx',
   /*
     The marketing, legal and help pages (U1): the last storefront pages on the old blue
     MarketingShell, and the shared pieces they are built from.
@@ -213,14 +218,14 @@ const MOVED_PAGES = [
   'app/[locale]/register/page.tsx',
   'app/[locale]/forgot-password/page.tsx',
   'app/[locale]/reset-password/page.tsx',
-  'app/[locale]/events/page.tsx',
+  'app/[locale]/events/events-page.tsx',
   'app/[locale]/booking/find/page.tsx',
   'app/[locale]/booking/access/[token]/page.tsx',
   'app/[locale]/booking/[id]/reserved/page.tsx',
   'app/[locale]/booking/[id]/confirmation/page.tsx',
   'app/[locale]/booking/[id]/payment/page.tsx',
-  'app/[locale]/shows/[sessionId]/page.tsx',
-  'app/[locale]/events/[slug]/page.tsx',
+  'app/[locale]/shows/[sessionId]/show-page.tsx',
+  'app/[locale]/events/[slug]/event-page.tsx',
   'app/[locale]/checkout/success/page.tsx',
   'app/[locale]/checkout/cancel/page.tsx',
   'app/[locale]/share/[token]/page.tsx',

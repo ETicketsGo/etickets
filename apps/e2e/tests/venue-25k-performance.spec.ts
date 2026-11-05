@@ -159,6 +159,10 @@ test('25K venue stays section-first in the browser and records its costs', async
     return memory?.usedJSHeapSize ?? null;
   });
 
+  // The storefront now sends the overview with the page (server-rendered), so the browser may
+  // never ask for it; the payload's cost is then read directly.
+  if (overviewBytes === 0) overviewBytes = (await (await request.get(route)).body()).byteLength;
+
   const measurements = {
     seats: fixture.seats,
     overviewBytes,

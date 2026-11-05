@@ -1,6 +1,7 @@
 # ADR-037: Inventory Sourcing Providers
 
 - **Status:** Accepted
+- **Status (2026-11-01):** current. Off by default (`INVENTORY_SOURCING_ENABLED`).
 - **Date:** 2026-07-26
 - **Deciders:** Principal Architect
 - **Relates to:** ADR-009 (Experience Platform), ADR-010 (Inventory Strategy), ADR-021 (payment provider registry pattern)

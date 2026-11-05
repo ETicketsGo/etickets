@@ -38,15 +38,61 @@ export const ErrorCodes = {
   MFA_LOCKED: 'MFA_LOCKED',
   NOT_FOUND: 'NOT_FOUND',
   CONFLICT: 'CONFLICT',
+  /**
+   * PATCH/POST/DELETE /admin/fee-rules: retired. Fee bands change only through a published
+   * fee schedule (/admin/fee-schedules), which validates, locks and versions the change.
+   */
+  FEE_RULE_ENDPOINT_GONE: 'FEE_RULE_ENDPOINT_GONE',
+  /**
+   * A ticket type that bookings or tickets still name (even fully refunded ones) cannot be
+   * deleted: that history is kept. The organizer console says to deactivate it instead.
+   */
+  TICKET_TYPE_HAS_HISTORY: 'TICKET_TYPE_HAS_HISTORY',
+  /**
+   * A ticket type with no order history that a bundle still includes cannot be deleted:
+   * the bundle would lose a line. Remove it from the bundle first. History outranks this.
+   */
+  TICKET_TYPE_IN_BUNDLE: 'TICKET_TYPE_IN_BUNDLE',
   EMAIL_ALREADY_REGISTERED: 'EMAIL_ALREADY_REGISTERED',
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
   INVALID_REFRESH_TOKEN: 'INVALID_REFRESH_TOKEN',
   TENANT_FORBIDDEN: 'TENANT_FORBIDDEN',
+  /**
+   * The caller's seat is fine but the ORGANIZATION is suspended, so no organizer API answers
+   * for it (owner decision, 2026-10-26). Stable: the organizer console shows its suspended
+   * screen on this code.
+   */
+  ORGANIZATION_SUSPENDED: 'ORGANIZATION_SUSPENDED',
+  /** A team invitation opened by a session of a different account than the one invited. */
+  INVITATION_WRONG_ACCOUNT: 'INVITATION_WRONG_ACCOUNT',
+  /** The account must prove its email address (a code sent there) before this step. */
+  EMAIL_NOT_VERIFIED: 'EMAIL_NOT_VERIFIED',
   BOOKING_INVENTORY_UNAVAILABLE: 'BOOKING_INVENTORY_UNAVAILABLE',
   BOOKING_EXPIRED: 'BOOKING_EXPIRED',
   BOOKING_NOT_PAYABLE: 'BOOKING_NOT_PAYABLE',
   PAYMENT_WEBHOOK_INVALID: 'PAYMENT_WEBHOOK_INVALID',
   PAYMENT_PROVIDER_UNAVAILABLE: 'PAYMENT_PROVIDER_UNAVAILABLE',
+  /*
+    ── PAYOUT SETUP REFUSALS ──────────────────────────────────────────────────────────
+    Three causes that PAYMENT_PROVIDER_UNAVAILABLE used to cover (or a bare 500 did), each
+    leading somewhere different, so the organizer console can say which:
+    - NOT_CONFIGURED: this server cannot use the provider at all (no keys, payments not
+      activated, or the provider refuses OUR platform account's setup). Nothing the organizer
+      can do; retrying will not help; an operator has to act.
+    - COUNTRY_UNSUPPORTED: the provider does not pay out to where the organization is registered.
+    - DETAILS_INCOMPLETE: the organization is missing a detail setup needs; `details.fields`
+      names it (schema field names, which the console turns into words).
+    PAYMENT_PROVIDER_UNAVAILABLE stays for the provider being down or slow: try again later.
+  */
+  PAYMENT_PROVIDER_NOT_CONFIGURED: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
+  PAYOUT_COUNTRY_UNSUPPORTED: 'PAYOUT_COUNTRY_UNSUPPORTED',
+  ORGANIZATION_DETAILS_INCOMPLETE: 'ORGANIZATION_DETAILS_INCOMPLETE',
+  /**
+   * The payout account id the organizer entered (a Razorpay linked account `acc_...`) does
+   * not exist or is not readable by our platform account. The organizer can fix it by
+   * checking the id; retrying the same id will not help.
+   */
+  PAYOUT_ACCOUNT_NOT_FOUND: 'PAYOUT_ACCOUNT_NOT_FOUND',
   INVENTORY_PROVIDER_UNAVAILABLE: 'INVENTORY_PROVIDER_UNAVAILABLE',
   INVENTORY_SOURCE_UNSUPPORTED: 'INVENTORY_SOURCE_UNSUPPORTED',
   /*
@@ -101,6 +147,11 @@ export const ErrorCodes = {
   TAX_CLASSIFICATION_MISSING: 'TAX_CLASSIFICATION_MISSING',
   /** The ticket is classified, but no active tax rule covers that classification and price. */
   TAX_RULE_NOT_FOUND: 'TAX_RULE_NOT_FOUND',
+  /** The booking fee schedule changed between the buyer's quote and the booking. Re-quote. */
+  FEE_SCHEDULE_CHANGED: 'FEE_SCHEDULE_CHANGED',
+  /** A draft fee schedule cannot be published: it has problems, or the live one moved on. */
+  FEE_SCHEDULE_INVALID: 'FEE_SCHEDULE_INVALID',
+  FEE_SCHEDULE_STALE: 'FEE_SCHEDULE_STALE',
   /**
    * A text message cannot be delivered to this number: it is not a reachable mobile, or its
    * owner has opted out. Deliberately one code for both, so it cannot be used to learn which.
@@ -108,6 +159,8 @@ export const ErrorCodes = {
   SMS_UNDELIVERABLE: 'SMS_UNDELIVERABLE',
   /** Text messaging is not working right now. Says nothing about which provider or why. */
   SMS_UNAVAILABLE: 'SMS_UNAVAILABLE',
+  /** Email cannot be sent right now (no real provider, or it refused). Same rule as SMS. */
+  EMAIL_UNAVAILABLE: 'EMAIL_UNAVAILABLE',
   /**
    * A payout's allocations did not add up to the payout. Our own ledger disagreed with itself,
    * so no payout was written.
@@ -126,5 +179,29 @@ export const ErrorCodes = {
   HUMAN_CHECK_REQUIRED: 'HUMAN_CHECK_REQUIRED',
   HUMAN_CHECK_FAILED: 'HUMAN_CHECK_FAILED',
   HUMAN_CHECK_UNAVAILABLE: 'HUMAN_CHECK_UNAVAILABLE',
+  /** Organizer billing: paid plans are not open in this deployment (BILLING_ENABLED is off). */
+  BILLING_NOT_ENABLED: 'BILLING_NOT_ENABLED',
+  /** The organization's plan (or an override) does not include this feature. */
+  ENTITLEMENT_REQUIRED: 'ENTITLEMENT_REQUIRED',
+  /** Using this would go past what the plan and credits allow this period. Nothing was used. */
+  QUOTA_EXCEEDED: 'QUOTA_EXCEEDED',
+  /** A subscription move the lifecycle does not allow from its current state. */
+  SUBSCRIPTION_TRANSITION_INVALID: 'SUBSCRIPTION_TRANSITION_INVALID',
+  /** A billing provider event whose signature did not verify. Nothing was recorded. */
+  BILLING_WEBHOOK_INVALID: 'BILLING_WEBHOOK_INVALID',
+  /**
+   * The billing provider cannot do what was asked here: not configured for this country, a
+   * price not set up with it, or a capability (e.g. UPI Autopay) not enabled on the account.
+   */
+  BILLING_PROVIDER_UNAVAILABLE: 'BILLING_PROVIDER_UNAVAILABLE',
+  /** Email campaigns are switched off in this deployment (CAMPAIGNS_ENABLED is not "true"). */
+  CAMPAIGNS_NOT_ENABLED: 'CAMPAIGNS_NOT_ENABLED',
+  /** A campaign move its lifecycle does not allow from its current status. */
+  CAMPAIGN_TRANSITION_INVALID: 'CAMPAIGN_TRANSITION_INVALID',
+  /**
+   * No tax rule (or tax provider) is configured for the organizer's jurisdiction, so a plan or
+   * credit pack checkout is refused rather than charged with no tax (fail closed).
+   */
+  BILLING_TAX_NOT_CONFIGURED: 'BILLING_TAX_NOT_CONFIGURED',
   INTERNAL: 'INTERNAL',
 } as const;

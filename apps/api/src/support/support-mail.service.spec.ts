@@ -30,6 +30,7 @@ function setup(env: Record<string, string | undefined>, ackCount = 0) {
 
 const base: SupportMailInput = {
   feedbackId: 'fb-123',
+  reference: 'ETG-SUP-2026-000142',
   kind: FeedbackKind.CONTACT,
   replyTo: 'asha@gmail.com',
   senderName: 'Asha Rao',
@@ -72,8 +73,10 @@ describe('SupportMailService.queue', () => {
         kind: 'CONTACT',
         topic: '[Support] Website enquiry',
         message: 'I was charged twice.',
-        reference: 'fb-123',
-        link: 'https://admin.x/admin/support?q=fb-123',
+        // The readable reference, never the database id; the id rides along for tracing only.
+        reference: 'ETG-SUP-2026-000142',
+        feedbackId: 'fb-123',
+        link: 'https://admin.x/admin/support?q=ETG-SUP-2026-000142',
       }),
     );
 
@@ -88,10 +91,23 @@ describe('SupportMailService.queue', () => {
     );
     // A reply to the acknowledgement reaches support; none of the message is repeated to it.
     expect(ack.payload).toEqual({
-      reference: 'fb-123',
+      reference: 'ETG-SUP-2026-000142',
+      feedbackId: 'fb-123',
       email: 'asha@gmail.com',
       replyTo: 'support@eticketsgo.com',
     });
+  });
+
+  it('a row from before readable references is quoted, and linked, by its id as before', async () => {
+    const { mail, send, tx } = setup({ APP_ENV: 'PRODUCTION', ADMIN_WEB_URL: 'https://admin.x' });
+    await mail.queue(tx as never, { ...base, reference: null });
+    expect(inboxCall(send)![0].payload).toEqual(
+      expect.objectContaining({
+        reference: 'fb-123',
+        link: 'https://admin.x/admin/support?q=fb-123',
+      }),
+    );
+    expect(ackCall(send)![0].payload.reference).toBe('fb-123');
   });
 
   it('outside production, mails NO support inbox unless SUPPORT_INBOX_EMAIL names one', async () => {
@@ -208,6 +224,8 @@ describe('SupportService.submit queues the mails', () => {
       organizationMember: { findUnique: jest.fn().mockResolvedValue(null) },
       notification: { count: jest.fn().mockResolvedValue(0) },
       $executeRaw: jest.fn().mockResolvedValue(1),
+      // The support reference counter (etg_next_reference_value): next number 142.
+      $queryRaw: jest.fn().mockResolvedValue([{ value: 142 }]),
       $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
     };
     return { svc: new SupportService(prisma, undefined, mail), prisma, send };

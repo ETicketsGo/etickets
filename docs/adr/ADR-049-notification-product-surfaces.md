@@ -1,6 +1,7 @@
 # ADR-049: Producers, preferences, and the rollout of WhatsApp opt-in
 
 - **Status:** Accepted
+- **Status (2026-11-01):** current. WhatsApp is still not live in production.
 - **Date:** 2026-09-07
 - **Extends:** [ADR-045](./ADR-045-notification-provider-routing.md) … [ADR-048](./ADR-048-notification-cost-accounting.md)
 - **Scope:** Provider-neutral notification platform, Phase 5

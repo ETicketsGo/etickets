@@ -33,10 +33,45 @@ export const bookingSchema = z.object({
   confirmedAt: z.string().nullable(),
   cancelledAt: z.string().nullable(),
   createdAt: z.string(),
+  /** The venue's IANA zone. The session time is printed in it. */
+  timeZone: z.string().nullish(),
   event: z.object({ title: z.string(), slug: z.string() }),
   eventSession: z.object({ startsAt: z.string() }),
   _count: z.object({ tickets: z.number() }),
 });
+
+/**
+ * GET /bookings/:id. The list row's money and status, plus what only the detail carries:
+ * the payment's own status and the issued tickets. Read directly rather than found in
+ * page 1 of the list, which made any booking past the 50th "not found".
+ */
+export const bookingDetailSchema = bookingSchema.omit({ _count: true }).extend({
+  event: z.object({
+    title: z.string(),
+    slug: z.string(),
+    venue: z.object({ name: z.string().nullish(), city: z.string().nullish() }).nullish(),
+    /** The event's own refund rule: whether it offers refunds, and until how long before. */
+    refundsEnabled: z.boolean().nullish(),
+    refundCutoffHours: z.number().nullish(),
+    refundPolicy: z.string().nullish(),
+  }),
+  payment: z.object({ status: z.string(), provider: z.string().nullish() }).nullish(),
+  tickets: z.array(z.object({ id: z.string() })).default([]),
+  /** What was ordered. Tickets are issued only once paid, so an unpaid booking has none. */
+  items: z.array(z.object({ kind: z.string().nullish(), quantity: z.number() })).nullish(),
+});
+
+/**
+ * How many tickets a booking is for. Counted from what was ORDERED: an unpaid booking said
+ * "Tickets 0" because tickets are issued only after payment (seen on QA, 2026-10-24). Add-ons
+ * are not tickets. Falls back to the issued tickets when the order lines are not sent.
+ */
+export function ticketCount(booking: Pick<BookingDetail, 'items' | 'tickets'>): number {
+  const ordered = (booking.items ?? [])
+    .filter((i) => (i.kind ?? 'TICKET') === 'TICKET')
+    .reduce((sum, i) => sum + i.quantity, 0);
+  return ordered > 0 ? ordered : booking.tickets.length;
+}
 
 export const bookingPageSchema = z.object({
   data: z.array(bookingSchema),
@@ -57,8 +92,13 @@ export const ticketSchema = z.object({
    * Display uses `qrDataUrl`, which the API renders server-side; generating a code from
    * this token client-side would mean inventing a QR encoding the scanner never agreed
    * to, and the first anyone would know is a queue that will not move.
+   *
+   * NULL when this viewer may see the ticket but not present it — e.g. the buyer of a
+   * ticket they transferred to someone else (tickets.service.ts `mayPresent`). It was a
+   * required string, so one transferred ticket failed the parse of the WHOLE wallet and
+   * the customer saw no tickets at all. Missing and empty are treated the same as null.
    */
-  qrToken: z.string(),
+  qrToken: z.string().nullish(),
   /**
    * Server-rendered QR as a data: URI. This is what gets displayed and cached.
    *
@@ -70,6 +110,11 @@ export const ticketSchema = z.object({
   qrDataUrl: z.string().nullable(),
   bookingId: z.string(),
   bookingRef: z.string().nullable(),
+  /**
+   * The venue's IANA zone. Kept in the offline cache too, so a saved ticket shows the time
+   * at the venue with no signal; without it the time fell back to the phone's zone.
+   */
+  timezone: z.string().nullish(),
   experienceType: z.string(),
   seatLabel: z.string().nullable(),
   venueName: z.string().nullable(),
@@ -82,6 +127,7 @@ export const ticketSchema = z.object({
 });
 
 export type Booking = z.infer<typeof bookingSchema>;
+export type BookingDetail = z.infer<typeof bookingDetailSchema>;
 export type Ticket = z.infer<typeof ticketSchema>;
 
 /**
@@ -102,6 +148,8 @@ export function bookingTone(status: string): 'success' | 'warning' | 'error' | '
     // needs the user to act rendered in the neutral grey reserved for statuses this app
     // has never heard of. Seen on a real QA booking, not in a fixture.
     case 'PENDING_PAYMENT':
+    case 'PARTIALLY_REFUNDED':
+    case 'DISPUTED':
       return 'warning';
     case 'CANCELLED':
     case 'EXPIRED':
@@ -131,8 +179,75 @@ export function isLiveBooking(status: string): boolean {
     case 'CANCELLED':
     case 'EXPIRED':
     case 'FAILED':
+    // A fully refunded booking admits nobody, so it is not "upcoming" either.
+    case 'REFUNDED':
       return false;
     default:
       return true;
+  }
+}
+
+/**
+ * Whether this viewer can present the ticket at the gate. The server withholds the token
+ * (null) from a viewer who may see a ticket but not use it; missing or empty counts as
+ * withheld.
+ */
+export function canPresentTicket(ticket: { qrToken?: string | null }): boolean {
+  return typeof ticket.qrToken === 'string' && ticket.qrToken.length > 0;
+}
+
+/** Words for a booking status, so the screen never shows a raw enum like PENDING_PAYMENT. */
+export function bookingStatusLabel(status: string): string {
+  switch (status.toUpperCase()) {
+    case 'CONFIRMED':
+      return 'Confirmed';
+    case 'PENDING_PAYMENT':
+      return 'Waiting for payment';
+    case 'PARTIALLY_REFUNDED':
+      return 'Partly refunded';
+    case 'REFUNDED':
+      return 'Refunded';
+    case 'CANCELLED':
+      return 'Cancelled';
+    case 'EXPIRED':
+      return 'Expired';
+    case 'DISPUTED':
+      return 'Payment disputed';
+    default:
+      return status;
+  }
+}
+
+/**
+ * What a ticket's status means at the door. The API's TicketStatus is ACTIVE,
+ * TRANSFERRED, CHECKED_IN, CANCELLED, REFUNDED or VOID. The app used to test for
+ * "VALID", which the API never sends, so every good ticket showed as grey; and it
+ * showed the QR for every status, so a refunded ticket looked usable.
+ *
+ * Only ACTIVE shows a code. CHECKED_IN keeps it hidden too: the ticket has been used,
+ * and a second scan would be refused at the gate anyway.
+ */
+export function ticketState(status: string): {
+  label: string;
+  tone: 'success' | 'warning' | 'error' | 'neutral';
+  showCode: boolean;
+} {
+  switch (status.toUpperCase()) {
+    case 'ACTIVE':
+      return { label: 'Valid', tone: 'success', showCode: true };
+    case 'CHECKED_IN':
+      return { label: 'Checked in', tone: 'neutral', showCode: false };
+    case 'TRANSFERRED':
+      return { label: 'Transferred', tone: 'neutral', showCode: false };
+    case 'CANCELLED':
+      return { label: 'Cancelled', tone: 'error', showCode: false };
+    case 'REFUNDED':
+      return { label: 'Refunded', tone: 'error', showCode: false };
+    case 'VOID':
+      return { label: 'Void', tone: 'error', showCode: false };
+    default:
+      // A status this build does not know. Show it as itself and do not offer a code
+      // the gate may refuse.
+      return { label: status, tone: 'neutral', showCode: false };
   }
 }

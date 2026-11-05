@@ -86,6 +86,12 @@ if(a&&a!=='default'){d.setAttribute('data-accent',a);}
  */
 export function WorkspaceAccent({ accent }: { accent: string | null | undefined }): null {
   useEffect(() => {
+    /*
+      `undefined` is "not known yet" (the organization is still loading), not "no accent". The
+      pre-paint script has already applied the cached accent; resetting it to the platform's
+      here and back a moment later was a colour flash on every refresh of a themed console.
+    */
+    if (accent === undefined) return;
     const key = isAccentTheme(accent) ? accent : 'default';
     const root = document.documentElement;
     if (key === 'default') root.removeAttribute('data-accent');

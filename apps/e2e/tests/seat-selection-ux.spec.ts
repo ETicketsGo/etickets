@@ -1,5 +1,5 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { API, CUSTOMER } from './helpers';
+import { API, CUSTOMER, browserFetchesStorefrontData } from './helpers';
 
 /**
  * The seat page as a buyer uses it.
@@ -161,6 +161,8 @@ test.describe('choosing seats', () => {
       reported shape — a Balcony block sold at a Premium price.
     */
     let chosen = '';
+    // The renamed layout below is a stand-in the server cannot see.
+    await browserFetchesStorefrontData(page.context());
     await page.route(`**/public/shows/${show.sessionId}/seats**`, async (route) => {
       const response = await route.fetch();
       const layout = await response.json();

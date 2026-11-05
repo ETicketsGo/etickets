@@ -1,6 +1,7 @@
 # ADR-039: Distributed Inventory Locking with Redis and PostgreSQL
 
 - **Status:** Accepted
+- **Status (2026-11-01):** current. Still off by default (`INVENTORY_LOCKS_ENABLED`, `INVENTORY_LOCKS_MODE=shadow`).
 - **Date:** 2026-07-26
 - **Deciders:** Principal Architect
 - **Relates to:** ADR-010 (Inventory Strategy), ADR-013 (Seat Reservation), ADR-037 (Inventory Sourcing), ADR-038 (Domain Event Bus)

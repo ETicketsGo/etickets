@@ -535,4 +535,43 @@ describe('integration-real-postgres: one channel failing does not recreate the o
       where: { destinationHash: SuppressionService.hash('email', EMAIL) },
     });
   });
+
+  /*
+    Owner decision 2026-10-27: a spam complaint stops MARKETING email only. The ticket, the
+    booking confirmation, receipts, sign-in codes and refunds still reach the address: it works,
+    the person only refused promotion. A hard bounce (above) still stops everything.
+  */
+  maybe('a complaint does not stop the booking confirmation email', async () => {
+    const bookingId = `bk-complaint-${suffix}`;
+    const suppression = new SuppressionService(db as never);
+    await suppression.suppress({
+      channel: 'email',
+      destination: EMAIL,
+      reason: 'COMPLAINT' as never,
+      provider: 'ses',
+    });
+    expect(await suppression.isSuppressed('email', EMAIL)).toBe(false);
+    expect(await suppression.isSuppressed('email', EMAIL, 'marketing')).toBe(true);
+    deliver.mockClear();
+    deliver.mockResolvedValue({ provider: 'log' });
+
+    await notifications.send({
+      type: NotificationType.BOOKING_CONFIRMED,
+      userId,
+      toEmail: EMAIL,
+      payload: { bookingId },
+    });
+    await notifications.dispatchDue();
+
+    expect(deliveredFor(bookingId)).toEqual(['email', 'in_app', 'push', 'whatsapp']);
+    const email = await db!.notification.findFirst({
+      where: { userId, channel: 'email', payload: { path: ['bookingId'], equals: bookingId } },
+    });
+    // Handed to the (log) provider, not skipped as suppressed.
+    expect(email.status).not.toBe('SKIPPED');
+    expect(email.lastError).not.toBe('destination_suppressed');
+    await db!.suppressedDestination.deleteMany({
+      where: { destinationHash: SuppressionService.hash('email', EMAIL) },
+    });
+  });
 });

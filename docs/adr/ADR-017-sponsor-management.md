@@ -1,6 +1,7 @@
 # ADR-017: Sponsor Management
 
 - **Status:** Proposed (foundation only)
+- **Status (2026-11-01):** current: still not built (no sponsor tables or services on `main`).
 - **Date:** 2026-07-13
 - **Scope:** PR-4 — architecture/flag only
 

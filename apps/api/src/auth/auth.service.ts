@@ -23,10 +23,13 @@ import { NotificationType } from '@eticketsgo/shared-types';
 import type { AccessTokenPayload } from './jwt.strategy';
 import { MfaService, type MfaBinding } from './mfa/mfa.service';
 import { LoginBackoff } from './login-backoff';
+import { revokeHandoffsForUser } from './handoff-revocation';
 
 interface RequestMeta {
   userAgent?: string;
   ip?: string;
+  /** The network's country for this request (edge header), recorded only on account creation. */
+  networkCountry?: string | null;
 }
 
 /**
@@ -152,6 +155,9 @@ export class AuthService {
           passwordHash,
           fullName: input.fullName,
           roles: [Role.CUSTOMER],
+          ...(meta.networkCountry
+            ? { detectedCountry: meta.networkCountry, detectedCountrySource: 'network' }
+            : {}),
         },
       })
       .catch((err: unknown) => {
@@ -485,6 +491,20 @@ export class AuthService {
     await this.prisma.refreshToken
       .updateMany({ where: { tokenHash, revokedAt: null }, data: { revokedAt: new Date() } })
       .catch(() => undefined);
+    /*
+      A console handoff code minted from this account is revoked with the session. It lives a
+      minute at most, but "I signed out" must mean nothing signed in behind it - not even a link
+      still in flight to the organizer console.
+    */
+    try {
+      const row = await this.prisma.refreshToken.findUnique({
+        where: { tokenHash },
+        select: { userId: true },
+      });
+      if (row) await revokeHandoffsForUser(this.prisma, row.userId);
+    } catch {
+      // Sign-out never fails on this: the refresh token above is what ends the session.
+    }
   }
 
   /**
@@ -499,6 +519,7 @@ export class AuthService {
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+    await revokeHandoffsForUser(this.prisma, userId);
     await this.audit.record({
       actorUserId: userId,
       action: 'AUTH_LOGOUT_ALL',
@@ -536,12 +557,12 @@ export class AuthService {
   /**
    * What the Mobile sign-up tab adds to a proven number: a name, and the text-message agreement.
    *
-   * ── WHY ONLY AN EMPTY NAME IS FILLED ───────────────────────────────────────────────
-   * The sign-up tab cannot know whether the number already has an account - saying so would make
-   * request-code an "is this person registered" oracle. So a number that does have one simply
-   * signs in, and its name is left alone: a sign-up form must never be a way to rename somebody
-   * else's account, or your own by accident. A phone-only account created by an earlier sign-in
-   * has an empty name, and that one is filled.
+   * ── ONLY EVER FOR AN ACCOUNT THE SAME REQUEST CREATED ───────────────────────────────
+   * The controller calls this only when `verifyCode` answered `isNewAccount: true`. A number that
+   * already has an account signs into it and nothing from the sign-up form is applied - not a
+   * name (even into an empty one) and not a sign-up consent (2026-10-25: repeat sign-ups used to
+   * fill an existing nameless account's name and record CUSTOMER_SIGNUP consent against it).
+   * The empty-name condition below stays as a second guard against a concurrent rename.
    *
    * ── WHY THE CONSENT IS RECORDED HERE AND NOT THROUGH THE SETTINGS ENDPOINT ──────────
    * Provenance. The settings endpoint records `account-settings:*`, which would claim the person
@@ -586,6 +607,22 @@ export class AuthService {
       );
     }
     // The same gate as the password route: a phone code must not be a way round the second factor.
+    return this.signInOrChallenge(user, meta);
+  }
+
+  /**
+   * Complete a console handoff, once its one-time code has been spent (see AuthHandoffService).
+   *
+   * The same gate as every other sign-in, deliberately: a suspended account gets nothing, and a
+   * back-office account gets its second-factor challenge instead of tokens. A handoff can never
+   * be a way round the second factor, any more than a phone code can.
+   */
+  async completeHandoffSignIn(
+    userId: string,
+    meta: RequestMeta,
+  ): Promise<AuthTokens | MfaChallengeResponse> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw accountCannotSignIn();
     return this.signInOrChallenge(user, meta);
   }
 
@@ -790,6 +827,7 @@ export class AuthService {
         where: { userId: row.userId, revokedAt: null },
         data: { revokedAt: new Date() },
       });
+      await revokeHandoffsForUser(tx, row.userId);
 
       /*
         An unclaimed invitation is completed by the same act.
@@ -943,10 +981,17 @@ export class AuthService {
     phoneVerified: boolean;
     memberSince: string;
     locale: string | null;
+    countryOfResidence: string | null;
   }> {
     const row = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { phone: true, phoneVerifiedAt: true, createdAt: true, locale: true },
+      select: {
+        phone: true,
+        phoneVerifiedAt: true,
+        createdAt: true,
+        locale: true,
+        countryOfResidence: true,
+      },
     });
     return {
       phone: row?.phone ?? null,
@@ -955,6 +1000,8 @@ export class AuthService {
       phoneVerified: Boolean(row?.phoneVerifiedAt),
       memberSince: (row?.createdAt ?? new Date()).toISOString(),
       locale: row?.locale ?? null,
+      // Only what the person chose in their profile; null means "not said".
+      countryOfResidence: row?.countryOfResidence ?? null,
     };
   }
 }

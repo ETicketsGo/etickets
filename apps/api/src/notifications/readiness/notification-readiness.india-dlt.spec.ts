@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { NotificationReadinessService } from './notification-readiness.service';
 import { TemplateBindingService } from '../templates/template-binding.service';
+import * as dltRegistry from '../templates/dlt-sms-templates';
 
 /**
  * What readiness says about India SMS while DLT is part-way done.
@@ -47,6 +48,16 @@ function build(values: Record<string, string>) {
 const sms = async (values: Record<string, string>) =>
   (await build(values).forMarket('IN')).components.find((c) => c.key === 'sms')!;
 
+/*
+  The approved templates' registered text is not verified yet, so every kind is refused at the
+  approval gate today. The tests in this file prove the pipeline BEHIND that gate, as it will
+  run once a template is verified; the gate itself is proved in dlt-sms-templates.spec.ts and
+  in 'MSG91 SMS: only approved, verified templates send'.
+*/
+beforeEach(() => {
+  jest.spyOn(dltRegistry, 'dltSendRefusal').mockReturnValue(null);
+});
+
 describe('readiness: India SMS and DLT templates', () => {
   it('is BLOCKED_DLT with no template ids, and names the sign-in code first', async () => {
     const c = await sms(INDIA);
@@ -87,15 +98,22 @@ describe('readiness: India SMS and DLT templates', () => {
     expect(c.detail).not.toContain('REFUND_COMPLETED');
   });
 
-  it('flags the rejected ETKTGO header', async () => {
+  // Owner, 2026-10-25: header ETKTGO is approved.
+  it('accepts ETKTGO when configured with valid ids', async () => {
     const c = await sms({
       ...INDIA,
       ...ALL_REQUIRED_IDS,
       MSG91_SENDER_ID: 'ETKTGO',
       DLT_SENDER_HEADER: 'ETKTGO',
     });
+    expect(c.state).toBe('CONFIGURED');
+    expect(c.detail ?? '').not.toContain('rejected');
+  });
+
+  it('still reports BLOCKED_DLT for ETKTGO without the template ids', async () => {
+    const c = await sms({ ...INDIA, MSG91_SENDER_ID: 'ETKTGO', DLT_SENDER_HEADER: 'ETKTGO' });
     expect(c.state).toBe('BLOCKED_DLT');
-    expect(c.detail).toContain('ETKTGO was rejected');
+    expect(c.detail).toContain('DLT_TEMPLATE_ID_OTP');
   });
 
   it('never prints a configured value, only key names', async () => {

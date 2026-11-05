@@ -17,6 +17,14 @@ describe('console root layouts', () => {
       expect(code).toMatch(
         /<body(?: data-brand="console")?>\s*<script dangerouslySetInnerHTML=\{\{ __html: workspaceThemeScript \}\} \/>/,
       );
+      // The session hint reaches RequireAuth, so a refresh draws the console frame from the
+      // first paint instead of an empty page with a spinner (refresh flicker, 2026-11).
+      expect(code).toContain('jar.get(SESSION_HINT_COOKIE)');
+      // And the collapsed sidebar, so the rail is not drawn open and folded after load.
+      expect(code).toContain('jar.get(SIDEBAR_COLLAPSED_COOKIE)');
+      expect(code).toContain(
+        '<WebProviders sessionHint={sessionHint} sidebarCollapsed={sidebarCollapsed}>',
+      );
     });
   }
 });
