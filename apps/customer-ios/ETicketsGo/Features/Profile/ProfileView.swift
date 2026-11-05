@@ -11,6 +11,7 @@ enum ProfileFormat {
 struct ProfileView: View {
     @Environment(AppContainer.self) private var container
     @State private var confirmingSignOut = false
+    @State private var deletingAccount = false
 
     var body: some View {
         List {
@@ -45,8 +46,9 @@ struct ProfileView: View {
             }
 
             Section("Support") {
-                comingSoon("Help and support", "questionmark.circle")
-                comingSoon("Privacy and terms", "lock.shield")
+                webLink("Help and support", "questionmark.circle", path: "help")
+                webLink("Privacy policy", "lock.shield", path: "privacy")
+                webLink("Terms of service", "doc.plaintext", path: "terms")
             }
 
             Section {
@@ -65,8 +67,16 @@ struct ProfileView: View {
                     Button("Sign out", role: .destructive) { confirmingSignOut = true }
                         .frame(maxWidth: .infinity)
                 }
+                Section {
+                    Button("Delete account", role: .destructive) { deletingAccount = true }
+                        .frame(maxWidth: .infinity)
+                        .accessibilityIdentifier("profile.deleteAccount")
+                } footer: {
+                    Text("Permanently deletes your account and signs you out on this phone.")
+                }
             }
         }
+        .sheet(isPresented: $deletingAccount) { DeleteAccountView() }
         .confirmationDialog("Sign out of ETicketsGo?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) { Task { await container.auth.logout() } }
         } message: {
@@ -95,6 +105,17 @@ struct ProfileView: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// The website's own page; the MOCK build has no web host and links to production.
+    @ViewBuilder
+    private func webLink(_ title: String, _ symbol: String, path: String) -> some View {
+        if let url = URL(string: "https://\(container.configuration.webHost ?? "eticketsgo.com")/\(path)") {
+            Link(destination: url) {
+                Label(title, systemImage: symbol).foregroundStyle(ETGColor.ink)
+            }
+            .accessibilityHint("Opens in your browser")
+        }
+    }
+
     private func comingSoon(_ title: String, _ symbol: String) -> some View {
         HStack {
             Label(title, systemImage: symbol).foregroundStyle(ETGColor.ink)
@@ -110,6 +131,66 @@ struct ProfileView: View {
         let short = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
         return "\(short) (\(build))"
+    }
+}
+
+/// Typed confirmation, as on Android: deletion is irreversible and has no undo on the server.
+struct DeleteAccountView: View {
+    static let confirmationWord = "DELETE"
+
+    @Environment(AppContainer.self) private var container
+    @Environment(\.dismiss) private var dismiss
+    @State private var typed = ""
+    @State private var working = false
+    @State private var problem: String?
+
+    var confirmed: Bool { typed.trimmingCharacters(in: .whitespaces) == Self.confirmationWord }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("This permanently deletes your ETicketsGo account, your profile and your saved details. Tickets for upcoming events will no longer be available in the app.")
+                        .font(ETGFont.body).foregroundStyle(ETGColor.ink)
+                }
+                Section {
+                    TextField("Type \(Self.confirmationWord) to confirm", text: $typed)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                        .accessibilityIdentifier("deleteAccount.confirmation")
+                } footer: {
+                    if let problem {
+                        Text(problem).foregroundStyle(ETGColor.critical)
+                    }
+                }
+                Section {
+                    Button(role: .destructive) {
+                        Task { await delete() }
+                    } label: {
+                        if working { ProgressView().frame(maxWidth: .infinity) } else {
+                            Text("Delete my account").frame(maxWidth: .infinity)
+                        }
+                    }
+                    .disabled(!confirmed || working)
+                    .accessibilityIdentifier("deleteAccount.submit")
+                }
+            }
+            .navigationTitle("Delete account")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(working) }
+            }
+            .interactiveDismissDisabled(working)
+        }
+    }
+
+    private func delete() async {
+        working = true
+        defer { working = false }
+        switch await container.auth.deleteAccount(pendingCheckout: container.pendingCheckout) {
+        case .deleted: dismiss()
+        case let .blocked(message), let .failed(message): problem = message
+        }
     }
 }
 
