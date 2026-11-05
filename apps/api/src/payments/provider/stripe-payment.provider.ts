@@ -17,6 +17,7 @@ import type {
   PaymentEvent,
   PaymentIntent,
   PaymentProvider,
+  PaymentStatusResult,
   ProviderRefundRecord,
   RefundInput,
   RefundResult,
@@ -189,12 +190,20 @@ export class StripePaymentProvider implements PaymentProvider {
           },
         ],
         // Carry the booking id back so the success page can poll our status (the
-        // redirect itself is NEVER treated as proof of payment — the webhook is).
-        success_url: appendParam(this.successUrl, 'booking', input.bookingId),
-        cancel_url: appendParam(this.cancelUrl, 'booking', input.bookingId),
+        // redirect itself is NEVER treated as proof of payment — the webhook is). A buyer in
+        // the native app is marked `via=app`, which the web return page hands back to the app.
+        success_url: returnUrl(this.successUrl, input.bookingId, input.returnToApp),
+        cancel_url: returnUrl(this.cancelUrl, input.bookingId, input.returnToApp),
+        // The shortest deadline Stripe accepts (30 minutes) that still covers the hold; the hold
+        // itself is enforced by closing this session when it lapses (see checkout-expiry.ts).
+        ...(input.expiresAt ? { expires_at: Math.floor(input.expiresAt.getTime() / 1000) } : {}),
       },
-      // Idempotency: retries with the same bookingId never create a second Session.
-      { idempotencyKey: input.idempotencyKey },
+      /*
+        Idempotency: the same booking, deadline and return target give Stripe the same key
+        and identical parameters, so a retried "pay" gets the same Session back. The deadline
+        is part of the key because Stripe rejects a key reused with different parameters.
+      */
+      { idempotencyKey: stripeIdempotencyKey(input) },
     );
 
     if (!session.url) {
@@ -209,7 +218,59 @@ export class StripePaymentProvider implements PaymentProvider {
       providerRef: typeof session.payment_intent === 'string' ? session.payment_intent : session.id,
       clientActionUrl: session.url,
       status: 'REQUIRES_PAYMENT',
+      providerOrderId: session.id,
     };
+  }
+
+  async resumeCheckout(sessionId: string): Promise<string | null> {
+    const session = await this.client.checkout.sessions.retrieve(sessionId);
+    return session.status === 'open' && session.url ? session.url : null;
+  }
+
+  /**
+   * Expire an open Checkout Session so it can no longer be paid. Stripe refuses to expire a
+   * session that is not open; that refusal is read back as `not_open` only after re-reading
+   * the session, so a network failure is never mistaken for "already closed".
+   */
+  async closeOrder(sessionId: string): Promise<'closed' | 'not_open'> {
+    try {
+      await this.client.checkout.sessions.expire(sessionId);
+      return 'closed';
+    } catch (err) {
+      // Stripe's refusal (a 4xx about the session); anything else - network, auth, 5xx - throws.
+      if ((err as { type?: string })?.type !== 'StripeInvalidRequestError') throw err;
+      const session = await this.client.checkout.sessions.retrieve(sessionId);
+      if (session.status === 'open') throw err;
+      return 'not_open';
+    }
+  }
+
+  /**
+   * What was paid through one Checkout Session, for the expiry guard.
+   *
+   * Throws (→ "unverifiable", stock stays held) unless the answer is definite: a session that
+   * is still open could yet be paid, and a completed session whose payment is still processing
+   * (a delayed method) may yet succeed. Only an expired session, or a paid one, is an answer.
+   */
+  async findOrderPayments(sessionId: string): Promise<PaymentStatusResult[]> {
+    const session = await this.client.checkout.sessions.retrieve(sessionId);
+    if (session.payment_status === 'paid') {
+      return [
+        {
+          providerRef:
+            typeof session.payment_intent === 'string'
+              ? session.payment_intent
+              : (session.payment_intent?.id ?? session.id),
+          status: 'SUCCEEDED',
+          amountMinor: session.amount_total ?? 0,
+          currency: (session.currency ?? '').toUpperCase(),
+        },
+      ];
+    }
+    if (session.status === 'expired') return [];
+    throw new Error(
+      `Checkout Session ${sessionId} is ${session.status} with payment ${session.payment_status}; not yet final.`,
+    );
   }
 
   async verifyWebhook(input: WebhookInput): Promise<PaymentEvent> {
@@ -480,7 +541,14 @@ export class StripePaymentProvider implements PaymentProvider {
       typeof session.payment_intent === 'string'
         ? session.payment_intent
         : (session.payment_intent?.id ?? session.id);
-    return { type, providerRef, bookingId, amountMinor };
+    return {
+      type,
+      providerRef,
+      bookingId,
+      amountMinor,
+      ...(session.currency ? { currency: session.currency.toUpperCase() } : {}),
+      checkoutSessionId: session.id,
+    };
   }
 
   private fromPaymentIntent(pi: Stripe.PaymentIntent, type: PaymentEvent['type']): PaymentEvent {
@@ -489,7 +557,13 @@ export class StripePaymentProvider implements PaymentProvider {
     if (!bookingId || typeof amountMinor !== 'number') {
       throw this.missingFields();
     }
-    return { type, providerRef: pi.id, bookingId, amountMinor };
+    return {
+      type,
+      providerRef: pi.id,
+      bookingId,
+      amountMinor,
+      ...(pi.currency ? { currency: pi.currency.toUpperCase() } : {}),
+    };
   }
 
   private missingFields(): AppException {
@@ -499,6 +573,18 @@ export class StripePaymentProvider implements PaymentProvider {
       HttpStatus.BAD_REQUEST,
     );
   }
+}
+
+/** The booking's return URL; `via=app` only when the buyer is in the native app. */
+function returnUrl(base: string, bookingId: string, toApp?: boolean): string {
+  const withBooking = appendParam(base, 'booking', bookingId);
+  return toApp ? appendParam(withBooking, 'via', 'app') : withBooking;
+}
+
+/** Same booking + deadline + return target → same key → Stripe replays the same Session. */
+export function stripeIdempotencyKey(input: CreatePaymentInput): string {
+  const deadline = input.expiresAt ? `:${Math.floor(input.expiresAt.getTime() / 1000)}` : '';
+  return `${input.idempotencyKey}${deadline}${input.returnToApp ? ':app' : ''}`;
 }
 
 /** Append a query param to a URL string, preserving any existing query (incl. Stripe's

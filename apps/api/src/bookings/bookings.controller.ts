@@ -166,10 +166,20 @@ export class BookingsController {
   pay(
     @CurrentUser() user: RequestUser,
     @Param('id') id: string,
+    // Optional and backwards-compatible: no body pays exactly as before. `returnTo: 'app'`
+    // is a fixed value, never a URL - where "the app" is lives in server configuration.
+    @Body(new ZodValidationPipe(z.object({ returnTo: z.enum(['app']).optional() }).nullish()))
+    body?: { returnTo?: 'app' } | null,
     @Headers('x-anon-session') anonymousToken?: string,
     @Headers('x-correlation-id') correlationId?: string,
   ) {
-    return this.router.beginPayment({ user, bookingId: id, anonymousToken, correlationId });
+    return this.router.beginPayment({
+      user,
+      bookingId: id,
+      anonymousToken,
+      correlationId,
+      returnTo: body?.returnTo,
+    });
   }
 
   @Post(':id/cancel')

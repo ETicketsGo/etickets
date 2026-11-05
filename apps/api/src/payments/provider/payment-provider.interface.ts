@@ -29,6 +29,17 @@ export interface CreatePaymentInput {
   metadata?: Record<string, string>;
   /** Human-readable line-item label for the hosted checkout. */
   description?: string;
+  /**
+   * When the provider's checkout must stop accepting payment. Providers with a floor (Stripe
+   * Checkout: 30 minutes) are given a value that already respects it; the hold itself is
+   * enforced by closing the checkout when the hold lapses. See payments/checkout-expiry.ts.
+   */
+  expiresAt?: Date;
+  /**
+   * The buyer is in the native app: return them through the app-return route rather than
+   * leaving them on the website. Never changes what is charged or how payment is confirmed.
+   */
+  returnToApp?: boolean;
 }
 
 export interface PaymentIntent {
@@ -36,6 +47,12 @@ export interface PaymentIntent {
   /** URL/redirect or client secret the frontend uses to complete payment. */
   clientActionUrl: string;
   status: 'REQUIRES_PAYMENT';
+  /**
+   * The provider-side checkout that can be asked about and closed later (a Stripe Checkout
+   * Session id). Stored as `Payment.providerOrderId`, which is what lets the hold expiry close
+   * and consult the checkout instead of releasing the stock blind.
+   */
+  providerOrderId?: string;
 }
 
 export interface WebhookInput {
@@ -58,11 +75,16 @@ export interface PaymentEvent {
   amountMinor: number;
   /**
    * ISO-4217 code of the money the provider actually took, when the provider says (Razorpay's
-   * `payment.entity.currency`). Optional: Stripe, the mock and the free and cash paths do not set
-   * it, and an absent currency is not checked. When present it must equal the booking's currency,
-   * or the booking is not confirmed (see PaymentsService.confirm).
+   * `payment.entity.currency`, Stripe's session / PaymentIntent `currency`). The mock and the
+   * free and cash paths do not set it, and an absent currency is not checked. When present it
+   * must equal the booking's currency, or the booking is not confirmed (PaymentsService.confirm).
    */
   currency?: string;
+  /**
+   * The checkout this payment was made through, when the provider reports it (Stripe Checkout
+   * Session events). Must be the checkout the booking opened (PaymentsService.confirm).
+   */
+  checkoutSessionId?: string;
   /**
    * Why a `payment.failed` failed, when the provider said. `reason` is ours and is what the
    * buyer is told; `providerCode` is the provider's own token (e.g.
@@ -417,6 +439,18 @@ export interface PaymentProvider {
   capture?(input: CaptureInput): Promise<PaymentStatusResult>;
   cancel?(input: CancelInput): Promise<PaymentStatusResult>;
   getPayment?(providerRef: string): Promise<PaymentStatusResult>;
+  /**
+   * The URL of a checkout that is still open and payable, or null when it is not (completed,
+   * expired, unknown). Lets a repeated "pay" resume the same checkout instead of opening a
+   * second payable one for the same booking.
+   */
+  resumeCheckout?(orderId: string): Promise<string | null>;
+  /**
+   * Close a checkout so it can no longer be paid. `closed`: it was open and is now closed.
+   * `not_open`: it had already completed or expired - the caller must look at what happened.
+   * Throws when the provider cannot be reached; callers treat that as "unknown".
+   */
+  closeOrder?(orderId: string): Promise<'closed' | 'not_open'>;
   /**
    * Every payment the provider has recorded against an ORDER.
    *

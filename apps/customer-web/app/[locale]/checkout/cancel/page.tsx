@@ -1,7 +1,7 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
+import { Suspense, useEffect } from 'react';
 import { XCircle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { brandButtonClasses } from '@eticketsgo/web-kit';
@@ -13,6 +13,7 @@ import {
   BrandFormPanel,
   BrandSkeleton,
 } from '@/components/brand-forms';
+import { appReturnUrl } from '@/lib/app-return';
 
 /**
  * Buyer landed here after cancelling / abandoning the hosted Stripe Checkout.
@@ -24,6 +25,12 @@ function CheckoutCancel() {
   const n = useTranslations('common.nav');
   const params = useSearchParams();
   const bookingId = params.get('booking');
+  // A checkout opened from the native app goes back to the app; this page is the fallback.
+  const appUrl = appReturnUrl(params, 'cancel');
+
+  useEffect(() => {
+    if (appUrl) window.location.replace(appUrl);
+  }, [appUrl]);
 
   return (
     <BrandCenteredPage>

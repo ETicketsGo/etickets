@@ -287,7 +287,7 @@ describe('the guest checkout session is bound to the booking in every mode', () 
       anonymousToken: token,
       requireAnonymousToken: true,
     });
-    expect(payments.createIntent).toHaveBeenCalledWith('b1', undefined);
+    expect(payments.createIntent).toHaveBeenCalledWith('b1', undefined, { returnToApp: false });
   });
 
   it('the guest payment route refuses a different well-formed session on a bound booking', async () => {
@@ -341,7 +341,7 @@ describe('BookingExecutionRouter.beginPayment / cancel / status', () => {
   it('disabled uses legacy createIntent', async () => {
     const { router, payments } = make('disabled');
     await router.beginPayment({ user, bookingId: 'b1' });
-    expect(payments.createIntent).toHaveBeenCalledWith('b1', user);
+    expect(payments.createIntent).toHaveBeenCalledWith('b1', user, { returnToApp: false });
   });
 
   it('active beginPayment routes through the orchestrator with a resolved owner', async () => {
@@ -470,7 +470,7 @@ describe('BookingExecutionRouter.beginPayment / cancel / status', () => {
       anonymousToken: anon.issueToken(),
       requireAnonymousToken: true,
     });
-    expect(payments.createIntent).toHaveBeenCalledWith('b1', undefined);
+    expect(payments.createIntent).toHaveBeenCalledWith('b1', undefined, { returnToApp: false });
   });
 
   it('status requires an authenticated principal and preserves the owner-checked contract', async () => {
@@ -549,6 +549,6 @@ describe('guest-booking mutations from a signed-in caller', () => {
     await router.extendHold({ user, bookingId: 'b1' });
     expect(bookings.extendHold).toHaveBeenCalledWith(user, 'b1', { guestSessionVerified: false });
     await router.beginPayment({ user, bookingId: 'b1' });
-    expect(payments.createIntent).toHaveBeenCalledWith('b1', user);
+    expect(payments.createIntent).toHaveBeenCalledWith('b1', user, { returnToApp: false });
   });
 });
