@@ -824,7 +824,8 @@ export function EventDetailPage() {
           below it moves and no broken image shows.
         */}
         <figure
-          data-brand-tone="stage"
+          // The ink stage frames a photograph; the no-picture default stays on paper.
+          {...(heroImage ? { 'data-brand-tone': 'stage' } : {})}
           className={`relative mt-8 overflow-hidden sm:mt-10 ${
             heroImage ? 'bg-brand-image-fallback' : 'border border-brand-line bg-brand-sunken'
           }`}
@@ -872,7 +873,9 @@ export function EventDetailPage() {
                 <span className="text-brand-eyebrow uppercase text-brand-gold-text">
                   {eventKind(event)}
                 </span>
-                <Wordmark size="xl" />
+                <span className="text-brand-ink">
+                  <Wordmark tone="brand" size="xl" />
+                </span>
                 <span className="h-px w-12 bg-brand-marigold" />
               </div>
             )}
