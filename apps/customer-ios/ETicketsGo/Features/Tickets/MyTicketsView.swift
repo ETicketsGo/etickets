@@ -47,7 +47,11 @@ struct MyTicketsView: View {
                     switch content {
                     case .signedOut:
                         EmptyStateView(systemImage: "person.crop.circle.badge.questionmark", title: "Sign in to see your tickets",
-                                       message: "Sign-in arrives in the next release.")
+                                       message: "Your tickets are kept in your account, ready to show at the door.") {
+                            Button("Sign in") { container.auth.isPresentingSignIn = true }
+                                .buttonStyle(.etgPrimary)
+                                .frame(maxWidth: 220)
+                        }
                     case let .tickets(upcoming, past) where upcoming.isEmpty && past.isEmpty:
                         EmptyStateView(systemImage: "ticket", title: "No tickets yet",
                                        message: "Tickets you book appear here, ready to show at the door.")
@@ -60,9 +64,11 @@ struct MyTicketsView: View {
         .etgScreenBackground()
         .navigationTitle("My Tickets")
         .refreshable { await model?.load() }
-        .task {
+        // Reload whenever who is signed in changes: sign-in, sign-out, or an expired session.
+        .task(id: container.auth.sessionKey) {
             if model == nil { model = MyTicketsViewModel(repository: container.tickets) }
-            if model?.state.value == nil { await model?.load() }
+            guard container.auth.state != .restoring else { return }
+            await model?.load()
         }
     }
 

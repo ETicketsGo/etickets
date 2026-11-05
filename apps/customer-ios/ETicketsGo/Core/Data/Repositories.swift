@@ -15,11 +15,6 @@ protocol TicketsRepository: Sendable {
     func tickets() async throws -> [Ticket]
 }
 
-protocol AccountRepository: Sendable {
-    /// `nil` when nobody is signed in.
-    func currentUser() async throws -> AuthenticatedUser?
-}
-
 // MARK: - Remote (QA / PROD)
 
 struct RemoteCatalogRepository: CatalogRepository {
@@ -39,16 +34,4 @@ struct RemoteTicketsRepository: TicketsRepository {
     let client: APIClient
 
     func tickets() async throws -> [Ticket] { try await client.send(CustomerAPI.tickets()) }
-}
-
-struct RemoteAccountRepository: AccountRepository {
-    let client: APIClient
-
-    func currentUser() async throws -> AuthenticatedUser? {
-        do {
-            return try await client.send(CustomerAPI.me())
-        } catch APIError.unauthorized {
-            return nil
-        }
-    }
 }

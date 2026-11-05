@@ -5,6 +5,14 @@
 APP_ENV = qa
 API_BASE_URL = https:/$()/api-qa.eticketsgo.com/api
 ALLOW_MUTATIONS = YES
+// QA writes — including sign-in, sign-up and OTP — are allowed only for the identities in
+// QA_TEST_ACCOUNTS: exact email addresses or E.164 phone numbers of approved QA test accounts,
+// space-separated. No wildcards. Empty (the committed default) means nobody.
+//
+// The real list is not committed: put it in Config/QA.local.xcconfig (git-ignored), e.g.
+//   QA_TEST_ACCOUNTS = qa.tester1@<approved-domain> +<approved test number>
+QA_TEST_ACCOUNTS =
+#include? "QA.local.xcconfig"
 APP_DISPLAY_NAME = ETicketsGo QA
 PRODUCT_BUNDLE_IDENTIFIER = com.eticketsgo.customer.native.qa
 
