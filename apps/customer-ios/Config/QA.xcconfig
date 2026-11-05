@@ -14,6 +14,12 @@ ALLOW_MUTATIONS = YES
 QA_TEST_ACCOUNTS =
 // Holds, payments and cancellations against QA. Off until separately approved.
 ALLOW_BOOKING_WRITES = NO
+// Hosted checkout from the app. Off until real QA checkout is certified.
+NATIVE_CHECKOUT = NO
+WEB_HOST = qa.eticketsgo.com
+// Payment-return links when universal links aren't available. Distinct from the Expo app's
+// `etickets` scheme so the two apps never claim each other's links.
+APP_URL_SCHEME = etgnative-qa
 #include? "QA.local.xcconfig"
 APP_DISPLAY_NAME = ETicketsGo QA
 PRODUCT_BUNDLE_IDENTIFIER = com.eticketsgo.customer.native.qa

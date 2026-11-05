@@ -12,6 +12,7 @@ final class AppContainer {
     let auth: AuthStore
     let booking: any BookingRepository
     let city = CityStore()
+    let pendingCheckout = PendingCheckoutStore()
     /// MOCK only: the in-memory commerce server, so the simulated provider page can approve.
     let mockCommerce: MockCommerceServer?
 
@@ -42,7 +43,11 @@ final class AppContainer {
             #if DEBUG
             // Debug MOCK builds only: `-ETGResetSession` starts signed out with nothing saved, so
             // each UI test is independent; `-ETGMockSignedIn` starts with the demo customer signed in.
-            if ProcessInfo.processInfo.arguments.contains("-ETGResetSession") { store.clear(); offline.clear() }
+            if ProcessInfo.processInfo.arguments.contains("-ETGResetSession") {
+                store.clear(); offline.clear()
+                PendingCheckoutStore().clear()
+                MockCommerceServer.discardSavedState()
+            }
             if ProcessInfo.processInfo.arguments.contains("-ETGMockSignedIn"),
                let user = try? FixtureStore().load("me", as: AuthenticatedUser.self) {
                 try? store.save(StoredSession(
@@ -94,7 +99,10 @@ final class AppContainer {
         let holdSeconds: TimeInterval = 600
         let failFirst = false
         #endif
-        let commerce = MockCommerceServer(holdDuration: holdSeconds, confirmationDelay: latency == .zero ? .milliseconds(10) : .seconds(3))
+        // The running app keeps its simulated bookings across launches, so an interrupted
+        // checkout can be resumed after the app is terminated; tests and previews don't.
+        let commerce = MockCommerceServer(holdDuration: holdSeconds, confirmationDelay: latency == .zero ? .milliseconds(10) : .seconds(3),
+                                          persists: latency != .zero)
         return AppContainer(
             configuration: configuration,
             catalog: MockCatalogRepository(latency: latency, failOnce: FailOnce(armed: failFirst)),

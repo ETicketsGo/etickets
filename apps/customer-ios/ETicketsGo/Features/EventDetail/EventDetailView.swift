@@ -24,12 +24,12 @@ final class EventDetailViewModel {
 
     /// Cheapest ticket across the event's sessions, for the summary line. Display only —
     /// the price charged is always the server's quote.
-    static func lowestPrice(_ event: EventDetail) -> (minor: Int, currency: String)? {
+    nonisolated static func lowestPrice(_ event: EventDetail) -> (minor: Int, currency: String)? {
         event.sessions.flatMap(\.ticketTypes).min { $0.priceMinor < $1.priceMinor }
             .map { ($0.priceMinor, $0.currency) }
     }
 
-    static func upcomingSessions(_ event: EventDetail, now: Date = .now) -> [EventSession] {
+    nonisolated static func upcomingSessions(_ event: EventDetail, now: Date = .now) -> [EventSession] {
         event.sessions.filter { $0.endsAt > now }.sorted { $0.startsAt < $1.startsAt }
     }
 }
