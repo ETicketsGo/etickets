@@ -42,10 +42,12 @@ const configFrom = (values: Record<string, unknown>) =>
   ({ get: (k: string) => values[k] }) as unknown as ConfigService;
 
 describe('RailwaySecretManager', () => {
-  it('maps exactly the two approved Razorpay names to their existing variables', async () => {
+  it('maps exactly the approved live Razorpay and Stripe names to their variables', async () => {
     expect(RAILWAY_SECRET_MAP).toEqual({
       'payments/razorpay/live/secret-key': 'RAZORPAY_KEY_SECRET',
       'payments/razorpay/live/webhook-secret': 'RAZORPAY_WEBHOOK_SECRET',
+      'payments/stripe/live/secret-key': 'STRIPE_SECRET_KEY',
+      'payments/stripe/live/webhook-secret': 'STRIPE_WEBHOOK_SECRET',
     });
     const sm = new RailwaySecretManager({ ...RAZORPAY_ENV });
     await expect(sm.getSecret('payments/razorpay/live/secret-key')).resolves.toBe(
@@ -62,7 +64,7 @@ describe('RailwaySecretManager', () => {
     'qr/signing-secret',
     'payments/razorpay/test/secret-key',
     'payments/razorpay/production/secret-key',
-    'payments/stripe/live/secret-key',
+    'payments/stripe/test/secret-key',
     'inventory-sync/qube/webhook-secret',
     'razorpay-key-secret',
     'RAZORPAY_KEY_SECRET',
@@ -117,6 +119,40 @@ describe('RailwaySecretManager', () => {
       provider: 'railway',
       message: 'missing RAZORPAY_WEBHOOK_SECRET',
     });
+  });
+
+  it('judges each provider on its own: Stripe absent leaves Razorpay healthy, half a Stripe does not', async () => {
+    // India-only production today: no Stripe variables at all. Not a failure.
+    await expect(
+      new RailwaySecretManager({ ...RAZORPAY_ENV }).healthCheck(),
+    ).resolves.toMatchObject({
+      healthy: true,
+    });
+    // A Stripe key without its webhook secret is a payment that can never be confirmed.
+    await expect(
+      new RailwaySecretManager({ ...RAZORPAY_ENV, STRIPE_SECRET_KEY: 'sk' }).healthCheck(),
+    ).resolves.toEqual({
+      healthy: false,
+      provider: 'railway',
+      message: 'missing STRIPE_WEBHOOK_SECRET',
+    });
+    await expect(
+      new RailwaySecretManager({
+        ...RAZORPAY_ENV,
+        STRIPE_SECRET_KEY: 'sk',
+        STRIPE_WEBHOOK_SECRET: 'wh',
+      }).healthCheck(),
+    ).resolves.toMatchObject({ healthy: true });
+    // Nothing set at all is still unhealthy.
+    await expect(new RailwaySecretManager({}).healthCheck()).resolves.toMatchObject({
+      healthy: false,
+    });
+  });
+
+  it('resolves the Stripe live references from their variables', async () => {
+    const sm = new RailwaySecretManager({ STRIPE_SECRET_KEY: 'sk', STRIPE_WEBHOOK_SECRET: 'wh' });
+    await expect(sm.getSecret('payments/stripe/live/secret-key')).resolves.toBe('sk');
+    await expect(sm.getSecret('payments/stripe/live/webhook-secret')).resolves.toBe('wh');
   });
 });
 
