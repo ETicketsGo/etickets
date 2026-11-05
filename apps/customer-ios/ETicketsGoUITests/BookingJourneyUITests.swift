@@ -242,6 +242,8 @@ final class ProductStateUITests: JourneyUITestCase {
         XCTAssertTrue(any("Requested, waiting for the organizer", in: app).waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["refund.request"].exists, "no second request while one is open")
         snap("19-refund-requested")
+    }
+
     func testEditProfileRenamesTheAccount() {
         let app = launch(["-ETGMockSignedIn", "-ETGTab", "profile"])
         let edit = app.buttons["profile.edit"]
