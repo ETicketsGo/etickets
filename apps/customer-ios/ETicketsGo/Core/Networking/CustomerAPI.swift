@@ -49,6 +49,18 @@ enum CustomerAPI {
         Endpoint(path: "/bookings/\(escaped(id))", requiresAuth: true)
     }
 
+    /// GET /refunds/booking/:id (refunds.controller.ts) - the buyer's refunds on one booking.
+    static func refunds(bookingId: String) -> Endpoint<[Refund]> {
+        Endpoint(path: "/refunds/booking/\(escaped(bookingId))", requiresAuth: true)
+    }
+
+    /// POST /refunds (`refundRequestSchema`): the whole booking; the server works out which
+    /// tickets, how much, and whether at all.
+    static func requestRefund(bookingId: String, reason: String) -> Endpoint<IgnoredResponse> {
+        Endpoint(method: .post, path: "/refunds",
+                 body: try? JSONEncoder.etg.encode(RefundRequestBody(bookingId: bookingId, reason: reason)), requiresAuth: true)
+    }
+
     /// GET /auth/me (bearer)
     static func me() -> Endpoint<AuthenticatedUser> {
         Endpoint(path: "/auth/me", requiresAuth: true)

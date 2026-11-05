@@ -223,6 +223,27 @@ final class CheckoutRecoveryUITests: JourneyUITestCase {
 }
 
 final class ProductStateUITests: JourneyUITestCase {
+    func testRequestRefundOnce() {
+        let app = launch(["-ETGMockSignedIn", "-ETGTab", "profile", "-ETGBookings"])
+        let booking = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Monsoon Jazz Nights'")).firstMatch
+        XCTAssertTrue(booking.waitForExistence(timeout: 10))
+        booking.tap()
+        let request = app.buttons["refund.request"]
+        scrollTo(request, in: app)
+        XCTAssertTrue(request.waitForExistence(timeout: 10))
+        request.tap()
+        let reason = app.textFields["refund.reason"]
+        XCTAssertTrue(reason.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["refund.submit"].isEnabled, "a reason is required")
+        reason.tap()
+        reason.typeText("Cannot attend any more")
+        snap("18-refund-request")
+        app.buttons["refund.submit"].tap()
+        XCTAssertTrue(any("Requested, waiting for the organizer", in: app).waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["refund.request"].exists, "no second request while one is open")
+        snap("19-refund-requested")
+    }
+
     func testCityChoiceScopesHome() {
         let app = launch(["-ETGTab", "home"])
         let chip = app.buttons["home.city"]

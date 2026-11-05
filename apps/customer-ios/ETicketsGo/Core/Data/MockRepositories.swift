@@ -149,6 +149,7 @@ struct MockTicketsRepository: TicketsRepository {
     var latency: Duration = .milliseconds(350)
     var server: MockCommerceServer?
     var network = GoesOffline(after: nil)
+    var refundStore = MockRefundStore()
 
     func tickets() async throws -> [Ticket] {
         try await signedIn()
@@ -177,8 +178,39 @@ struct MockTicketsRepository: TicketsRepository {
         return match
     }
 
+    func refunds(bookingId: String) async throws -> [Refund] {
+        try await signedIn()
+        return await refundStore.refunds(for: bookingId)
+    }
+
+    /// Simulated: records a request and refunds nothing. Refuses a second request while one is
+    /// open, with the server's own words, and a booking whose window is not open.
+    func requestRefund(bookingId: String, reason: String) async throws {
+        let booking = try await booking(id: bookingId)
+        guard case .open = RefundWindow.of(booking) else {
+            throw APIError.server(status: 409, code: "REFUND_NOT_ELIGIBLE", message: "This booking is not eligible for a refund.")
+        }
+        try await refundStore.request(bookingId: bookingId, reason: reason)
+    }
+
     private func signedIn() async throws {
         try await simulatedLatency(latency)
         guard await session.accessToken() != nil else { throw APIError.unauthorized }
+    }
+}
+
+/// MOCK refunds, in memory for the life of the app.
+actor MockRefundStore {
+    private var byBooking: [String: [Refund]] = [:]
+
+    func refunds(for bookingId: String) -> [Refund] { byBooking[bookingId] ?? [] }
+
+    func request(bookingId: String, reason: String) throws {
+        if refunds(for: bookingId).contains(where: \.isOpen) {
+            throw APIError.server(status: 409, code: "REFUND_NOT_ELIGIBLE", message: "No refundable tickets in this booking.")
+        }
+        let refund = Refund(id: "rfd-\(UUID().uuidString.prefix(8))", status: "REQUESTED", amountMinor: nil, currency: nil,
+                            reason: reason, createdAt: .now)
+        byBooking[bookingId, default: []].append(refund)
     }
 }
