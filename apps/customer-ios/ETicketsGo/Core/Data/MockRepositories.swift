@@ -77,8 +77,31 @@ struct MockTicketsRepository: TicketsRepository {
     var latency: Duration = .milliseconds(350)
 
     func tickets() async throws -> [Ticket] {
+        try await signedIn()
+        return try fixtures.load("tickets")
+    }
+
+    func ticket(id: String) async throws -> Ticket {
+        try await signedIn()
+        let all: [Ticket] = try fixtures.load("tickets")
+        guard let match = all.first(where: { $0.id == id }) else { throw APIError.server(status: 404, code: "NOT_FOUND", message: "Ticket not found.") }
+        return match
+    }
+
+    func bookings() async throws -> [Booking] {
+        try await signedIn()
+        return try fixtures.load("bookings")
+    }
+
+    func booking(id: String) async throws -> Booking {
+        try await signedIn()
+        let all: [Booking] = try fixtures.load("bookings")
+        guard let match = all.first(where: { $0.id == id }) else { throw APIError.server(status: 404, code: "NOT_FOUND", message: "Booking not found.") }
+        return match
+    }
+
+    private func signedIn() async throws {
         try await simulatedLatency(latency)
         guard await session.accessToken() != nil else { throw APIError.unauthorized }
-        return try fixtures.load("tickets")
     }
 }

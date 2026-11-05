@@ -10,6 +10,8 @@ enum Route: Hashable {
     case event(slug: String)
     case movie(MovieSummary)
     case ticket(Ticket)
+    case bookings
+    case booking(Booking)
 }
 
 /// Cross-tab navigation: switching tabs, and opening Explore with a category chosen on Home.
@@ -31,6 +33,12 @@ final class AppRouter {
         }
         if let slug = Self.value(after: "-ETGEvent", in: arguments) {
             paths[selectedTab] = [.event(slug: slug)]
+        }
+        // `-ETGBookings` opens booking history; `-ETGTicket <id>` opens a MOCK fixture ticket.
+        if arguments.contains("-ETGBookings") { paths[selectedTab] = [.bookings] }
+        if let id = Self.value(after: "-ETGTicket", in: arguments),
+           let ticket = (try? FixtureStore().load("tickets", as: [Ticket].self))?.first(where: { $0.id == id }) {
+            paths[selectedTab] = [.ticket(ticket)]
         }
         #endif
     }
@@ -93,6 +101,8 @@ struct RouteDestination: View {
         case let .event(slug): EventDetailView(slug: slug)
         case let .movie(movie): MovieDetailView(movie: movie)
         case let .ticket(ticket): TicketDetailView(ticket: ticket)
+        case .bookings: BookingsView()
+        case let .booking(booking): BookingDetailView(booking: booking)
         }
     }
 }

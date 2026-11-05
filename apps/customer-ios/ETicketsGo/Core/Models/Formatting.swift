@@ -6,8 +6,10 @@ enum Formatters {
     static func money(minor: Int, currency: String, locale: Locale = .current) -> String {
         let digits = minorDigits(for: currency)
         let amount = Decimal(minor) / pow(10, digits)
+        // Whole amounts without decimals (₹799); anything else with all of them (₹493.50).
+        let whole = digits == 0 || minor % Int(truncating: pow(10, digits) as NSDecimalNumber) == 0
         return amount.formatted(
-            .currency(code: currency).locale(locale).precision(.fractionLength(0...digits)))
+            .currency(code: currency).locale(locale).precision(.fractionLength(whole ? 0 : digits)))
     }
 
     /// "From ₹350", or "Free" when the cheapest ticket costs nothing.

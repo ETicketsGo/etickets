@@ -1,0 +1,289 @@
+{
+  "movie": {
+    "rating": null,
+    "id": "cmv6me19f01hd118otgi1uc9r",
+    "contentLabel": "DEMO",
+    "title": "The Long Monsoon",
+    "slug": "the-long-monsoon-a9dba7",
+    "synopsis": "A retired ferry pilot and his granddaughter spend one rainy season restoring a boat nobody else believes will float.\n\nShowcase listing: fictional, for demonstration on the QA environment.\nShowcase key: showcase/film-long-monsoon",
+    "runtimeMinutes": 138,
+    "certificate": "UA13+",
+    "language": "Kannada",
+    "genres": ["Drama", "Family"],
+    "releaseDate": null,
+    "posterUrl": "https://api-qa-f580.up.railway.app/api/public/events/cmv6me1g001hg118o3d02n194/images/cmv6me8ig02u4118odsdo9k3h/full",
+    "trailerUrl": null,
+    "cast": [],
+    "director": null
+  },
+  "shows": [
+    {
+      "sessionId": "cmv6me1g201hi118opwijj7zh",
+      "eventId": "cmv6me1g001hg118o3d02n194",
+      "eventSlug": "the-long-monsoon-0a4d3d",
+      "startsAt": "2026-11-13T07:45:00.000Z",
+      "endsAt": "2026-11-13T10:03:00.000Z",
+      "venue": {
+        "id": "cmv6mch2100a3118oi4m9848m",
+        "name": "Indiranagar Picture House",
+        "city": "Bengaluru",
+        "country": "IN"
+      },
+      "cinema": {
+        "id": "cmv6mch6d00a5118o03z18rxs",
+        "name": "Indiranagar Picture House",
+        "brand": null,
+        "timezone": "Asia/Kolkata"
+      },
+      "localDate": "2026-11-13",
+      "screen": { "id": "cmv6mchar00a7118oz70ru4no", "name": "Screen 1" },
+      "format": "2D",
+      "language": "Kannada",
+      "currency": "INR",
+      "fromPriceMinor": 25000,
+      "seatingType": "RESERVED",
+      "availability": "AVAILABLE",
+      "seatsAvailable": 180,
+      "seatsTotal": 180
+    },
+    {
+      "sessionId": "cmv6me1jf01mu118o690nwkpx",
+      "eventId": "cmv6me1g001hg118o3d02n194",
+      "eventSlug": "the-long-monsoon-0a4d3d",
+      "startsAt": "2026-11-13T11:10:00.000Z",
+      "endsAt": "2026-11-13T13:28:00.000Z",
+      "venue": {
+        "id": "cmv6mch2100a3118oi4m9848m",
+        "name": "Indiranagar Picture House",
+        "city": "Bengaluru",
+        "country": "IN"
+      },
+      "cinema": {
+        "id": "cmv6mch6d00a5118o03z18rxs",
+        "name": "Indiranagar Picture House",
+        "brand": null,
+        "timezone": "Asia/Kolkata"
+      },
+      "localDate": "2026-11-13",
+      "screen": { "id": "cmv6mchar00a7118oz70ru4no", "name": "Screen 1" },
+      "format": "2D",
+      "language": "Kannada",
+      "currency": "INR",
+      "fromPriceMinor": 25000,
+      "seatingType": "RESERVED",
+      "availability": "AVAILABLE",
+      "seatsAvailable": 180,
+      "seatsTotal": 180
+    },
+    {
+      "sessionId": "cmv6me1mk01s6118of9pdwz8l",
+      "eventId": "cmv6me1g001hg118o3d02n194",
+      "eventSlug": "the-long-monsoon-0a4d3d",
+      "startsAt": "2026-11-13T14:40:00.000Z",
+      "endsAt": "2026-11-13T16:58:00.000Z",
+      "venue": {
+        "id": "cmv6mch2100a3118oi4m9848m",
+        "name": "Indiranagar Picture House",
+        "city": "Bengaluru",
+        "country": "IN"
+      },
+      "cinema": {
+        "id": "cmv6mch6d00a5118o03z18rxs",
+        "name": "Indiranagar Picture House",
+        "brand": null,
+        "timezone": "Asia/Kolkata"
+      },
+      "localDate": "2026-11-13",
+      "screen": { "id": "cmv6mchar00a7118oz70ru4no", "name": "Screen 1" },
+      "format": "2D",
+      "language": "Kannada",
+      "currency": "INR",
+      "fromPriceMinor": 25000,
+      "seatingType": "RESERVED",
+      "availability": "AVAILABLE",
+      "seatsAvailable": 180,
+      "seatsTotal": 180
+    },
+    {
+      "sessionId": "cmv6me1pp01xi118oltgo1seg",
+      "eventId": "cmv6me1g001hg118o3d02n194",
+      "eventSlug": "the-long-monsoon-0a4d3d",
+      "startsAt": "2026-11-14T07:45:00.000Z",
+      "endsAt": "2026-11-14T10:03:00.000Z",
+      "venue": {
+        "id": "cmv6mch2100a3118oi4m9848m",
+        "name": "Indiranagar Picture House",
+        "city": "Bengaluru",
+        "country": "IN"
+      },
+      "cinema": {
+        "id": "cmv6mch6d00a5118o03z18rxs",
+        "name": "Indiranagar Picture House",
+        "brand": null,
+        "timezone": "Asia/Kolkata"
+      },
+      "localDate": "2026-11-14",
+      "screen": { "id": "cmv6mchar00a7118oz70ru4no", "name": "Screen 1" },
+      "format": "2D",
+      "language": "Kannada",
+      "currency": "INR",
+      "fromPriceMinor": 25000,
+      "seatingType": "RESERVED",
+      "availability": "AVAILABLE",
+      "seatsAvailable": 180,
+      "seatsTotal": 180
+    },
+    {
+      "sessionId": "cmv6me1t2022u118oxxzgyavo",
+      "eventId": "cmv6me1g001hg118o3d02n194",
+      "eventSlug": "the-long-monsoon-0a4d3d",
+      "startsAt": "2026-11-14T11:10:00.000Z",
+      "endsAt": "2026-11-14T13:28:00.000Z",
+      "venue": {
+        "id": "cmv6mch2100a3118oi4m9848m",
+        "name": "Indiranagar Picture House",
+        "city": "Bengaluru",
+        "country": "IN"
+      },
+      "cinema": {
+        "id": "cmv6mch6d00a5118o03z18rxs",
+        "name": "Indiranagar Picture House",
+        "brand": null,
+        "timezone": "Asia/Kolkata"
+      },
+      "localDate": "2026-11-14",
+      "screen": { "id": "cmv6mchar00a7118oz70ru4no", "name": "Screen 1" },
+      "format": "2D",
+      "language": "Kannada",
+      "currency": "INR",
+      "fromPriceMinor": 25000,
+      "seatingType": "RESERVED",
+      "availability": "AVAILABLE",
+      "seatsAvailable": 180,
+      "seatsTotal": 180
+    },
+    {
+      "sessionId": "cmv6me1w60286118ovpiclcpt",
+      "eventId": "cmv6me1g001hg118o3d02n194",
+      "eventSlug": "the-long-monsoon-0a4d3d",
+      "startsAt": "2026-11-14T14:40:00.000Z",
+      "endsAt": "2026-11-14T16:58:00.000Z",
+      "venue": {
+        "id": "cmv6mch2100a3118oi4m9848m",
+        "name": "Indiranagar Picture House",
+        "city": "Bengaluru",
+        "country": "IN"
+      },
+      "cinema": {
+        "id": "cmv6mch6d00a5118o03z18rxs",
+        "name": "Indiranagar Picture House",
+        "brand": null,
+        "timezone": "Asia/Kolkata"
+      },
+      "localDate": "2026-11-14",
+      "screen": { "id": "cmv6mchar00a7118oz70ru4no", "name": "Screen 1" },
+      "format": "2D",
+      "language": "Kannada",
+      "currency": "INR",
+      "fromPriceMinor": 25000,
+      "seatingType": "RESERVED",
+      "availability": "AVAILABLE",
+      "seatsAvailable": 180,
+      "seatsTotal": 180
+    },
+    {
+      "sessionId": "cmv6me1zk02di118oyyla3kjv",
+      "eventId": "cmv6me1g001hg118o3d02n194",
+      "eventSlug": "the-long-monsoon-0a4d3d",
+      "startsAt": "2026-11-15T07:45:00.000Z",
+      "endsAt": "2026-11-15T10:03:00.000Z",
+      "venue": {
+        "id": "cmv6mch2100a3118oi4m9848m",
+        "name": "Indiranagar Picture House",
+        "city": "Bengaluru",
+        "country": "IN"
+      },
+      "cinema": {
+        "id": "cmv6mch6d00a5118o03z18rxs",
+        "name": "Indiranagar Picture House",
+        "brand": null,
+        "timezone": "Asia/Kolkata"
+      },
+      "localDate": "2026-11-15",
+      "screen": { "id": "cmv6mchar00a7118oz70ru4no", "name": "Screen 1" },
+      "format": "2D",
+      "language": "Kannada",
+      "currency": "INR",
+      "fromPriceMinor": 25000,
+      "seatingType": "RESERVED",
+      "availability": "AVAILABLE",
+      "seatsAvailable": 180,
+      "seatsTotal": 180
+    },
+    {
+      "sessionId": "cmv6me23002iu118ojswzc1ew",
+      "eventId": "cmv6me1g001hg118o3d02n194",
+      "eventSlug": "the-long-monsoon-0a4d3d",
+      "startsAt": "2026-11-15T11:10:00.000Z",
+      "endsAt": "2026-11-15T13:28:00.000Z",
+      "venue": {
+        "id": "cmv6mch2100a3118oi4m9848m",
+        "name": "Indiranagar Picture House",
+        "city": "Bengaluru",
+        "country": "IN"
+      },
+      "cinema": {
+        "id": "cmv6mch6d00a5118o03z18rxs",
+        "name": "Indiranagar Picture House",
+        "brand": null,
+        "timezone": "Asia/Kolkata"
+      },
+      "localDate": "2026-11-15",
+      "screen": { "id": "cmv6mchar00a7118oz70ru4no", "name": "Screen 1" },
+      "format": "2D",
+      "language": "Kannada",
+      "currency": "INR",
+      "fromPriceMinor": 25000,
+      "seatingType": "RESERVED",
+      "availability": "AVAILABLE",
+      "seatsAvailable": 180,
+      "seatsTotal": 180
+    },
+    {
+      "sessionId": "cmv6me26h02o6118ohd4siitq",
+      "eventId": "cmv6me1g001hg118o3d02n194",
+      "eventSlug": "the-long-monsoon-0a4d3d",
+      "startsAt": "2026-11-15T14:40:00.000Z",
+      "endsAt": "2026-11-15T16:58:00.000Z",
+      "venue": {
+        "id": "cmv6mch2100a3118oi4m9848m",
+        "name": "Indiranagar Picture House",
+        "city": "Bengaluru",
+        "country": "IN"
+      },
+      "cinema": {
+        "id": "cmv6mch6d00a5118o03z18rxs",
+        "name": "Indiranagar Picture House",
+        "brand": null,
+        "timezone": "Asia/Kolkata"
+      },
+      "localDate": "2026-11-15",
+      "screen": { "id": "cmv6mchar00a7118oz70ru4no", "name": "Screen 1" },
+      "format": "2D",
+      "language": "Kannada",
+      "currency": "INR",
+      "fromPriceMinor": 25000,
+      "seatingType": "RESERVED",
+      "availability": "AVAILABLE",
+      "seatsAvailable": 180,
+      "seatsTotal": 180
+    }
+  ],
+  "filters": {
+    "dates": ["2026-11-13", "2026-11-14", "2026-11-15"],
+    "cities": ["Bengaluru"],
+    "formats": ["2D"],
+    "languages": ["Kannada"]
+  },
+  "meta": { "total": 9, "returned": 9, "limit": 100 }
+}

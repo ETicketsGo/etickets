@@ -33,6 +33,21 @@ enum CustomerAPI {
         Endpoint(path: "/tickets", requiresAuth: true)
     }
 
+    /// GET /tickets/:id — one ticket with a freshly signed code (bearer).
+    static func ticket(id: String) -> Endpoint<Ticket> {
+        Endpoint(path: "/tickets/\(escaped(id))", requiresAuth: true)
+    }
+
+    /// GET /bookings — the customer's bookings, newest first (bearer, paginated).
+    static func bookings(page: Int = 1, pageSize: Int = 50) -> Endpoint<Page<Booking>> {
+        Endpoint(path: "/bookings", query: items(["page": String(page), "pageSize": String(pageSize)]), requiresAuth: true)
+    }
+
+    /// GET /bookings/:id (bearer)
+    static func booking(id: String) -> Endpoint<Booking> {
+        Endpoint(path: "/bookings/\(escaped(id))", requiresAuth: true)
+    }
+
     /// GET /auth/me (bearer)
     static func me() -> Endpoint<AuthenticatedUser> {
         Endpoint(path: "/auth/me", requiresAuth: true)

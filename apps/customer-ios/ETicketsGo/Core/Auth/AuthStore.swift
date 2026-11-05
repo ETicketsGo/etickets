@@ -19,11 +19,14 @@ final class AuthStore {
 
     private let service: any AuthService
     private let session: AuthSession
+    /// Removed whenever the session ends, so a signed-out phone holds no tickets.
+    private let offlineTickets: any OfflineTicketStore
     private var listener: Task<Void, Never>?
 
-    init(service: any AuthService, session: AuthSession) {
+    init(service: any AuthService, session: AuthSession, offlineTickets: any OfflineTicketStore = InMemoryOfflineTicketStore()) {
         self.service = service
         self.session = session
+        self.offlineTickets = offlineTickets
     }
 
     /// Changes whenever who is signed in changes — including restoring → signed out, which
@@ -44,8 +47,10 @@ final class AuthStore {
     func start() async {
         if listener == nil {
             let events = session.events
+            let offline = offlineTickets
             listener = Task { [weak self] in
                 for await event in events where event == .expired {
+                    offline.clear()
                     self?.state = .signedOut
                     self?.sessionExpired = true
                 }
@@ -76,6 +81,7 @@ final class AuthStore {
 
     func logout() async {
         await service.logout()
+        offlineTickets.clear()
         state = .signedOut
     }
 
