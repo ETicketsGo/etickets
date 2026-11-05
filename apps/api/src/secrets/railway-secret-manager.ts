@@ -26,6 +26,15 @@ import {
 export const RAILWAY_SECRET_MAP: Readonly<Record<string, string>> = Object.freeze({
   'payments/razorpay/live/secret-key': 'RAZORPAY_KEY_SECRET',
   'payments/razorpay/live/webhook-secret': 'RAZORPAY_WEBHOOK_SECRET',
+  /*
+    Stripe for the US: the two references the payment bootstrap writes for a LIVE Stripe row
+    (payment-config.bootstrap.ts). Without them the checkout still worked, because the adapter
+    reads its key from the environment, but readiness and the launch gate resolved these refs,
+    were refused, and reported Stripe credentials as failing. Live only, like Razorpay: a test
+    key is refused in production before this is read.
+  */
+  'payments/stripe/live/secret-key': 'STRIPE_SECRET_KEY',
+  'payments/stripe/live/webhook-secret': 'STRIPE_WEBHOOK_SECRET',
 });
 
 /**
@@ -63,9 +72,33 @@ export class RailwaySecretManager implements SecretManager {
     return out;
   }
 
-  /** Healthy when every approved variable is set. Names the missing ones, never a value. */
+  /**
+   * Healthy when every provider that is set up has ALL its variables, and at least one is set
+   * up. Names the missing ones, never a value.
+   *
+   * Per provider, not across the whole map: a provider with none of its variables is simply not
+   * configured here (Stripe in an India-only deployment), and counting it as missing would mark
+   * the store unhealthy for Razorpay too. Half a provider - a key without its webhook secret -
+   * is still a failure, because that is a payment that can be taken and never confirmed.
+   */
   async healthCheck(): Promise<SecretManagerHealth> {
-    const missing = Object.values(RAILWAY_SECRET_MAP).filter((v) => !this.env[v]?.trim());
+    const byProvider = new Map<string, string[]>();
+    for (const [reference, variable] of Object.entries(RAILWAY_SECRET_MAP)) {
+      const provider = reference.split('/')[1];
+      byProvider.set(provider, [...(byProvider.get(provider) ?? []), variable]);
+    }
+    const missing: string[] = [];
+    let configured = 0;
+    for (const variables of byProvider.values()) {
+      const absent = variables.filter((v) => !this.env[v]?.trim());
+      if (absent.length === variables.length) continue;
+      configured += 1;
+      missing.push(...absent);
+    }
+    if (configured === 0) {
+      const all = Object.values(RAILWAY_SECRET_MAP);
+      return { healthy: false, provider: this.provider, message: `missing ${all.join(', ')}` };
+    }
     return missing.length === 0
       ? { healthy: true, provider: this.provider, message: 'railway variables' }
       : { healthy: false, provider: this.provider, message: `missing ${missing.join(', ')}` };
