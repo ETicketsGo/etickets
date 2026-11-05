@@ -287,6 +287,11 @@ struct Booking: Codable, Hashable, Identifiable, Sendable {
     struct BookingEvent: Codable, Hashable, Sendable {
         let title: String
         let slug: String
+        /// The organizer's refund terms. Sent by GET /bookings/:id (bookings.service.ts
+        /// `getForUser`), not by the list, so they are optional here.
+        var refundsEnabled: Bool?
+        var refundCutoffHours: Int?
+        var refundPolicy: String?
     }
 
     struct BookingSession: Codable, Hashable, Sendable {

@@ -15,6 +15,8 @@ private struct OfflineRepository: TicketsRepository {
     func ticket(id: String) async throws -> Ticket { throw error }
     func bookings() async throws -> [Booking] { throw error }
     func booking(id: String) async throws -> Booking { throw error }
+    func refunds(bookingId: String) async throws -> [Refund] { throw error }
+    func requestRefund(bookingId: String, reason: String) async throws { throw error }
 }
 
 @Suite("Bookings and ticket endpoints")

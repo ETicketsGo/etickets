@@ -106,6 +106,10 @@ struct BookingStatusPill: View {
 final class BookingDetailViewModel {
     private(set) var booking: Booking
     private(set) var tickets: Loadable<[Ticket]> = .idle
+    private(set) var refunds: Loadable<[Refund]> = .idle
+    /// True while a refund request is in flight: a second tap sends nothing.
+    private(set) var isRequestingRefund = false
+    private(set) var refundError: String?
     private let repository: any TicketsRepository
 
     init(booking: Booking, repository: any TicketsRepository) {
@@ -113,9 +117,47 @@ final class BookingDetailViewModel {
         self.repository = repository
     }
 
+    var refundWindow: RefundWindow { RefundWindow.of(booking) }
+
+    /// Offer a request only inside the event's window and when nothing is already open.
+    var canRequestRefund: Bool {
+        guard case .open = refundWindow, let refunds = refunds.value else { return false }
+        return !refunds.contains(where: \.isOpen) && !isRequestingRefund
+    }
+
+    /// POST /refunds, then re-read the booking and its refunds: the server's answer is what shows.
+    @discardableResult
+    func requestRefund(reason: String) async -> Bool {
+        guard !isRequestingRefund, let reason = validRefundReason(reason) else { return false }
+        isRequestingRefund = true
+        refundError = nil
+        defer { isRequestingRefund = false }
+        do {
+            try await repository.requestRefund(bookingId: booking.id, reason: reason)
+        } catch {
+            refundError = error.userMessage
+            await loadRefunds()
+            return false
+        }
+        if let fresh = try? await repository.booking(id: booking.id) { booking = fresh }
+        await loadRefunds()
+        return true
+    }
+
+    func loadRefunds() async {
+        guard booking.status.uppercased() != "PENDING_PAYMENT" else { refunds = .loaded([]); return }
+        if refunds.value == nil { refunds = .loading }
+        do {
+            refunds = .loaded(try await repository.refunds(bookingId: booking.id))
+        } catch {
+            if refunds.value == nil { refunds = .failed(error.userMessage) }
+        }
+    }
+
     func load() async {
         if tickets.value == nil { tickets = .loading }
         if let fresh = try? await repository.booking(id: booking.id) { booking = fresh }
+        await loadRefunds()
         do {
             let id = booking.id
             tickets = .loaded(try await repository.tickets().filter { $0.bookingId == id })
@@ -130,6 +172,7 @@ struct BookingDetailView: View {
     @Environment(AppRouter.self) private var router
     @State private var model: BookingDetailViewModel?
     @State private var resuming: ReservedBooking?
+    @State private var askingRefund = false
     private let initial: Booking
 
     init(booking: Booking) { initial = booking }
@@ -165,6 +208,10 @@ struct BookingDetailView: View {
                 .padding(ETGSpace.lg)
                 .background(ETGColor.surface, in: RoundedRectangle(cornerRadius: ETGRadius.card))
 
+                if let model, booking.status != "PENDING_PAYMENT" {
+                    RefundSection(model: model, askingRefund: $askingRefund)
+                }
+
                 VStack(alignment: .leading, spacing: ETGSpace.md) {
                     Text("Tickets").font(ETGFont.section).foregroundStyle(ETGColor.ink).accessibilityAddTraits(.isHeader)
                     if let model {
@@ -188,6 +235,9 @@ struct BookingDetailView: View {
         .task {
             if model == nil { model = BookingDetailViewModel(booking: initial, repository: container.tickets) }
             await model?.load()
+        }
+        .sheet(isPresented: $askingRefund) {
+            if let model { RefundRequestSheet(model: model) }
         }
         .fullScreenCover(item: $resuming, onDismiss: { Task { await model?.load() } }) { reserved in
             NavigationStack {
@@ -232,4 +282,116 @@ struct BookingDetailView: View {
     NavigationStack { BookingsView() }
         .environment(AppContainer.preview)
         .environment(AppRouter())
+}
+
+// MARK: - Refunds
+
+/// The booking's refunds and, when the event's terms allow it, the way to ask for one. Every
+/// figure and status is the server's.
+struct RefundSection: View {
+    let model: BookingDetailViewModel
+    @Binding var askingRefund: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: ETGSpace.md) {
+            Text("Refunds").font(ETGFont.section).foregroundStyle(ETGColor.ink).accessibilityAddTraits(.isHeader)
+            LoadableView(state: model.refunds, retry: { Task { await model.loadRefunds() } }) { refunds in
+                ForEach(refunds) { refund in
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(refund.statusLabel).font(ETGFont.subheadline.weight(.semibold)).foregroundStyle(ETGColor.ink)
+                            Text("Requested \(refund.createdAt.formatted(date: .abbreviated, time: .omitted))")
+                                .font(ETGFont.caption).foregroundStyle(ETGColor.muted)
+                        }
+                        Spacer()
+                        if let amount = refund.amountMinor {
+                            Text(Formatters.money(minor: amount, currency: refund.currency ?? model.booking.currency))
+                                .font(ETGFont.subheadline).foregroundStyle(ETGColor.inkSecondary)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("refund.row")
+                }
+                windowText
+                if model.canRequestRefund {
+                    Button("Request a refund") { askingRefund = true }
+                        .buttonStyle(.etgSecondary)
+                        .accessibilityIdentifier("refund.request")
+                }
+            }
+            if let policy = model.booking.event.refundPolicy, !policy.isEmpty {
+                Text(policy).font(ETGFont.caption).foregroundStyle(ETGColor.muted)
+            }
+        }
+        .padding(ETGSpace.lg)
+        .background(ETGColor.surface, in: RoundedRectangle(cornerRadius: ETGRadius.card))
+    }
+
+    @ViewBuilder private var windowText: some View {
+        let refunds = model.refunds.value ?? []
+        switch model.refundWindow {
+        case let .open(closesAt) where !refunds.contains(where: \.isOpen):
+            Text("You can ask for a refund until \(closesAt.formatted(date: .abbreviated, time: .shortened)). The organizer decides, and the amount is confirmed when it is processed.")
+                .font(ETGFont.subheadline).foregroundStyle(ETGColor.inkSecondary)
+        case .open:
+            Text("Your refund request is being handled. You will see its progress here.")
+                .font(ETGFont.subheadline).foregroundStyle(ETGColor.inkSecondary)
+        case .closed:
+            if refunds.isEmpty {
+                Text("Refund requests for this event have closed.").font(ETGFont.subheadline).foregroundStyle(ETGColor.muted)
+            }
+        case .notOffered:
+            if refunds.isEmpty {
+                Text("This event does not offer refunds.").font(ETGFont.subheadline).foregroundStyle(ETGColor.muted)
+            }
+        case .notApplicable:
+            EmptyView()
+        }
+    }
+}
+
+/// Reason and confirmation. The server requires a reason (3 to 500 characters).
+struct RefundRequestSheet: View {
+    let model: BookingDetailViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var reason = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Ask the organizer to refund this booking (\(Formatters.money(minor: model.booking.totalMinor, currency: model.booking.currency)) paid). They decide, and the amount you get back is confirmed when the refund is processed.")
+                        .font(ETGFont.subheadline).foregroundStyle(ETGColor.inkSecondary)
+                }
+                Section {
+                    TextField("Why are you asking for a refund?", text: $reason, axis: .vertical)
+                        .lineLimit(3...6)
+                        .accessibilityIdentifier("refund.reason")
+                } footer: {
+                    if let error = model.refundError {
+                        Text(error).foregroundStyle(ETGColor.critical)
+                    } else {
+                        Text("At least 3 characters.")
+                    }
+                }
+                Section {
+                    Button {
+                        Task { if await model.requestRefund(reason: reason) { dismiss() } }
+                    } label: {
+                        if model.isRequestingRefund { ProgressView().frame(maxWidth: .infinity) } else {
+                            Text("Send refund request").frame(maxWidth: .infinity)
+                        }
+                    }
+                    .disabled(validRefundReason(reason) == nil || model.isRequestingRefund)
+                    .accessibilityIdentifier("refund.submit")
+                }
+            }
+            .navigationTitle("Request a refund")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(model.isRequestingRefund) }
+            }
+            .interactiveDismissDisabled(model.isRequestingRefund)
+        }
+    }
 }
