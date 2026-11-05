@@ -6,14 +6,14 @@ uploading, submitting and enabling production are owner decisions.
 
 ## Status (2026-11-05)
 
-| Area | State |
-| --- | --- |
-| Code on `main` | Native SwiftUI app (PRs #568–#573). Unit and simulator UI suites pass |
-| Prod build | Compiles unsigned. Bundle ID `com.eticketsgo.customer`. All production switches `NO` |
-| Signing | **Blocked**: no Apple Developer membership or Team ID on the build Mac |
-| QA deploy of `main` | **Blocked**: `RAILWAY_TOKEN_QA` is rejected as invalid ("Invalid RAILWAY_TOKEN"). QA still runs its previous build |
-| Live QA certification | Passed: sign-in, history and tickets, refresh, logout, account deletion, holds |
-| Live QA certification | Waiting: Stripe test payment, ticket confirmation and check-in (see below) |
+| Area                  | State                                                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Code on `main`        | Native SwiftUI app (PRs #568–#573). Unit and simulator UI suites pass                                              |
+| Prod build            | Compiles unsigned. Bundle ID `com.eticketsgo.customer`. All production switches `NO`                               |
+| Signing               | **Blocked**: no Apple Developer membership or Team ID on the build Mac                                             |
+| QA deploy of `main`   | **Blocked**: `RAILWAY_TOKEN_QA` is rejected as invalid ("Invalid RAILWAY_TOKEN"). QA still runs its previous build |
+| Live QA certification | Passed: sign-in, history and tickets, refresh, logout, account deletion, holds                                     |
+| Live QA certification | Waiting: Stripe test payment, ticket confirmation and check-in (see below)                                         |
 
 ## 1. Apple enrollment checklist (owner)
 
@@ -54,6 +54,7 @@ xcodebuild archive -project ETicketsGo.xcodeproj -scheme "ETicketsGo Prod" -conf
 ```
 
 Check the archive before anything leaves the Mac:
+
 - the bundle ID
 - the `associated-domains` entitlement (`applinks:eticketsgo.com`)
 - all four production switches still `NO` in `Info.plist`
@@ -64,11 +65,11 @@ Check the archive before anything leaves the Mac:
 
 All of these are `NO` in `Config/Prod.xcconfig`, and a unit test fails if any of them changes.
 
-| Switch | Turns on | Prerequisite |
-| --- | --- | --- |
-| `ALLOW_MUTATIONS` + `PROD_LAUNCH_APPROVED` | Sign-in, sign-up and account deletion for everyone | Launch approval. Both must be `YES`; either alone does nothing |
-| `ALLOW_BOOKING_WRITES` | Holds and cancellations | The above, plus a decision to sell |
-| `NATIVE_CHECKOUT` | Opening Stripe's hosted page from the app | Live Stripe and Connect activated (docs/ops/PRODUCTION-READINESS-2026-10.md, item 8) |
+| Switch                                     | Turns on                                           | Prerequisite                                                                         |
+| ------------------------------------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `ALLOW_MUTATIONS` + `PROD_LAUNCH_APPROVED` | Sign-in, sign-up and account deletion for everyone | Launch approval. Both must be `YES`; either alone does nothing                       |
+| `ALLOW_BOOKING_WRITES`                     | Holds and cancellations                            | The above, plus a decision to sell                                                   |
+| `NATIVE_CHECKOUT`                          | Opening Stripe's hosted page from the app          | Live Stripe and Connect activated (docs/ops/PRODUCTION-READINESS-2026-10.md, item 8) |
 
 ## 5. Owner blockers outside Apple
 
@@ -104,10 +105,10 @@ Run with [qa-booking-certification.md](qa-booking-certification.md). It changes 
 
 Each one is iOS-only and suits its own PR, in suggested order:
 
-| # | Gap | Notes |
-| --- | --- | --- |
-| 1 | Edit profile | `PATCH /users/me` (name, country of residence) |
-| 2 | Refund requests | Android's refund sheet; the server decides eligibility |
-| 3 | Push notifications | APNs needs the Team ID and an APNs key; the server already sends to Expo tokens. Needs an API decision |
-| 4 | Razorpay / INR checkout | Needs a server-hosted page or the native SDK (phase-3-checkout-design.md §10-A) |
-| 5 | Become an organizer | Android has it; low priority for the customer app |
+| #   | Gap                     | Notes                                                                                                  |
+| --- | ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| 1   | Edit profile            | `PATCH /users/me` (name, country of residence)                                                         |
+| 2   | Refund requests         | Android's refund sheet; the server decides eligibility                                                 |
+| 3   | Push notifications      | APNs needs the Team ID and an APNs key; the server already sends to Expo tokens. Needs an API decision |
+| 4   | Razorpay / INR checkout | Needs a server-hosted page or the native SDK (phase-3-checkout-design.md §10-A)                        |
+| 5   | Become an organizer     | Android has it; low priority for the customer app                                                      |
