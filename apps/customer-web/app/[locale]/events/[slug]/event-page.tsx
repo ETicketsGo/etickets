@@ -753,6 +753,7 @@ export function EventDetailPage() {
   );
 
   const photoControl = `flex min-h-11 items-center gap-1.5 rounded-full bg-brand-scrim/70 px-4 text-brand-meta font-semibold text-brand-ink transition-colors hover:bg-brand-scrim/90 ${BRAND_FOCUS}`;
+  const photoControlOnPaper = `flex min-h-11 items-center gap-1.5 rounded-full border border-brand-line-strong bg-brand-canvas px-4 text-brand-meta font-semibold text-brand-ink transition-colors hover:bg-brand-sunken ${BRAND_FOCUS}`;
 
   return (
     <div
@@ -895,7 +896,12 @@ export function EventDetailPage() {
                   : sf('event.galleryOpenOne')}
               </button>
             )}
-            <button type="button" onClick={share} className={photoControl}>
+            <button
+              type="button"
+              onClick={share}
+              // The scrim is a stage colour; on the paper default it would be ink on dark grey.
+              className={heroImage ? photoControl : photoControlOnPaper}
+            >
               <Share2 className="h-4 w-4" aria-hidden />
               {shared ? sf('common.copied') : tx('action.share')}
             </button>
