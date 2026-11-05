@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Universal links for this environment's website (apple-app-site-association, #470).
+	     Needs the Associated Domains capability on the App ID. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:$(WEB_HOST)</string>
+	</array>
+</dict>
+</plist>

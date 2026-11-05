@@ -25,8 +25,11 @@ extension CustomerAPI {
     }
 
     /// POST /bookings/:id/pay
+    /// `returnTo: "app"` asks the server to send the buyer back to the app after the hosted
+    /// page (PR #471). A fixed value, not a URL; servers that predate it ignore the body, and
+    /// the return is still never treated as payment - the booking is polled.
     static func pay(bookingId: String) -> Endpoint<PaymentStart> {
-        Endpoint(method: .post, path: "/bookings/\(bookingId)/pay", requiresAuth: true)
+        Endpoint(method: .post, path: "/bookings/\(bookingId)/pay", body: Data(#"{"returnTo":"app"}"#.utf8), requiresAuth: true)
     }
 
     /// POST /bookings/:id/cancel — only while PENDING_PAYMENT.

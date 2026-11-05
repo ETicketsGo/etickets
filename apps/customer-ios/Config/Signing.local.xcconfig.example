@@ -1,0 +1,3 @@
+// Copy to Signing.local.xcconfig (gitignored) on a Mac signed in to the organization's
+// Apple Developer account. The Team ID is in developer.apple.com > Membership details.
+DEVELOPMENT_TEAM = ABCDE12345

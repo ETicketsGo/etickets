@@ -85,6 +85,19 @@ final class AuthStore {
         state = .signedOut
     }
 
+    /// On success nothing of the account is left on this phone: session, offline tickets and
+    /// the checkout awaiting recovery are all removed.
+    func deleteAccount(pendingCheckout: PendingCheckoutStore? = nil) async -> AccountDeletionOutcome {
+        let outcome = await service.deleteAccount()
+        if outcome == .deleted {
+            offlineTickets.clear()
+            pendingCheckout?.clear()
+            sessionExpired = false
+            state = .signedOut
+        }
+        return outcome
+    }
+
     private func didSignIn() {
         sessionExpired = false
         isPresentingSignIn = false

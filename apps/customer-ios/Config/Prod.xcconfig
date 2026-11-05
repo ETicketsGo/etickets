@@ -4,7 +4,11 @@
 
 APP_ENV = prod
 API_BASE_URL = https:/$()/api.eticketsgo.com/api
+// Production writes need ALLOW_MUTATIONS and PROD_LAUNCH_APPROVED together; bookings and
+// hosted checkout each need their own switch on top. All stay NO until the release (and live
+// payments) are explicitly approved.
 ALLOW_MUTATIONS = NO
+PROD_LAUNCH_APPROVED = NO
 QA_TEST_ACCOUNTS =
 ALLOW_BOOKING_WRITES = NO
 // Hosted checkout from the app. Off until real QA checkout is certified.
@@ -16,9 +20,12 @@ APP_URL_SCHEME = etgnative
 APP_DISPLAY_NAME = ETicketsGo
 // Placeholder: the Expo app ships as com.eticketsgo.customer. Whether the native app takes
 // over that identifier is an open release decision (see README).
-PRODUCT_BUNDLE_IDENTIFIER = com.eticketsgo.customer.native
+PRODUCT_BUNDLE_IDENTIFIER = com.eticketsgo.customer
 
 SWIFT_OPTIMIZATION_LEVEL = -O
 SWIFT_COMPILATION_MODE = wholemodule
 VALIDATE_PRODUCT = YES
 DEBUG_INFORMATION_FORMAT = dwarf-with-dsym
+
+// Universal links (QA and Prod only: MOCK has no web host).
+CODE_SIGN_ENTITLEMENTS = Config/ETicketsGo.entitlements
