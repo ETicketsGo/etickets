@@ -59,6 +59,37 @@ struct MoviesView: View {
 
 // MARK: - Movie detail and showtimes
 
+extension MovieSummary {
+    init(_ movie: Movie) {
+        self.init(id: movie.id, title: movie.title, slug: movie.slug, posterUrl: movie.posterUrl,
+                  certificate: movie.certificate, language: movie.language, genres: movie.genres,
+                  runtimeMinutes: movie.runtimeMinutes)
+    }
+}
+
+/// A movie opened from a shared link: loads it by slug, then shows the usual detail screen.
+struct MovieLinkView: View {
+    let slug: String
+    @Environment(AppContainer.self) private var container
+    @State private var state: Loadable<MovieSummary> = .idle
+
+    var body: some View {
+        LoadableView(state: state, retry: { Task { await load() } }) { movie in
+            MovieDetailView(movie: movie)
+        }
+        .task { if state.value == nil { await load() } }
+    }
+
+    private func load() async {
+        state = .loading
+        do {
+            state = .loaded(MovieSummary(try await container.catalog.movieShows(slug: slug).movie))
+        } catch {
+            state = .failed(error.userMessage)
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class MovieDetailViewModel {

@@ -9,6 +9,8 @@ enum AppTab: String, Hashable {
 enum Route: Hashable {
     case event(slug: String)
     case movie(MovieSummary)
+    /// A shared movie link: only the slug is known until the movie loads.
+    case movieLink(slug: String)
     case ticket(Ticket)
     case bookings
     case booking(Booking)
@@ -46,17 +48,16 @@ final class AppRouter {
         #endif
     }
 
-    /// Opens a shared website link on top of the current tab. A movie link opens Movies (its
-    /// screen needs the showing, which a slug alone does not give); a booking link opens
-    /// booking history, where the server decides what the signed-in customer may see.
+    /// Opens a shared website link on top of the current tab. A booking link opens booking
+    /// history, where the server decides what the signed-in customer may see.
     func open(_ link: SharedLink) {
         switch link {
         case let .event(slug):
             selectedTab = .home
             paths[.home] = [.event(slug: slug)]
-        case .movie:
+        case let .movie(slug):
             selectedTab = .movies
-            paths[.movies] = []
+            paths[.movies] = [.movieLink(slug: slug)]
         case .booking:
             selectedTab = .profile
             paths[.profile] = [.bookings]
@@ -130,6 +131,7 @@ struct RouteDestination: View {
         switch route {
         case let .event(slug): EventDetailView(slug: slug)
         case let .movie(movie): MovieDetailView(movie: movie)
+        case let .movieLink(slug): MovieLinkView(slug: slug)
         case let .ticket(ticket): TicketDetailView(ticket: ticket)
         case .bookings: BookingsView()
         case let .booking(booking): BookingDetailView(booking: booking)
