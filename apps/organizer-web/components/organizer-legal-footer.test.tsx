@@ -7,36 +7,31 @@ import { OrganizerLegalFooter } from './organizer-legal-footer';
 /*
   The console footer names the DeepTrics company an organizer deals with, from the
   organization's registered country: business data, the same signal the campaign footer and
-  the invoice series use. Loading, or a country with no company: both are named.
+  the invoice series use. One line, the brand once and the company once (owner, 2026-11-05).
+  Loading, or a country with no company: the neutral copyright line.
 */
 const year = new Date().getFullYear();
 const text = (country: string | null) =>
   renderToStaticMarkup(<OrganizerLegalFooter country={country} />).replace(/<[^>]+>/g, '');
 
 describe('OrganizerLegalFooter', () => {
-  it('an organizer registered in India: the Indian company', () => {
-    const t = text('IN');
-    expect(t).toContain(`© ${year} ETicketsGo, DeepTrics Software Solutions Pvt Ltd.`);
-    expect(t).toContain(
-      'ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited.',
+  it('an organizer registered in India: the Indian company, named once', () => {
+    expect(text('IN')).toBe(
+      `© ${year} ETicketsGo. Operated by DeepTrics Software Solutions Pvt Ltd.`,
     );
-    expect(t).not.toContain('DeepTrics LLC');
   });
 
-  it('an organizer registered in the United States (stored as a name): DeepTrics LLC', () => {
+  it('an organizer registered in the United States (stored as a name): DeepTrics LLC, named once', () => {
     const t = text('United States');
-    expect(t).toContain(`© ${year} ETicketsGo, DeepTrics LLC.`);
-    expect(t).toContain('ETicketsGo is operated in the United States by DeepTrics LLC.');
-    expect(t).not.toContain('Private Limited');
+    expect(t).toBe(`© ${year} ETicketsGo. Operated by DeepTrics LLC.`);
+    // The old line said the platform and the company twice each.
+    expect(t.match(/ETicketsGo/g)).toHaveLength(1);
+    expect(t.match(/DeepTrics/g)).toHaveLength(1);
   });
 
-  it('while loading, or for a country with no company, names both', () => {
+  it('while loading, or for a country with no company, names neither', () => {
     for (const c of [null, 'CA']) {
-      const t = text(c);
-      expect(t).toContain(`© ${year} ETicketsGo.`);
-      expect(t).toContain(
-        'ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited and in the United States by DeepTrics LLC.',
-      );
+      expect(text(c)).toBe(`© ${year} ETicketsGo. All rights reserved.`);
     }
   });
 

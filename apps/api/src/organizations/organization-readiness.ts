@@ -18,7 +18,7 @@
  * statement: none of these block an organizer from selling today, and pretending otherwise
  * to force completion would be a lie the product tells.
  */
-import { issuesTaxInvoices } from '@eticketsgo/shared-types';
+import { issuesTaxInvoices, taxRegistrationType } from '@eticketsgo/shared-types';
 
 export type ReadinessSeverity = 'BLOCKING' | 'IMPORTANT' | 'SUGGESTED';
 
@@ -42,6 +42,7 @@ export interface ReadinessInput {
   registeredAddressLine1?: string | null;
   registeredCity?: string | null;
   taxRegistrationNumber?: string | null;
+  taxRegistrationKind?: string | null;
   financeContactEmail?: string | null;
   grievanceOfficerName?: string | null;
   grievanceOfficerEmail?: string | null;
@@ -164,7 +165,11 @@ export function organizationReadiness(org: ReadinessInput): ReadinessItem[] {
     ── SUGGESTED: it makes them look like a business somebody buys from ─────────────
     Never dressed up as a requirement. An organizer with no logo sells tickets perfectly well.
   */
-  if (blank(org.taxRegistrationNumber)) {
+  // An organizer who has said they are not registered has answered; asking again is nagging.
+  const saidNotRegistered = Boolean(
+    taxRegistrationType(org.registeredCountry, org.taxRegistrationKind)?.notRegistered,
+  );
+  if (blank(org.taxRegistrationNumber) && !saidNotRegistered) {
     items.push({
       key: 'tax-registration',
       severity: 'SUGGESTED',

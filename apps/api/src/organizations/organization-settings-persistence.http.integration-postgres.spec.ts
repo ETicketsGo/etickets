@@ -44,17 +44,17 @@ const LEGAL_US = {
   registeredCountry: 'United States',
   financeContactName: 'QA Finance',
   financeContactEmail: 'finance-qa@test.invalid',
-  financeContactPhone: '+1 208 555 0100',
+  financeContactPhone: '+12085550100',
   grievanceOfficerName: 'QA Complaints',
   grievanceOfficerEmail: 'complaints-qa@test.invalid',
-  grievanceOfficerPhone: '+1 208 555 0101',
+  grievanceOfficerPhone: '+12085550101',
 };
 
 const PROFILE = {
   description: 'QA-TEST organizer. Hosts test events only.',
   website: 'https://qa-settings.test.invalid',
   contactEmail: 'hello-qa@eticketsgo.com',
-  contactPhone: '+1 208 555 0102',
+  contactPhone: '+12085550102',
   twitterUrl: 'https://x.com/qa_settings',
   instagramUrl: 'https://instagram.com/qa_settings',
   facebookUrl: 'https://facebook.com/qa_settings',
@@ -218,11 +218,11 @@ describe('integration-real-postgres: organizer settings persistence', () => {
     it('a save of one field leaves the other fifteen exactly as they were', async () => {
       if (skip()) return;
       const w = await http('PATCH', `/organizations/${org}/legal-identity`, tokens.owner, {
-        financeContactPhone: '+1 208 555 0199',
+        financeContactPhone: '+12085550199',
       });
       expect(w.status).toBe(200);
       const stored = await row(org);
-      expect(stored.financeContactPhone).toBe('+1 208 555 0199');
+      expect(stored.financeContactPhone).toBe('+12085550199');
       for (const [k, v] of Object.entries(LEGAL_US)) {
         if (k !== 'financeContactPhone') expect([k, stored[k]]).toEqual([k, v]);
       }
@@ -335,6 +335,186 @@ describe('integration-real-postgres: organizer settings persistence', () => {
       expect((await row(org)).legalName).toBe(LEGAL_US.legalName);
       // And the outsider's own organization was not touched by any of this.
       expect((await row(otherOrg)).legalName).toBeNull();
+    });
+  });
+
+  describe('country-aware contact and tax rules (owner, 2026-11-05)', () => {
+    const legal = (body: Record<string, unknown>) =>
+      http('PATCH', `/organizations/${org}/legal-identity`, tokens.owner, body);
+    const fieldsOf = (r: { json: unknown }) =>
+      Object.keys(((r.json as { details?: { fields?: object } })?.details?.fields ?? {}) as object);
+
+    beforeAll(async () => {
+      if (skip()) return;
+      // A US organization again, whatever the tests above left it as.
+      await db!.organization.update({
+        where: { id: org },
+        data: { ...LEGAL_US, additionalTaxRegistrations: undefined },
+      });
+    });
+
+    it('US: refuses a malformed EIN and a personal SSN, saves a valid EIN', async () => {
+      if (skip()) return;
+      const bad = await legal({ taxRegistrationKind: 'EIN', taxRegistrationNumber: '12345689' });
+      expect(bad.status).toBe(400);
+      expect(fieldsOf(bad)).toEqual(['taxRegistrationNumber']);
+      const ssn = await legal({ taxRegistrationNumber: '123-45-6789' });
+      expect(ssn.status).toBe(400);
+      expect(JSON.stringify(ssn.json)).toContain('SSN or ITIN');
+      expect((await row(org)).taxRegistrationNumber).toBe('12-3456789');
+      const ok = await legal({ taxRegistrationKind: 'EIN', taxRegistrationNumber: '98-7654321' });
+      expect(ok.status).toBe(200);
+      expect((await row(org)).taxRegistrationNumber).toBe('98-7654321');
+    });
+
+    it('US: several registrations persist, read back, and clear', async () => {
+      if (skip()) return;
+      const extra = [
+        { kind: 'State sales tax ID', number: '123-4567890' },
+        { kind: 'State sales tax ID', number: 'TX-32012345678' },
+      ];
+      const w = await legal({ additionalTaxRegistrations: extra });
+      expect(w.status).toBe(200);
+      expect((await row(org)).additionalTaxRegistrations).toEqual(extra);
+      const r = await http('GET', `/organizations/${org}/legal-identity`, tokens.owner);
+      expect(r.json.additionalTaxRegistrations).toEqual(extra);
+      // The main registration, which documents print, is untouched.
+      expect(r.json.taxRegistrationNumber).toBe('98-7654321');
+
+      const dup = await legal({ additionalTaxRegistrations: [extra[0], extra[0]] });
+      expect(dup.status).toBe(400);
+      expect(fieldsOf(dup)).toEqual(['additionalTaxRegistrations.1']);
+      const wrongCountry = await legal({
+        additionalTaxRegistrations: [{ kind: 'GSTIN', number: '29AABCU9603R1ZM' }],
+      });
+      expect(wrongCountry.status).toBe(400);
+      expect((await row(org)).additionalTaxRegistrations).toEqual(extra);
+
+      expect((await legal({ additionalTaxRegistrations: [] })).status).toBe(200);
+      expect((await row(org)).additionalTaxRegistrations).toBeNull();
+    });
+
+    it('"Not registered" carries no number', async () => {
+      if (skip()) return;
+      const withNumber = await legal({ taxRegistrationKind: 'Not registered' });
+      expect(withNumber.status).toBe(400);
+      const ok = await legal({ taxRegistrationKind: 'Not registered', taxRegistrationNumber: '' });
+      expect(ok.status).toBe(200);
+      const stored = await row(org);
+      expect([stored.taxRegistrationKind, stored.taxRegistrationNumber]).toEqual([
+        'Not registered',
+        null,
+      ]);
+    });
+
+    it('India: GSTIN and PAN formats; a PAN beside the GSTIN', async () => {
+      if (skip()) return;
+      const bad = await legal({
+        registeredCountry: 'India',
+        registeredRegion: 'Andhra Pradesh',
+        registeredPostalCode: '520010',
+        legalEntityType: 'Private limited company',
+        taxRegistrationKind: 'GSTIN',
+        taxRegistrationNumber: '37AABCU9603R1Z',
+      });
+      expect(bad.status).toBe(400);
+      expect(fieldsOf(bad)).toEqual(['taxRegistrationNumber']);
+      const ok = await legal({
+        registeredCountry: 'India',
+        registeredRegion: 'Andhra Pradesh',
+        registeredPostalCode: '520010',
+        legalEntityType: 'Private limited company',
+        taxRegistrationKind: 'GSTIN',
+        taxRegistrationNumber: '37AABCU9603R1ZM',
+        additionalTaxRegistrations: [{ kind: 'PAN', number: 'AABCU9603R' }],
+      });
+      expect(ok.status).toBe(200);
+      const stored = await row(org);
+      expect(stored.taxRegistrationNumber).toBe('37AABCU9603R1ZM');
+      expect(stored.additionalTaxRegistrations).toEqual([{ kind: 'PAN', number: 'AABCU9603R' }]);
+      const badPan = await legal({
+        additionalTaxRegistrations: [{ kind: 'PAN', number: 'ABC123' }],
+      });
+      expect(badPan.status).toBe(400);
+    });
+
+    it('phones: E.164 per country; letters and wrong lengths refused under the field', async () => {
+      if (skip()) return;
+      for (const bad of ['+91970446400', '+9197044640071', '+91 97044 64007', '+91970446CALL']) {
+        const r = await legal({ financeContactPhone: bad });
+        expect([bad, r.status]).toEqual([bad, 400]);
+        expect(fieldsOf(r)).toEqual(['financeContactPhone']);
+      }
+      expect((await legal({ financeContactPhone: '+919704464007' })).status).toBe(200);
+      expect((await row(org)).financeContactPhone).toBe('+919704464007');
+      const pub = await http('PATCH', `/organizations/${org}`, tokens.owner, {
+        contactPhone: '+9112',
+      });
+      expect(pub.status).toBe(400);
+      expect(fieldsOf(pub)).toEqual(['contactPhone']);
+    });
+
+    it('names: five characters at least, international names welcome', async () => {
+      if (skip()) return;
+      const short = await legal({ financeContactName: '  Abc  ', grievanceOfficerName: 'A' });
+      expect(short.status).toBe(400);
+      expect(fieldsOf(short).sort()).toEqual(['financeContactName', 'grievanceOfficerName']);
+      const ok = await legal({
+        financeContactName: 'José Núñez',
+        grievanceOfficerName: "Anne-Marie O'Brien",
+      });
+      expect(ok.status).toBe(200);
+      expect((await row(org)).financeContactName).toBe('José Núñez');
+    });
+
+    it('emails: trimmed, international domains accepted, malformed refused', async () => {
+      if (skip()) return;
+      const ok = await legal({ financeContactEmail: '  Finance@Bücher.de ' });
+      expect(ok.status).toBe(200);
+      expect((await row(org)).financeContactEmail).toBe('finance@bücher.de');
+      const bad = await legal({ grievanceOfficerEmail: 'a@b' });
+      expect(bad.status).toBe(400);
+      expect(fieldsOf(bad)).toEqual(['grievanceOfficerEmail']);
+      const pub = await http('PATCH', `/organizations/${org}`, tokens.owner, {
+        contactEmail: 'hello@xn--bcher-kva.de',
+      });
+      expect(pub.status).toBe(200);
+    });
+
+    it('values saved before these rules keep saving untouched beside another edit', async () => {
+      if (skip()) return;
+      // An older record: a spaced phone, a four-letter name, an 8-digit "EIN" with no kind.
+      await db!.organization.update({
+        where: { id: org },
+        data: {
+          registeredCountry: 'United States',
+          registeredPostalCode: '83642',
+          taxRegistrationKind: null,
+          taxRegistrationNumber: '12345689',
+          financeContactPhone: '+1 208 555 0100',
+          financeContactName: 'Fins',
+        },
+      });
+      // The admin card sends its whole draft, unchanged values included.
+      const before = await row(org);
+      const w = await legal({
+        financeContactPhone: '+1 208 555 0100',
+        financeContactName: 'Fins',
+        taxRegistrationNumber: '12345689',
+        registeredCity: 'Boise',
+      });
+      expect(w.status).toBe(200);
+      const after = await row(org);
+      expect(after.registeredCity).toBe('Boise');
+      for (const k of [
+        'financeContactPhone',
+        'financeContactName',
+        'taxRegistrationNumber',
+      ] as const) {
+        expect([k, after[k]]).toEqual([k, before[k]]);
+      }
+      // Changing one of them is judged.
+      expect((await legal({ financeContactName: 'Fin' })).status).toBe(400);
     });
   });
 

@@ -93,6 +93,11 @@ describe('resolveSaleKind', () => {
     expect(at(null, 'GSTIN', '29AABCU9603R1ZM')).toBe('TAX_INVOICE');
   });
 
+  it('India: a PAN alone is an income-tax number, so the sale is a receipt, not a GST invoice', () => {
+    expect(at('India', 'PAN', 'AABCU9603R')).toBe('RECEIPT');
+    expect(at('India', 'Not GST registered', null)).toBe('RECEIPT');
+  });
+
   it('other tax-invoice countries are unchanged', () => {
     expect(at('Canada', 'GST/HST number', '123456789RT0001')).toBe('TAX_INVOICE');
     expect(at('United Kingdom', 'VAT number', 'GB123456789')).toBe('TAX_INVOICE');

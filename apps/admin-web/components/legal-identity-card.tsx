@@ -98,7 +98,9 @@ export function LegalIdentityCard({ organizationId }: { organizationId: string }
   // discard what the admin is halfway through typing each time the query refetches.
   useEffect(() => {
     if (!q.data || draft) return;
-    setDraft(Object.fromEntries(FIELDS.map((f) => [f.key, q.data[f.key] ?? ''])));
+    setDraft(
+      Object.fromEntries(FIELDS.map((f) => [f.key, (q.data[f.key] as string | null) ?? ''])),
+    );
   }, [q.data, draft]);
 
   const save = useMutation({

@@ -85,18 +85,20 @@ function FooterLines({ market }: { market: string | null }) {
   return (
     <div className="space-y-1">
       {/*
-        The year is read at render rather than typed: a literal is wrong on 1 January. The
-        copyright line names no company, so it is the same for every reader.
+        The year is read at render rather than typed: a literal is wrong on 1 January.
 
-        The operator line appears only for a market the reader selected (India or the United
-        States) and names that market's company from the entity registry. With no market, or
-        one with no company, there is no operator line at all: the footer never names both
+        One line. For a market the reader selected (India or the United States) it ends with
+        that market's company, by short name, from the entity registry. With no market, or one
+        with no company, it is the neutral copyright line: the footer never names both
         companies (the Legal & Policies pages list both in full). The server render and the
-        first client render have no market, so they agree, and the line is filled in once the
+        first client render have no market, so they agree, and the company is added once the
         city choice is read - neutral then filled, never one company then the other.
       */}
-      <p data-testid="footer-rights">{f('copyright', { year: new Date().getFullYear() })}</p>
-      {operator && <p data-testid="footer-operator">{f(operator.key, operator.values)}</p>}
+      <p data-testid="footer-rights">
+        {operator
+          ? f('copyrightOperated', { year: new Date().getFullYear(), entity: operator.entity })
+          : f('copyright', { year: new Date().getFullYear() })}
+      </p>
     </div>
   );
 }

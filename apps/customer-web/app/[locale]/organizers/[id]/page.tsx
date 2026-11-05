@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { BadgeCheck, CalendarDays, Globe, Mail, Phone, Users } from 'lucide-react';
-import { apiAssetUrl } from '@eticketsgo/web-kit';
+import { apiAssetUrl, formatPhoneForDisplay } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { EventTile } from '@/components/home/parts';
@@ -73,7 +73,13 @@ export default function OrganizerProfilePage() {
             */
               src={apiAssetUrl(org.coverImageUrl)!}
               alt=""
-              className="h-40 w-full object-cover"
+              data-testid="organizer-cover"
+              /*
+                3:1 at every width, the frame the organizer cropped to in the console. A fixed
+                160px height made it about 7:1 on a desktop: a photo became a thin strip and any
+                lettering in it was enlarged and cut off.
+              */
+              className="aspect-[3/1] w-full object-cover"
             />
           ) : (
             <div data-brand-tone="stage" className="h-28 bg-brand-canvas" />
@@ -85,10 +91,12 @@ export default function OrganizerProfilePage() {
                 <img
                   src={apiAssetUrl(org.logoUrl)!}
                   alt={`${org.name} logo`}
-                  className="-mt-12 h-20 w-20 rounded-brand-card border-4 border-brand-surface object-cover"
+                  data-testid="organizer-logo"
+                  // A circle, as cropped in the console and as the event page shows it.
+                  className="-mt-12 h-20 w-20 rounded-full border-4 border-brand-surface bg-brand-surface object-cover"
                 />
               ) : (
-                <div className="-mt-12 flex h-20 w-20 items-center justify-center rounded-brand-card border-4 border-brand-surface bg-brand-action font-brand-display text-brand-d3 text-brand-on-action">
+                <div className="-mt-12 flex h-20 w-20 items-center justify-center rounded-full border-4 border-brand-surface bg-brand-action font-brand-display text-brand-d3 text-brand-on-action">
                   {org.name.charAt(0)}
                 </div>
               )}
@@ -152,7 +160,11 @@ export default function OrganizerProfilePage() {
                 )}
                 {org.contactPhone && (
                   <span className="inline-flex items-center gap-1.5 text-brand-ink-2">
-                    <Phone className="h-3.5 w-3.5" /> {org.contactPhone}
+                    <Phone className="h-3.5 w-3.5" />{' '}
+                    {/* Settings stores E.164; an older free-text number is shown exactly as typed. */}
+                    {/^\+\d+$/.test(org.contactPhone)
+                      ? formatPhoneForDisplay(org.contactPhone)
+                      : org.contactPhone}
                   </span>
                 )}
               </div>

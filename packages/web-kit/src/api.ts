@@ -4444,6 +4444,8 @@ export interface OrganizationLegalIdentityFields {
   grievanceOfficerName: string | null;
   grievanceOfficerEmail: string | null;
   grievanceOfficerPhone: string | null;
+  /** Registrations beyond the main one, e.g. a PAN beside a GSTIN. Recorded, not printed. */
+  additionalTaxRegistrations?: { kind: string; number: string }[] | null;
 }
 
 export interface OrganizationLegalIdentity extends OrganizationLegalIdentityFields {
@@ -6287,6 +6289,7 @@ export interface OrganizationLegalIdentityInput {
   grievanceOfficerName?: string;
   grievanceOfficerEmail?: string;
   grievanceOfficerPhone?: string;
+  additionalTaxRegistrations?: { kind: string; number: string }[];
 }
 
 export type ReceiptKind = 'RECEIPT' | 'TAX_INVOICE' | 'CREDIT_NOTE';

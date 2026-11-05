@@ -69,7 +69,7 @@ test.describe('organizer: tax identity, receipts and refunds', () => {
     await expect(page.getByTestId('legal-document-status')).toContainText(/get a receipt/);
 
     // And it is explicit that the number is not format-checked, so nobody assumes it was.
-    await expect(page.getByText(/We do not check its format/)).toBeVisible();
+    await expect(page.getByText(/We do not check it with the tax/)).toBeVisible();
   });
 
   test('4-6: saving a tax registration flips the page to "can issue a tax invoice"', async ({
@@ -92,10 +92,10 @@ test.describe('organizer: tax identity, receipts and refunds', () => {
     */
     await page.getByLabel('Country').selectOption({ label: 'India' });
     await page.getByLabel(/Registered as/i).selectOption('Private limited company');
-    await page.getByLabel(/Tax registration type/i).fill('GSTIN');
+    await page.locator('#legal-taxRegistrationKind').selectOption('GSTIN');
     // A fixture identifier. The platform records it verbatim and asserts nothing about it.
     // The label follows the country, so an Indian organizer is asked for a GSTIN.
-    await page.getByLabel(/^GSTIN/).fill('29AABCU9603R1ZM');
+    await page.locator('#legal-taxRegistrationNumber').fill('29AABCU9603R1ZM');
     await page.getByLabel('Registered address', { exact: true }).fill('12 Residency Road');
     await page.getByLabel('City').fill('Bengaluru');
     await page.getByLabel('Finance contact email').fill('finance@bengaluru-live.test');
@@ -110,7 +110,8 @@ test.describe('organizer: tax identity, receipts and refunds', () => {
 
     // The value survives a reload — it was persisted, not just held in form state.
     await page.reload();
-    await expect(page.getByLabel(/^GSTIN/)).toHaveValue('29AABCU9603R1ZM');
+    await expect(page.locator('#legal-taxRegistrationNumber')).toHaveValue('29AABCU9603R1ZM');
+    await expect(page.locator('#legal-taxRegistrationKind')).toHaveValue('GSTIN');
     // Saved but never loaded back, it read "Select..." after every reload (PROD, 2026-11).
     await expect(page.getByLabel(/Registered as/i)).toHaveValue('Private limited company');
     await expect(page.getByLabel('Country')).toHaveValue('India');

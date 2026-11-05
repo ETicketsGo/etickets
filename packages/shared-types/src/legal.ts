@@ -448,3 +448,23 @@ export function policyFromLabel(label: string): Policy | null {
     ) ?? null
   );
 }
+
+/**
+ * The one footer line: the brand once, then the company that operates it for this market, by
+ * its short name.
+ *
+ *   "© 2026 ETicketsGo. Operated by DeepTrics LLC."
+ *   "© 2026 ETicketsGo. Operated by DeepTrics Software Solutions Pvt Ltd."
+ *   "© 2026 ETicketsGo. All rights reserved."   (no market, or one with no company)
+ *
+ * It replaced "© 2026 ETicketsGo, DeepTrics LLC. ETicketsGo is operated in the United States by
+ * DeepTrics LLC.", which named the platform twice and the company twice (owner, 2026-11-05).
+ * The full operator sentence stays where a disclosure needs it: Terms, Privacy, invoices and
+ * checkout read `operatorSentence`, not this.
+ */
+export function footerLine(market: string | null | undefined, year: number): string {
+  const entity = publicLegalEntity(market);
+  return entity
+    ? `© ${year} ETicketsGo. Operated by ${entity.shortName}.`
+    : `© ${year} ETicketsGo. All rights reserved.`;
+}

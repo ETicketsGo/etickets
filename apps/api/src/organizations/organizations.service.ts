@@ -12,6 +12,12 @@ import {
   isReservedEmail,
   postalCodeProblem,
   issuesTaxInvoices,
+  contactNameProblem,
+  phoneProblem,
+  taxRegistrationNumberProblem,
+  taxRegistrationType,
+  taxRegistrationTypes,
+  type AdditionalTaxRegistration,
 } from '@eticketsgo/shared-types';
 import type {
   CreateOrganizationInput,
@@ -315,6 +321,18 @@ export class OrganizationsService {
       if (value === undefined) continue;
       data[key] = value === '' ? null : value;
     }
+    if ('contactPhone' in data) {
+      const before = await this.prisma.organization.findUnique({
+        where: { id },
+        select: { contactPhone: true, registeredCountry: true },
+      });
+      // Judged only when it changes: a number saved in an older shape keeps saving untouched.
+      const problem =
+        data.contactPhone !== (before?.contactPhone ?? null)
+          ? phoneProblem(data.contactPhone, { country: before?.registeredCountry })
+          : null;
+      if (problem) throw fieldErrors({ contactPhone: problem });
+    }
     const updated = await this.prisma.organization.update({
       where: { id },
       data,
@@ -363,15 +381,19 @@ export class OrganizationsService {
         taxRegistrationNumber: true,
         registeredCountry: true,
         registeredPostalCode: true,
+        financeContactName: true,
+        financeContactPhone: true,
+        grievanceOfficerName: true,
+        grievanceOfficerPhone: true,
+        additionalTaxRegistrations: true,
       },
     });
-    const data: Record<string, string | null> = {};
-    for (const [key, value] of Object.entries(input) as [string, string | undefined][]) {
-      if (value === undefined) continue;
-      data[key] = value === '' ? null : value;
-    }
-    assertPostalCodeFitsCountry(before, data);
-    const updated = await this.prisma.organization.update({ where: { id }, data });
+    const data = legalIdentityData(input);
+    assertLegalChanges(before, data);
+    const updated = await this.prisma.organization.update({
+      where: { id },
+      data: toLegalWrite(data),
+    });
     await this.audit.record({
       actorUserId: user.id,
       organizationId: id,
@@ -424,19 +446,23 @@ export class OrganizationsService {
         taxRegistrationNumber: true,
         registeredCountry: true,
         registeredPostalCode: true,
+        financeContactName: true,
+        financeContactPhone: true,
+        grievanceOfficerName: true,
+        grievanceOfficerPhone: true,
+        additionalTaxRegistrations: true,
       },
     });
     if (!before) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
     }
 
-    const data: Record<string, string | null> = {};
-    for (const [key, value] of Object.entries(input) as [string, string | undefined][]) {
-      if (value === undefined) continue;
-      data[key] = value === '' ? null : value;
-    }
-    assertPostalCodeFitsCountry(before, data);
-    const updated = await this.prisma.organization.update({ where: { id }, data });
+    const data = legalIdentityData(input);
+    assertLegalChanges(before, data);
+    const updated = await this.prisma.organization.update({
+      where: { id },
+      data: toLegalWrite(data),
+    });
 
     await this.audit.record({
       actorUserId: admin.id,
@@ -477,6 +503,7 @@ export class OrganizationsService {
         grievanceOfficerName: true,
         grievanceOfficerEmail: true,
         grievanceOfficerPhone: true,
+        additionalTaxRegistrations: true,
       },
     });
     if (!org) {
@@ -539,6 +566,7 @@ export class OrganizationsService {
         grievanceOfficerName: true,
         grievanceOfficerEmail: true,
         grievanceOfficerPhone: true,
+        additionalTaxRegistrations: true,
       },
     });
     if (!org) {
@@ -1798,29 +1826,112 @@ function refusalReasonOf(err: unknown): string {
   return 'error';
 }
 
-/**
- * Refuse a postal code that cannot belong to the country it would be saved with - a US ZIP
- * under India, or a four-digit ZIP. Checked against the country AFTER this save, so changing
- * the country and the code together is judged as the pair the organizer meant. Only a code in
- * THIS request is checked: a save of the finance contact must not be refused over an address
- * nobody touched.
- *
- * Same error shape as the validation pipe, so the form can put the message under the field.
- */
-function assertPostalCodeFitsCountry(
-  before: { registeredCountry: string | null; registeredPostalCode: string | null } | null,
-  data: Record<string, string | null>,
-): void {
-  if (!('registeredPostalCode' in data)) return;
-  const country =
-    'registeredCountry' in data ? data.registeredCountry : (before?.registeredCountry ?? null);
-  const problem = postalCodeProblem(country, data.registeredPostalCode);
-  if (problem) {
-    throw new AppException(
-      ErrorCodes.VALIDATION_FAILED,
-      'The request failed validation.',
-      HttpStatus.BAD_REQUEST,
-      { fields: { registeredPostalCode: [problem] } },
-    );
+type LegalBefore = {
+  registeredCountry: string | null;
+  registeredPostalCode: string | null;
+  taxRegistrationKind: string | null;
+  taxRegistrationNumber: string | null;
+  financeContactName: string | null;
+  financeContactPhone: string | null;
+  grievanceOfficerName: string | null;
+  grievanceOfficerPhone: string | null;
+  additionalTaxRegistrations: unknown;
+} | null;
+
+type LegalData = Record<string, string | null | AdditionalTaxRegistration[]>;
+
+/** The PATCH body as column values: '' clears a text field, [] clears the extra registrations. */
+function legalIdentityData(input: UpdateOrganizationLegalIdentityInput): LegalData {
+  const data: LegalData = {};
+  for (const [key, value] of Object.entries(input) as [string, unknown][]) {
+    if (value === undefined) continue;
+    if (Array.isArray(value)) data[key] = value as AdditionalTaxRegistration[];
+    else data[key] = value === '' ? null : (value as string);
   }
+  return data;
+}
+
+/** Prisma needs `DbNull`, not `null`, to clear a JSON column. */
+function toLegalWrite(data: LegalData): Prisma.OrganizationUpdateInput {
+  const write: Record<string, unknown> = { ...data };
+  if (Array.isArray(data.additionalTaxRegistrations)) {
+    write.additionalTaxRegistrations = data.additionalTaxRegistrations.length
+      ? data.additionalTaxRegistrations
+      : Prisma.DbNull;
+  }
+  return write as Prisma.OrganizationUpdateInput;
+}
+
+function fieldErrors(fields: Record<string, string>): AppException {
+  return new AppException(
+    ErrorCodes.VALIDATION_FAILED,
+    'The request failed validation.',
+    HttpStatus.BAD_REQUEST,
+    { fields: Object.fromEntries(Object.entries(fields).map(([k, m]) => [k, [m]])) },
+  );
+}
+
+/**
+ * The country rules for the legal form: postal code, contact names and phones, and tax
+ * registrations. Same error shape as the validation pipe, so the form puts each message under
+ * its field.
+ *
+ * ── ONLY WHAT CHANGES IS JUDGED ───────────────────────────────────────────────────────
+ * A value is checked when this save CHANGES it. A phone saved long ago as "98480 22338" or a
+ * four-letter name keeps saving untouched beside an edit to the address: the platform does
+ * not rewrite or refuse what somebody already gave it until they change that field. The admin
+ * card sends its whole draft, which is why "in the request" is not enough.
+ *
+ * Judged against the country AFTER this save, so changing the country and the code together
+ * is judged as the pair the organizer meant.
+ */
+function assertLegalChanges(before: LegalBefore, data: LegalData): void {
+  type Key = keyof NonNullable<LegalBefore>;
+  const was = (k: Key) => (before?.[k] ?? null) as string | null;
+  const changed = (k: Key) => k in data && data[k] !== was(k);
+  const now = (k: Key) => (k in data ? data[k] : was(k)) as string | null;
+  const country = now('registeredCountry');
+  const problems: Record<string, string> = {};
+
+  if ('registeredPostalCode' in data) {
+    const p = postalCodeProblem(country, data.registeredPostalCode as string | null);
+    if (p) problems.registeredPostalCode = p;
+  }
+  for (const k of ['financeContactName', 'grievanceOfficerName'] as const) {
+    const p = changed(k) ? contactNameProblem(data[k] as string | null) : null;
+    if (p) problems[k] = p;
+  }
+  for (const k of ['financeContactPhone', 'grievanceOfficerPhone'] as const) {
+    const p = changed(k) ? phoneProblem(data[k] as string | null, { country }) : null;
+    if (p) problems[k] = p;
+  }
+  if (changed('taxRegistrationKind') || changed('taxRegistrationNumber')) {
+    const p = taxRegistrationNumberProblem(
+      country,
+      now('taxRegistrationKind'),
+      now('taxRegistrationNumber'),
+    );
+    if (p) problems.taxRegistrationNumber = p;
+  }
+  const extra = data.additionalTaxRegistrations;
+  if (
+    Array.isArray(extra) &&
+    JSON.stringify(extra) !== JSON.stringify(before?.additionalTaxRegistrations ?? [])
+  ) {
+    const types = taxRegistrationTypes(country);
+    const seen = new Set<string>();
+    extra.forEach((r, i) => {
+      const type = taxRegistrationType(country, r.kind);
+      const key = `${r.kind.toLowerCase()}|${r.number.toUpperCase()}`;
+      const p =
+        types && (!type || type.notRegistered)
+          ? 'Choose a registration from the list.'
+          : seen.has(key)
+            ? 'This registration is already listed.'
+            : taxRegistrationNumberProblem(country, r.kind, r.number);
+      seen.add(key);
+      if (p) problems[`additionalTaxRegistrations.${i}`] = p;
+    });
+  }
+  if (Object.keys(problems).length > 0) throw fieldErrors(problems);
 }

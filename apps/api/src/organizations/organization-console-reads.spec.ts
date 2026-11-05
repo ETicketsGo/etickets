@@ -34,6 +34,8 @@ const LEGAL = {
   grievanceOfficerName: 'Grievance Officer',
   grievanceOfficerEmail: 'complaints@example.test',
   grievanceOfficerPhone: '+91 98765 43211',
+  // Registrations beyond the main one (a PAN beside the GSTIN): read back so the form can show them.
+  additionalTaxRegistrations: [{ kind: 'PAN', number: 'AAAAA0000A' }],
 };
 
 function setup({
