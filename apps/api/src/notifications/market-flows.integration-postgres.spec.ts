@@ -403,7 +403,12 @@ describe('integration-real-postgres: India, US and Canada notification flows', (
       { userId: canadianUser, email: `mo+${suffix}@example.test` },
       'sms:transactional',
       true,
-      { source: 'CUSTOMER_SIGNUP', country: 'CA' },
+      // Sign-up records the number the person typed: consent is for that number.
+      {
+        source: 'CUSTOMER_SIGNUP',
+        country: 'CA',
+        phone: (await db!.user.findUnique({ where: { id: canadianUser } }))!.phone!,
+      },
     );
 
     await notifications.schedule(

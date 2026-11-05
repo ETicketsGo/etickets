@@ -258,8 +258,8 @@ export class NotificationPolicyResolver {
       const refusal = await smsConsentRefusal({
         phone,
         hasSubject: true,
-        readConsent: () =>
-          this.consent.smsTransactionalConsent({ userId, email: input.recipient.email }),
+        readConsent: (dialled) =>
+          this.consent.smsTransactionalConsent({ userId, email: input.recipient.email }, dialled),
       });
       if (refusal) {
         removed.push({ channel: 'sms', reason: refusal });

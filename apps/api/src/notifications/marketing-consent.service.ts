@@ -3,6 +3,22 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { SuppressionService } from './delivery/suppression.service';
 import { SMS_TRANSACTIONAL_SCOPE, type SmsConsentState } from './policy/sms-consent';
+import { normalisePhone } from '../auth/phone';
+
+/** `sms`, `whatsapp` and their `:transactional` scopes: consents about a phone number. */
+function isMessagingScope(channel: string): boolean {
+  const base = channel.split(':')[0];
+  return base === 'sms' || base === 'whatsapp';
+}
+
+/** A number in one comparable form. An unparseable value compares as itself, never as a match. */
+function samePhone(value: string): string {
+  try {
+    return normalisePhone(value);
+  } catch {
+    return `raw:${value.trim()}`;
+  }
+}
 
 /** The audit action when the account-wide setting lifts an "unsubscribe from all marketing". */
 export const MARKETING_UNSUBSCRIBE_LIFTED = 'MARKETING_UNSUBSCRIBE_LIFTED';
@@ -95,8 +111,15 @@ export class MarketingConsentService {
       snapshot is of a number this person demonstrably controls, and an account with no
       verified number simply records no number rather than an unverified one.
     */
+    /*
+      Every messaging scope, including `sms:transactional` and `whatsapp:transactional`. The
+      check used to name only `sms` and `whatsapp`, so the transactional consent - the one a
+      booking text is sent on - was stored with no number, and could not say which number the
+      person had agreed to.
+    */
+    const messaging = isMessagingScope(channel);
     let phone = context.phone ?? null;
-    if ((channel === 'sms' || channel === 'whatsapp') && !phone && subject.userId) {
+    if (messaging && !phone && subject.userId) {
       const owner = await this.prisma.user.findUnique({
         where: { id: subject.userId },
         select: { phone: true, phoneVerifiedAt: true },
@@ -119,7 +142,7 @@ export class MarketingConsentService {
           Snapshotted for messaging channels only. A consent on `email` has no number to
           record, and recording one there would be collecting a phone number for no reason.
         */
-        phone: channel === 'sms' || channel === 'whatsapp' ? phone : null,
+        phone: messaging ? phone : null,
       },
     });
 
@@ -178,11 +201,28 @@ export class MarketingConsentService {
    * WHY a text was not sent, and "withdrawn" and "never given" are different answers to give
    * a customer. Same matching as there: the newest row for the account or the email decides.
    * Errors are not swallowed; a caller must never read a failed lookup as consent.
+   *
+   * ── BOUND TO THE NUMBER ──────────────────────────────────────────────────────────────
+   * The agreement was to text ONE number: the one the person typed and then proved. A grant
+   * for another number, or one that names no number at all, is not consent for `phone`, so
+   * changing the account's number (which always takes a fresh code) leaves it without consent
+   * until the person agrees again for the new one. A withdrawal that names no number is
+   * "stop texting me" and applies to every number; one that names a number applies to it.
    */
-  async smsTransactionalConsent(subject: ConsentSubject): Promise<SmsConsentState> {
+  /** The account's number when it is verified, else null. */
+  async verifiedPhone(userId: string): Promise<string | null> {
+    const owner = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { phone: true, phoneVerifiedAt: true },
+    });
+    return owner?.phoneVerifiedAt ? (owner.phone ?? null) : null;
+  }
+
+  async smsTransactionalConsent(subject: ConsentSubject, phone: string): Promise<SmsConsentState> {
     const email = this.normalise(subject.email);
     if (!subject.userId && !email) return 'none';
-    const latest = await this.prisma.marketingConsent.findFirst({
+    const target = samePhone(phone);
+    const rows = await this.prisma.marketingConsent.findMany({
       where: {
         channel: SMS_TRANSACTIONAL_SCOPE,
         OR: [
@@ -191,10 +231,17 @@ export class MarketingConsentService {
         ],
       },
       orderBy: { createdAt: 'desc' },
-      select: { granted: true },
+      select: { granted: true, phone: true },
+      take: 50,
     });
-    if (!latest) return 'none';
-    return latest.granted ? 'granted' : 'withdrawn';
+    let grantedElsewhere = false;
+    for (const row of rows) {
+      const forThis = row.phone ? samePhone(row.phone) === target : false;
+      if (!row.granted && (!row.phone || forThis)) return 'withdrawn';
+      if (row.granted && forThis) return 'granted';
+      if (row.granted) grantedElsewhere = true;
+    }
+    return grantedElsewhere ? 'other_number' : 'none';
   }
 
   /** Current state per channel, for an account page or a data-subject request. */
