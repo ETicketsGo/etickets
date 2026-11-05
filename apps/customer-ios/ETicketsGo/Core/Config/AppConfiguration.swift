@@ -27,6 +27,15 @@ struct AppConfiguration: Sendable, Equatable {
     var allowsBookingWrites = false
 
     var bookingWritesPermitted: Bool { environment == .mock || (environment == .qa && allowsBookingWrites) }
+    /// Whether a provider-hosted checkout page may be opened from the app. Off for QA and PROD
+    /// until real QA checkout is certified; MOCK uses the simulated provider.
+    var allowsNativeCheckout = false
+    /// The customer website for this environment; payment-return links come from it.
+    var webHost: String?
+    /// The app's own URL scheme (Info.plist CFBundleURLTypes).
+    var appURLScheme: String?
+
+    var nativeCheckoutPermitted: Bool { environment == .mock || (environment == .qa && allowsNativeCheckout && bookingWritesPermitted) }
 
     /// Reads are always allowed; writes only against QA, and only when the build opted in.
     /// PROD is read-only whatever the build settings say, so a misconfigured xcconfig cannot
@@ -60,7 +69,12 @@ struct AppConfiguration: Sendable, Equatable {
     static func load(from info: [String: Any]) -> AppConfiguration {
         let environment = (info["ETGEnvironment"] as? String)
             .flatMap { AppEnvironment(rawValue: $0.lowercased()) } ?? .mock
-        guard environment != .mock else { return .mock }
+        let scheme = ((info["CFBundleURLTypes"] as? [[String: Any]])?.first?["CFBundleURLSchemes"] as? [String])?.first
+        guard environment != .mock else {
+            var mock = AppConfiguration.mock
+            mock.appURLScheme = scheme
+            return mock
+        }
 
         let urlString = (info["ETGAPIBaseURL"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
         guard let url = URL(string: urlString), url.scheme == "https", url.host != nil else {
@@ -73,7 +87,10 @@ struct AppConfiguration: Sendable, Equatable {
         return AppConfiguration(
             environment: environment, apiBaseURL: url, allowsMutations: allows,
             qaTestAccounts: environment == .qa ? accounts : [],
-            allowsBookingWrites: environment == .qa && (info["ETGAllowBookingWrites"] as? String)?.uppercased() == "YES")
+            allowsBookingWrites: environment == .qa && (info["ETGAllowBookingWrites"] as? String)?.uppercased() == "YES",
+            allowsNativeCheckout: environment == .qa && (info["ETGNativeCheckout"] as? String)?.uppercased() == "YES",
+            webHost: (info["ETGWebHost"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+            appURLScheme: scheme)
     }
 
     static func load(from bundle: Bundle = .main) -> AppConfiguration {

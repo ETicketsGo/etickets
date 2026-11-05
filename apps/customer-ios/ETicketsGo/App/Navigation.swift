@@ -24,6 +24,8 @@ final class AppRouter {
     var paths: [AppTab: [Route]] = [:]
     /// Set by Home; consumed once by Explore.
     var pendingExploreCategory: String?
+    /// A payment-return link the app was opened with. Only ever triggers a status check.
+    var paymentReturn: PaymentReturn?
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         #if DEBUG
@@ -62,16 +64,25 @@ struct RootTabView: View {
     var body: some View {
         @Bindable var router = router
         @Bindable var auth = container.auth
-        TabView(selection: $router.selectedTab) {
-            tab(.home, "Home", "house") { HomeView() }
-            tab(.explore, "Explore", "magnifyingglass") { ExploreView() }
-            tab(.movies, "Movies", "film") { MoviesView() }
-            tab(.tickets, "Tickets", "ticket") { MyTicketsView() }
-            tab(.profile, "Profile", "person.crop.circle") { ProfileView() }
+        VStack(spacing: 0) {
+            // Above the tabs, so it pushes content down instead of covering a screen's title.
+            CheckoutRecoveryBanner()
+            TabView(selection: $router.selectedTab) {
+                tab(.home, "Home", "house") { HomeView() }
+                tab(.explore, "Explore", "magnifyingglass") { ExploreView() }
+                tab(.movies, "Movies", "film") { MoviesView() }
+                tab(.tickets, "Tickets", "ticket") { MyTicketsView() }
+                tab(.profile, "Profile", "person.crop.circle") { ProfileView() }
+            }
         }
+        .background(ETGColor.canvas.ignoresSafeArea())
         .tint(ETGColor.ink)
         .sheet(isPresented: $auth.isPresentingSignIn) { SignInView() }
         .sheet(isPresented: Bindable(container.city).isPresentingPicker) { CityPickerView() }
+        .onChange(of: container.auth.state) { _, state in
+            // A signed-out phone keeps no record of anyone's checkout.
+            if state == .signedOut { container.pendingCheckout.clear() }
+        }
         .task {
             await container.auth.start()
             #if DEBUG

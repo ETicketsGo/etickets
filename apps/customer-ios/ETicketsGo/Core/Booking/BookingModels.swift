@@ -29,6 +29,15 @@ struct FeeBreakdown: Codable, Hashable, Sendable {
     let taxMinor: Int
     let maintenanceMinor: Int?
     let totalMinor: Int
+    /// False when only some of the server's figures are known — a booking record carries no
+    /// tax lines — so the screen shows the server's total alone rather than lines that don't
+    /// add up. Never sent by the API.
+    var isItemised = true
+
+    private enum CodingKeys: String, CodingKey {
+        case currency, subtotalMinor, discountMinor, netSubtotalMinor, bookingFeeMinor, paymentFeeMinor
+        case customerFeeMinor, taxLines, taxMinor, maintenanceMinor, totalMinor
+    }
 }
 
 /// POST /bookings/quote → `{ fees, coupon }`. Public and side-effect free: holds nothing and
@@ -117,7 +126,7 @@ enum PaymentHandoff: Equatable, Sendable {
     /// for the app yet (see docs/phase-3-checkout-design.md §10-A).
     case unsupported(reason: String)
 
-    static func from(_ start: PaymentStart, bookingId: String, environment: AppEnvironment) -> PaymentHandoff {
+    static func from(_ start: PaymentStart, bookingId: String, environment: AppEnvironment, nativeCheckout: Bool = true) -> PaymentHandoff {
         if start.razorpay != nil || start.provider == "razorpay" {
             return .unsupported(reason: "Paying with UPI or cards in India from the app is coming soon. Your seats are held — you can complete payment on eticketsgo.com.")
         }
@@ -125,7 +134,12 @@ enum PaymentHandoff: Equatable, Sendable {
             return .unsupported(reason: "The payment provider didn't return a checkout page.")
         }
         if environment == .mock, action.hasPrefix("mock://") { return .simulated(bookingId: bookingId) }
-        if let url = URL(string: action), url.scheme == "https" { return .hostedPage(url) }
+        if let url = URL(string: action), url.scheme == "https" {
+            guard nativeCheckout else {
+                return .unsupported(reason: "Checkout in the app isn't switched on yet. Your tickets are held — you can complete payment on eticketsgo.com.")
+            }
+            return .hostedPage(url)
+        }
         return .unsupported(reason: "This payment method isn't available in the app yet.")
     }
 }

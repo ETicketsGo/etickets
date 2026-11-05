@@ -11,7 +11,7 @@ import UIKit
 /// calls into this type except through `BookingRepository`/`TicketsRepository`, exactly as it
 /// calls the real API. Nothing here ships in a QA or PROD code path.
 actor MockCommerceServer {
-    struct HeldBooking {
+    struct HeldBooking: Codable {
         var booking: Booking
         let sessionId: String
         let items: [BookingItem]
@@ -30,11 +30,47 @@ actor MockCommerceServer {
     private var byIdempotencyKey: [String: CreatedBooking] = [:]
     private(set) var issuedTickets: [Ticket] = []
     private var sequence = 0
+    private let persists: Bool
 
-    init(fixtures: FixtureStore = FixtureStore(), holdDuration: TimeInterval = 600, confirmationDelay: Duration = .seconds(3)) {
+    /// What survives an app relaunch (MOCK only, in Caches; never in QA or PROD).
+    private struct SavedState: Codable {
+        var heldSeats: [String: String]
+        var soldSeats: Set<String>
+        var soldByType: [String: Int]
+        var bookings: [String: HeldBooking]
+        var issuedTickets: [Ticket]
+        var sequence: Int
+    }
+
+    private static var stateURL: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("mock-commerce-state.json")
+    }
+
+    nonisolated static func discardSavedState() {
+        try? FileManager.default.removeItem(at: stateURL)
+    }
+
+    init(fixtures: FixtureStore = FixtureStore(), holdDuration: TimeInterval = 600, confirmationDelay: Duration = .seconds(3), persists: Bool = false) {
         self.fixtures = fixtures
         self.holdDuration = holdDuration
         self.confirmationDelay = confirmationDelay
+        self.persists = persists
+        if persists, let data = try? Data(contentsOf: Self.stateURL),
+           let saved = try? JSONDecoder().decode(SavedState.self, from: data) {
+            heldSeats = saved.heldSeats
+            soldSeats = saved.soldSeats
+            soldByType = saved.soldByType
+            bookings = saved.bookings
+            issuedTickets = saved.issuedTickets
+            sequence = saved.sequence
+        }
+    }
+
+    private func save() {
+        guard persists else { return }
+        let state = SavedState(heldSeats: heldSeats, soldSeats: soldSeats, soldByType: soldByType,
+                               bookings: bookings, issuedTickets: issuedTickets, sequence: sequence)
+        try? JSONEncoder().encode(state).write(to: Self.stateURL, options: .atomic)
     }
 
     // MARK: Catalogue lookups
@@ -166,6 +202,7 @@ actor MockCommerceServer {
                                      fees: fees, paymentMethod: body.paymentMethod,
                                      payment: free ? nil : .init(id: "pay-\(id)", status: "REQUIRES_PAYMENT"))
         byIdempotencyKey[idempotencyKey] = created
+        save()
         return created
     }
 
@@ -188,6 +225,7 @@ actor MockCommerceServer {
                                   message: booking.status == "EXPIRED" ? "Your hold has ended." : "This booking can't be paid.")
         }
         bookings[bookingId]?.paymentStarted = true
+        save()
         return PaymentStart(providerRef: "mock_\(bookingId)", clientActionUrl: "mock://checkout/\(bookingId)",
                             status: "REQUIRES_PAYMENT", provider: "mock", razorpay: nil)
     }
@@ -209,6 +247,7 @@ actor MockCommerceServer {
         }
         setStatus(bookingId, "CANCELLED", cancelledAt: now)
         release(bookingId)
+        save()
     }
 
     // MARK: Server-side transitions
@@ -230,6 +269,7 @@ actor MockCommerceServer {
                           eventSession: booking.eventSession, counts: booking.counts)
         bookings[bookingId]?.booking = booking
         try issue(bookingId: bookingId, now: now)
+        save()
     }
 
     private func issue(bookingId: String, now: Date) throws {
@@ -258,6 +298,7 @@ actor MockCommerceServer {
             if let expiry = held.booking.holdExpiresAt, expiry <= now {
                 setStatus(id, "EXPIRED", cancelledAt: nil)
                 release(id)
+                save()
             }
         }
     }

@@ -344,13 +344,9 @@ struct FeeSummaryView: View {
 
     var body: some View {
         VStack(spacing: ETGSpace.sm) {
-            line("Tickets", fees.subtotalMinor)
-            if fees.discountMinor > 0 { line("Discount", -fees.discountMinor) }
-            if fees.customerFeeMinor > 0 { line("Booking & payment fees", fees.customerFeeMinor) }
-            ForEach(fees.taxLines, id: \.self) { tax in line(tax.label, tax.amountMinor) }
-            if let maintenance = fees.maintenanceMinor, maintenance > 0 { line("Maintenance charge", maintenance) }
+            if fees.isItemised { itemisedLines }
             Divider().overlay(ETGColor.rule)
-            line("Total", fees.totalMinor, emphasised: true)
+            line(fees.isItemised ? "Total" : "Total (incl. fees and taxes)", fees.totalMinor, emphasised: true)
             if let note {
                 Text(note).font(ETGFont.caption).foregroundStyle(ETGColor.muted).frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -358,6 +354,15 @@ struct FeeSummaryView: View {
         .padding(ETGSpace.lg)
         .background(ETGColor.surface, in: RoundedRectangle(cornerRadius: ETGRadius.card))
         .overlay(RoundedRectangle(cornerRadius: ETGRadius.card).strokeBorder(ETGColor.rule))
+    }
+
+    @ViewBuilder
+    private var itemisedLines: some View {
+            line("Tickets", fees.subtotalMinor)
+            if fees.discountMinor > 0 { line("Discount", -fees.discountMinor) }
+            if fees.customerFeeMinor > 0 { line("Booking & payment fees", fees.customerFeeMinor) }
+            ForEach(fees.taxLines, id: \.self) { tax in line(tax.label, tax.amountMinor) }
+            if let maintenance = fees.maintenanceMinor, maintenance > 0 { line("Maintenance charge", maintenance) }
     }
 
     private func line(_ label: String, _ minor: Int, emphasised: Bool = false) -> some View {
