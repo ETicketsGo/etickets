@@ -86,7 +86,8 @@ export default function NotificationSettingsPage() {
   const once = useSingleFlight();
 
   const setConsent = useMutation({
-    mutationFn: (body: { channel: string; granted: boolean }) => api.setConsent(body),
+    mutationFn: (body: { channel: string; granted: boolean; country?: string }) =>
+      api.setConsent(body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['marketing-consent'] });
       toast.push(t('saved'), 'success');
@@ -196,7 +197,11 @@ export default function NotificationSettingsPage() {
               onChange={(granted) =>
                 once('consent:sms:transactional', () =>
                   setConsent
-                    .mutateAsync({ channel: 'sms:transactional', granted })
+                    /*
+                      The disclosure beside this switch is the US-registered text, so the record
+                      names SMS/US - the same version sign-up records for the same words.
+                    */
+                    .mutateAsync({ channel: 'sms:transactional', granted, country: 'US' })
                     .catch(() => undefined),
                 )
               }

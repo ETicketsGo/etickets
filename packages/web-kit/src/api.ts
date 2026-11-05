@@ -1508,7 +1508,8 @@ export const api = {
      * one with the other is how a person who declined offers stops receiving their tickets.
      */
     consent: () => request<ConsentView>('/me/marketing-consent'),
-    setConsent: (body: { channel: string; granted: boolean }) =>
+    /** `country`: the market whose disclosure was shown, so the record names that version. */
+    setConsent: (body: { channel: string; granted: boolean; country?: string }) =>
       request<ConsentView['channels']>('/me/marketing-consent', {
         method: 'PUT',
         body: JSON.stringify(body),
