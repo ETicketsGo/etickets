@@ -25,6 +25,8 @@ final class StubTransport: HTTPTransport, @unchecked Sendable {
 
 struct FixedToken: AccessTokenProviding {
     func accessToken() async -> String? { "test-token" }
+    func refreshAfterUnauthorized(rejected: String) async -> Bool { false }
+    func mayWriteInQA() async -> Bool { false }
 }
 
 @Suite("APIClient")

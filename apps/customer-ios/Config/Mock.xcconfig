@@ -4,6 +4,7 @@
 APP_ENV = mock
 API_BASE_URL =
 ALLOW_MUTATIONS = NO
+QA_TEST_ACCOUNTS =
 APP_DISPLAY_NAME = ETicketsGo Mock
 PRODUCT_BUNDLE_IDENTIFIER = com.eticketsgo.customer.native.mock
 
