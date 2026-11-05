@@ -3822,6 +3822,8 @@ export interface PublicEventCard {
   imagePath?: string | null;
   /** The cover's copies; see `eventImageSource`. Absent on saved cards from before. */
   imageVariants?: Partial<Record<EventImageVariantName, string>> | null;
+  /** How people attend: ONLINE and HYBRID cards say "Online". Absent on older APIs. */
+  attendanceMode?: 'IN_PERSON' | 'ONLINE' | 'HYBRID';
 }
 /** A performer or presenter on an event. Name is required; the rest is optional. */
 export interface EventArtist {
@@ -3921,6 +3923,7 @@ export interface PublicEvent extends EventDetails {
       salesStartAt?: string | null;
     }[];
   }[];
+  attendanceMode?: 'IN_PERSON' | 'ONLINE' | 'HYBRID';
 }
 
 export interface BookingRequest {
@@ -5746,9 +5749,14 @@ export interface OrgEventDetail extends EventDetails {
 }
 /** What resuming did: `sentForReview` when edits made while paused sent it to the review queue. */
 export type EventResumeResult = OrgEventDetail & { sentForReview: boolean };
+/** How an event is attended. Never inferred from its time zone. */
+export type AttendanceMode = 'IN_PERSON' | 'ONLINE' | 'HYBRID';
+
 export interface CreateEventBody extends EventDetails {
   organizationId: string;
   venueId: string;
+  /** How people attend. ONLINE/HYBRID are listed in every city of the event's country. */
+  attendanceMode?: AttendanceMode;
   title: string;
   category: string;
   description?: string;

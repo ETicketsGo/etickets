@@ -3,6 +3,7 @@ import {
   NotificationType,
   isPaymentFailureReason,
   money as formatMoney,
+  zoneAbbrev,
 } from '@eticketsgo/shared-types';
 import { DEFAULT_LOCALE, isLocale, t, type Locale } from '@eticketsgo/i18n';
 import { supportRequestText } from './support-request';
@@ -84,10 +85,13 @@ function clockClause(locale: Locale, iso: string, timeZoneRaw: string): string {
   const opts: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit', timeZone };
   try {
     const time = at.toLocaleTimeString(FORMAT_LOCALE[locale], opts);
+    // English: the platform's one zone name (MST, IST), as the storefront and console print it.
     const zone =
-      new Intl.DateTimeFormat(FORMAT_LOCALE[locale], { timeZone, timeZoneName: 'short' })
-        .formatToParts(at)
-        .find((part) => part.type === 'timeZoneName')?.value ?? timeZone;
+      locale === 'en'
+        ? zoneAbbrev(at, timeZone)
+        : (new Intl.DateTimeFormat(FORMAT_LOCALE[locale], { timeZone, timeZoneName: 'short' })
+            .formatToParts(at)
+            .find((part) => part.type === 'timeZoneName')?.value ?? timeZone);
     return `${time} (${zone})`;
   } catch {
     return `${at.toLocaleTimeString(FORMAT_LOCALE[locale], { ...opts, timeZone: 'UTC' })} (UTC)`;
@@ -177,9 +181,11 @@ export function whenValue(locale: Locale, p: Payload): string {
   try {
     when = at.toLocaleString(FORMAT_LOCALE[locale], opts);
     zone =
-      new Intl.DateTimeFormat(FORMAT_LOCALE[locale], { timeZone, timeZoneName: 'short' })
-        .formatToParts(at)
-        .find((part) => part.type === 'timeZoneName')?.value ?? timeZone;
+      locale === 'en'
+        ? zoneAbbrev(at, timeZone)
+        : (new Intl.DateTimeFormat(FORMAT_LOCALE[locale], { timeZone, timeZoneName: 'short' })
+            .formatToParts(at)
+            .find((part) => part.type === 'timeZoneName')?.value ?? timeZone);
   } catch {
     // An unresolvable zone must not cost the customer their confirmation.
     when = at.toLocaleString(FORMAT_LOCALE[locale], { ...opts, timeZone: 'UTC' });

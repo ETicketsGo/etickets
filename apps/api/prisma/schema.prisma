@@ -1527,6 +1527,13 @@ model ShowSeat {
   @@index([overrideExpiresAt])
 }
 
+/// How an event is attended. Independent of its time zone, which is never a location.
+enum AttendanceMode {
+  IN_PERSON
+  ONLINE
+  HYBRID
+}
+
 model Event {
   id             String         @id @default(cuid())
   organizationId String
@@ -1534,6 +1541,9 @@ model Event {
   venueId        String
   venue          Venue          @relation(fields: [venueId], references: [id])
   experienceType ExperienceType @default(EVENT)
+  /// How people attend. ONLINE and HYBRID events are discoverable from any city in their
+  /// country; the venue still carries the country and the time zone, never an invented address.
+  attendanceMode AttendanceMode @default(IN_PERSON)
   // Set only for MOVIE experiences: the film this bookable listing screens.
   movieId        String?
   movie          Movie?         @relation(fields: [movieId], references: [id])

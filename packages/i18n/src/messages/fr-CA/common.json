@@ -150,5 +150,6 @@
     "failed": "La vérification ne s'est pas chargée. Vérifiez votre connexion, ou désactivez le bloqueur de contenu pour ce site. Puis réessayez.",
     "retry": "Réessayer",
     "cancel": "Annuler"
-  }
+  },
+  "online": "En ligne"
 }

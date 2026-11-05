@@ -65,6 +65,7 @@ import {
   type FocalPoint,
   type LocationValue,
   type SeatingRoom,
+  type AttendanceMode,
 } from '@eticketsgo/web-kit';
 import { homeLocation, venuePayload } from '@/components/venue-fields';
 import { useOrg } from '@/components/org-context';
@@ -349,6 +350,12 @@ function NewEventWizard() {
     setNewVenueWhere(homeLocation(null, venuesQ.data));
   }, [venuesQ.data, activeOrg.registeredCountry]);
   const [feeMode, setFeeMode] = useState(initial.feeMode);
+  /*
+    How people attend, asked beside the venue and kept apart from the time zone: an online
+    event is listed in every city of its country, and its venue then gives the country and the
+    zone, never an address buyers are sent to.
+  */
+  const [attendanceMode, setAttendanceMode] = useState<AttendanceMode>('IN_PERSON');
   const [taxCategory, setTaxCategory] = useState(initial.taxCategory);
 
   /*
@@ -853,6 +860,7 @@ function NewEventWizard() {
           refundCutoffHours: Number(basics.refundCutoffHours),
           feeMode,
           isFree,
+          attendanceMode,
           // Sent only once chosen: an unanswered question is not an answer.
           ...(taxCategory ? { taxCategory } : {}),
           ...eventDetailsBody(details),
@@ -1466,6 +1474,21 @@ function NewEventWizard() {
                       ))}
                     </div>
                   </div>
+                  <Select
+                    id="attendance-mode"
+                    label="How people attend"
+                    hint={
+                      attendanceMode === 'ONLINE'
+                        ? 'Online events are shown to buyers in every city of your country. The venue below sets the country and the time zone; it is not shown as an address.'
+                        : 'Online and hybrid events are shown to buyers in every city of your country.'
+                    }
+                    value={attendanceMode}
+                    onChange={(e) => setAttendanceMode(e.target.value as AttendanceMode)}
+                  >
+                    <option value="IN_PERSON">In person, at the venue</option>
+                    <option value="ONLINE">Online only</option>
+                    <option value="HYBRID">In person and online</option>
+                  </Select>
                   {venueMode === 'existing' ? (
                     venuesQ.isLoading ? (
                       <Skeleton className="h-28 w-full" />

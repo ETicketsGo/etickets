@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { EventStatus } from '@prisma/client';
+import { AttendanceMode, EventStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CacheService } from '../cache/cache.service';
 import { countryMatches } from '../common/country';
@@ -254,8 +254,14 @@ export class LocationService {
   /** Every sellable city, cached. The filtered view above is derived from this one list. */
   private async allCities(): Promise<SellableCity[]> {
     return this.cache.getOrSet('location:cities', CITIES_CACHE_TTL_SECONDS, async () => {
+      /*
+        In-person and hybrid events only: an ONLINE event's venue is where its time zone and
+        country come from, not a place, and listing "Online" as a city to pick was the result.
+        Online events are found from every city of their country instead (public-events).
+      */
       const live = {
         status: EventStatus.PUBLISHED,
+        attendanceMode: { not: AttendanceMode.ONLINE },
         sessions: { some: { startsAt: { gte: new Date() } } },
       };
       const venues = await this.prisma.venue.findMany({

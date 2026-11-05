@@ -170,15 +170,26 @@ export function titleCase(value: string): string {
  */
 export function zoneAbbrev(value: string | Date | null | undefined, timeZone?: string): string {
   if (!value || !timeZone) return '';
-  try {
-    return (
-      new Intl.DateTimeFormat('en-GB', { timeZone, timeZoneName: 'short' })
-        .formatToParts(new Date(value))
-        .find((part) => part.type === 'timeZoneName')?.value ?? timeZone
-    );
-  } catch {
-    return timeZone;
-  }
+  /*
+    ── ONE NAME FOR ONE ZONE, EVERYWHERE ─────────────────────────────────────────────
+    This asked `en-GB`, which names few zones outside Britain: a Meridian show read "3:00 pm
+    GMT-7" on the storefront, the checkout and the email while the organizer console said
+    "3:00 pm MST" for the same instant. Each English locale knows its own region's names, so
+    US and Indian English are asked and the first real name wins (MST, EDT, IST); a GMT offset
+    is the fallback, which is never wrong. The console's `zoneShortName` now reads this.
+  */
+  const names = ['en-US', 'en-IN'].map((locale) => {
+    try {
+      return (
+        new Intl.DateTimeFormat(locale, { timeZone, timeZoneName: 'short' })
+          .formatToParts(new Date(value))
+          .find((part) => part.type === 'timeZoneName')?.value ?? ''
+      );
+    } catch {
+      return '';
+    }
+  });
+  return names.find((n) => n && !/^(GMT|UTC)/.test(n)) ?? (names[0] || timeZone);
 }
 
 /**

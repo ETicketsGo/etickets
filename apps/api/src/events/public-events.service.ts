@@ -6,7 +6,7 @@ import {
   marketFor,
   venueZone,
 } from '@eticketsgo/shared-types';
-import { Prisma } from '@prisma/client';
+import { AttendanceMode, Prisma } from '@prisma/client';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdvertisedPriceService } from '../pricing/advertised-price.service';
@@ -171,21 +171,54 @@ export class PublicEventsService {
               Hyderabad is in India and in Pakistan, so a city sent with ITS OWN country
               (`cityCountry`) and, when known, its state is filtered by them. The visitor's
               scope `country` is still ignored here: a city picked by hand wins over it.
+
+              ── ONLINE EVENTS ─────────────────────────────────────────────────────────
+              An online (or hybrid) event is attended from anywhere, so it is listed in every
+              city of ITS country: a buyer who chose Meridian saw nothing, because the event's
+              venue city ("Online") never equals "Meridian". Only with the city's country
+              known, so a US online event never reaches an Indian city or the reverse. Inside
+              AND, so the free-text `q` filter's own OR above is not overwritten.
             */
-            venue: {
-              city: { equals: filters.city, mode: 'insensitive' },
-              ...(filters.cityCountry
-                ? { country: { in: countryAliases(filters.cityCountry), mode: 'insensitive' } }
-                : {}),
-              ...(filters.region
-                ? {
-                    OR: [
-                      { region: { equals: filters.region, mode: 'insensitive' } },
-                      { region: null },
-                    ],
-                  }
-                : {}),
-            },
+            AND: [
+              {
+                OR: [
+                  {
+                    venue: {
+                      city: { equals: filters.city, mode: 'insensitive' },
+                      ...(filters.cityCountry
+                        ? {
+                            country: {
+                              in: countryAliases(filters.cityCountry),
+                              mode: 'insensitive',
+                            },
+                          }
+                        : {}),
+                      ...(filters.region
+                        ? {
+                            OR: [
+                              { region: { equals: filters.region, mode: 'insensitive' } },
+                              { region: null },
+                            ],
+                          }
+                        : {}),
+                    },
+                  },
+                  ...(filters.cityCountry
+                    ? [
+                        {
+                          attendanceMode: { in: [AttendanceMode.ONLINE, AttendanceMode.HYBRID] },
+                          venue: {
+                            country: {
+                              in: countryAliases(filters.cityCountry),
+                              mode: 'insensitive' as const,
+                            },
+                          },
+                        },
+                      ]
+                    : []),
+                ],
+              },
+            ],
           }
         : filters.country
           ? {
@@ -319,6 +352,8 @@ export class PublicEventsService {
           slug: e.slug,
           category: e.category,
           venue: cardVenue(e.venue),
+          // So a card says "Online" rather than naming a venue nobody goes to.
+          attendanceMode: e.attendanceMode,
           organizer: e.organization.name,
           imagePath: coverImagePath(e.id, e.images),
           imageVariants: coverImageVariants(e.id, e.images),
@@ -445,6 +480,7 @@ export class PublicEventsService {
       feeMode: event.feeMode,
       // So the buyer is told "Free" rather than "₹0.00", and the checkout can skip itself.
       isFree: event.isFree,
+      attendanceMode: event.attendanceMode,
       venue: event.venue,
       /*
         The zone the event's times are printed in when no session says otherwise: the venue's,

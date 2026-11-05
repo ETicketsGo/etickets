@@ -16,6 +16,7 @@ import { Dialog } from '@/components/ui';
 import { BrandActionButton } from '@/components/brand-forms';
 import { BRAND_EYEBROW, BRAND_LINK } from '@/components/booking-brand';
 import type { ArrivalFact } from '@/lib/event-editorial';
+import { useEventPlace } from '@/lib/event-place';
 
 /**
  * The event details buyers check before they pay, asked for by the owner after a BookMyShow
@@ -81,6 +82,7 @@ export function EventFacts({
   /** "Times are at the venue, in its time zone." */
   note: string;
 }) {
+  const place = useEventPlace();
   const t = useTranslations('storefront.event');
   const cells = (
     [
@@ -98,7 +100,14 @@ export function EventFacts({
             dateTime: startsAt,
           }
         : null,
-      { label: t('venueHeading'), lines: [event.venue.name, event.venue.city] },
+      {
+        label: t('venueHeading'),
+        // An online event's venue is its country and time zone, not a place to go.
+        lines:
+          event.attendanceMode === 'ONLINE'
+            ? [place(event).full]
+            : [event.venue.name, place(event).city],
+      },
       duration ? { label: t('durationLabel'), lines: [duration] } : null,
       event.ageLimit
         ? { label: t('ageLabel'), lines: [t('ageLimit', { age: event.ageLimit })] }
