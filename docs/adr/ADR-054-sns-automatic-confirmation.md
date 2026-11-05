@@ -1,6 +1,7 @@
 # ADR-054: Confirming the SES event subscription automatically, in every environment
 
 - **Status:** Accepted
+- **Status (2026-11-01):** current.
 - **Date:** 2026-10-20
 - **Supersedes:** [ADR-052](./ADR-052-sns-confirmation-capture.md) (manual capture and one-time reveal)
 - **Relates to:** [ADR-050](./ADR-050-notification-launch-certification.md) (SNS signature verification)

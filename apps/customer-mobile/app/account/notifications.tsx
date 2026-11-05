@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { ScrollView, Switch, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
 import { Screen } from '@/components/screen';
+import { TopBar } from '@/components/top-bar';
 import { ErrorState, LoadingState, OfflineBanner } from '@/components/states';
 import { useOnline } from '@/hooks/use-online';
-import { ListGroup, ListRow, SectionHeader, Separator, Text } from '@/ui';
+import { ListGroup, ListRow, SectionHeader, Separator, Text, Toggle } from '@/ui';
+import { webUrl } from '@/services/legal';
 import {
   fetchConsent,
   fetchNotificationPreferences,
@@ -49,7 +51,6 @@ const CHANNEL_LABELS: Record<string, string> = {
 
 export default function NotificationSettingsScreen() {
   const online = useOnline();
-  const router = useRouter();
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
 
@@ -84,28 +85,29 @@ export default function NotificationSettingsScreen() {
   }
 
   return (
-    <Screen padded={false}>
+    <Screen padded={false} edges={['top']}>
+      <TopBar />
       {!online ? <OfflineBanner /> : null}
-      <ScrollView contentContainerClassName="pb-10" showsVerticalScrollIndicator={false}>
-        <View className="px-5 pb-4 pt-2">
-          <Text variant="largeTitle" accessibilityRole="header">
+      <ScrollView contentContainerClassName="px-4 pb-12" showsVerticalScrollIndicator={false}>
+        <View className="pb-4 pt-1">
+          <Text variant="d1" accessibilityRole="header">
             Notifications
           </Text>
-          <Text variant="subhead" tone="muted" className="mt-1">
+          <Text variant="ui" tone="secondary" className="mt-2">
             Critical booking and show updates are always sent on at least one required channel, so
             you never miss a cancellation.
           </Text>
         </View>
 
         {error ? (
-          <View className="mx-5 mb-4">
+          <View className="mb-4">
             <Text variant="footnote" tone="danger">
               {error}
             </Text>
           </View>
         ) : null}
 
-        <SectionHeader title="Booking updates on WhatsApp" />
+        <SectionHeader title="Booking updates on WhatsApp" className="mb-3 mt-4" />
         <ListGroup>
           <ListRow
             label="Booking updates on WhatsApp"
@@ -115,7 +117,7 @@ export default function NotificationSettingsScreen() {
             accessibilityHint="Confirmations, ticket updates, show changes and refunds. Never offers."
             showChevron={false}
             right={
-              <Switch
+              <Toggle
                 value={consentFor('whatsapp:transactional')}
                 disabled={!hasPhone || saveConsent.isPending}
                 accessibilityLabel="Receive booking updates on WhatsApp"
@@ -132,15 +134,17 @@ export default function NotificationSettingsScreen() {
                 label="Add a phone number"
                 icon="call-outline"
                 accessibilityHint="Needed before WhatsApp updates can be sent"
-                // The existing profile flow owns phone numbers. A second collection point
-                // here would be a second thing to keep in step with verification.
-                onPress={() => router.push('/(tabs)/profile')}
+                // The website's account page owns phone numbers and their verification code. A
+                // second collection point here would be a second thing to keep in step with
+                // verification; it used to point at the app's Account tab, which has no phone
+                // field at all.
+                onPress={() => void WebBrowser.openBrowserAsync(webUrl('/account/profile'))}
               />
             </>
           ) : null}
         </ListGroup>
 
-        <SectionHeader title="What we send you" />
+        <SectionHeader title="What we send you" className="mb-3 mt-8" />
         {prefs.data?.types.map((entry) => {
           const label = TYPE_LABELS[entry.type];
           if (!label) return null;
@@ -151,7 +155,7 @@ export default function NotificationSettingsScreen() {
                   <View key={c.channel}>
                     {i > 0 ? <Separator inset /> : null}
                     <ListRow
-                      label={`${label} — ${CHANNEL_LABELS[c.channel] ?? c.channel}`}
+                      label={`${label} - ${CHANNEL_LABELS[c.channel] ?? c.channel}`}
                       showChevron={false}
                       /*
                         The emergency SMS is not a preference: it opens only if a cancelled
@@ -162,7 +166,7 @@ export default function NotificationSettingsScreen() {
                       value={c.deferred ? 'Emergency only' : c.required ? 'Required' : undefined}
                       right={
                         c.deferred || c.required ? undefined : (
-                          <Switch
+                          <Toggle
                             value={c.enabled}
                             disabled={savePreference.isPending}
                             accessibilityLabel={`${CHANNEL_LABELS[c.channel] ?? c.channel} for ${label}`}
@@ -184,7 +188,7 @@ export default function NotificationSettingsScreen() {
           );
         })}
 
-        <SectionHeader title="Offers and recommendations" />
+        <SectionHeader title="Offers and recommendations" className="mb-3 mt-4" />
         <ListGroup>
           {(['email', 'push', 'whatsapp'] as const).map((channel, i) => (
             <View key={channel}>
@@ -193,7 +197,7 @@ export default function NotificationSettingsScreen() {
                 label={CHANNEL_LABELS[channel]}
                 showChevron={false}
                 right={
-                  <Switch
+                  <Toggle
                     value={consentFor(channel)}
                     disabled={consent.isLoading || saveConsent.isPending}
                     accessibilityLabel={`Marketing on ${CHANNEL_LABELS[channel]}`}
@@ -204,7 +208,7 @@ export default function NotificationSettingsScreen() {
             </View>
           ))}
         </ListGroup>
-        <View className="px-5 pt-3">
+        <View className="pt-3">
           <Text variant="footnote" tone="muted">
             Turning these off never affects your tickets, booking updates, or anything about a show
             you have paid for.

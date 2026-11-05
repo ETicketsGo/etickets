@@ -1,7 +1,7 @@
 # Provider setup
 
 Every step here happens in **somebody else's console**. None of it can be done from this
-repository, and none of it has been done — see the status column.
+repository. The status column below is the production state on 2026-10-30.
 
 Nothing on this page contains a secret. Put values in the environment, never in a file here.
 
@@ -10,17 +10,19 @@ judges on delivery evidence rather than on whether a variable is set.
 
 ---
 
-## Status at time of writing
+## Production status (2026-10-30)
 
-| Provider            | Credentials present | Status                   |
-| ------------------- | ------------------- | ------------------------ |
-| Amazon SES          | ❌                  | `BLOCKED_EXTERNAL_SETUP` |
-| Amazon SNS          | ❌                  | `BLOCKED_EXTERNAL_SETUP` |
-| MSG91 SMS           | ❌                  | `BLOCKED_EXTERNAL_SETUP` |
-| MSG91 WhatsApp      | ❌                  | `BLOCKED_EXTERNAL_SETUP` |
-| Twilio              | ❌                  | `BLOCKED_EXTERNAL_SETUP` |
-| Meta WhatsApp Cloud | ❌                  | `BLOCKED_EXTERNAL_SETUP` |
-| FCM / Expo          | ❌                  | `BLOCKED_EXTERNAL_SETUP` |
+| Provider            | Status                                                                       |
+| ------------------- | ---------------------------------------------------------------------------- |
+| Amazon SES          | Live (transactional email); marketing sender not set up                      |
+| Amazon SNS          | Live (SES bounce, complaint and delivery events)                             |
+| MSG91 SMS           | Live for India: login OTP plus booking confirmed/cancelled, password changed |
+| MSG91 WhatsApp      | Not set up                                                                   |
+| Twilio              | Live for US and Canada login OTP                                             |
+| Meta WhatsApp Cloud | Not set up                                                                   |
+| FCM / Expo          | Not set up                                                                   |
+
+Full status: [../PRODUCT-CURRENT-STATE.md](../PRODUCT-CURRENT-STATE.md).
 
 ---
 

@@ -119,10 +119,13 @@ export async function fetchEventCards(
         imageVariants: coverImageVariants(e.id, e.images),
         nextSessionAt: e.sessions[0]?.startsAt ?? null,
         fromPriceMinor: advertised
-          ? await advertised.forTicket(base, e.feeMode as FeeMode, currency, {
-              country: e.venue.country,
-              region: e.venue.region,
-            })
+          ? await advertised.forTicket(
+              base,
+              e.feeMode as FeeMode,
+              currency,
+              { country: e.venue.country, region: e.venue.region },
+              { eventId: e.id, organizationId: e.organizationId },
+            )
           : base,
         currency,
       };

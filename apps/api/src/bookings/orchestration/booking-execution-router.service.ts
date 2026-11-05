@@ -165,6 +165,8 @@ export class BookingExecutionRouter {
               },
             }
           : undefined,
+        // The per-IP active-hold limit (booking-hold-limits.ts) counts against this address.
+        { clientIp: ctx.ip ?? null },
       )) as Record<string, unknown>;
       // Additive, and only when the server minted the token: a client that sent its own already
       // has it. Returned once — nothing stores the raw token, here or anywhere.
@@ -265,6 +267,17 @@ export class BookingExecutionRouter {
         );
       }
     }
+    /*
+      ── THE ACCOUNT ROUTE ON SOMEBODY ELSE'S GUEST BOOKING ────────────────────────────────
+      The guest route above refuses a signed-in caller, but the ACCOUNT route took any guest
+      booking: `createIntent` checks ownership only when the booking has an account, so a guest
+      booking was payable by any signed-in user who knew its id - and in doing so they would put
+      their own card against a stranger's hold or learn its amount. A guest booking is now paid
+      only from its own checkout session, whichever route carries the request.
+    */
+    if (!ctx.requireAnonymousToken && ctx.user) {
+      await this.assertGuestSessionIfGuestBooking('begin_payment', ctx);
+    }
     if (mode !== 'active') {
       return this.payments.createIntent(ctx.bookingId, ctx.user ?? undefined);
     }
@@ -289,6 +302,61 @@ export class BookingExecutionRouter {
       metadata: { ownerType: owner.ownerType, workflowState: result.workflowState },
     });
     return result.payment;
+  }
+
+  // ── Changing an unpaid booking ─────────────────────────────────────────────
+
+  /**
+   * Whether this request comes from the checkout session that created a GUEST booking.
+   *
+   * Returns true for a verified guest session, false for a booking that belongs to an account
+   * (the service then checks the account itself), and throws for a guest booking whose session
+   * is missing or does not match. Graded like cancel - BOUND only - because extending a hold or
+   * re-pricing it acts on the buyer's seats and money, and a self-minted token proves nothing.
+   */
+  private async assertGuestSessionIfGuestBooking(
+    operation: 'begin_payment' | 'extend_hold' | 'apply_coupon',
+    ctx: RequestPrincipal & { bookingId: string },
+  ): Promise<boolean> {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: ctx.bookingId },
+      select: { id: true, userId: true, guestSessionHash: true },
+    });
+    // Missing, or an account's own booking: the service owns both answers.
+    if (!booking || booking.userId) return false;
+    const proof = this.anon.isWellFormed(ctx.anonymousToken)
+      ? await this.sessions.verify(booking, ctx.anonymousToken)
+      : null;
+    if (proof !== 'BOUND') {
+      this.metrics.recordBookingOwnerRejection(
+        operation,
+        !ctx.anonymousToken
+          ? 'session_missing'
+          : proof === null
+            ? 'session_mismatch'
+            : 'session_not_bound',
+      );
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        'This booking was not started in this browser.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+    return true;
+  }
+
+  /** More time on a hold. A guest booking needs its checkout session, whoever is signed in. */
+  async extendHold(ctx: StatusContext): Promise<unknown> {
+    const guestSessionVerified = await this.assertGuestSessionIfGuestBooking('extend_hold', ctx);
+    return this.bookings.extendHold(ctx.user ?? null, ctx.bookingId, { guestSessionVerified });
+  }
+
+  /** Apply or clear a code. A guest booking needs its checkout session, as above. */
+  async applyCoupon(ctx: StatusContext & { code: string | null }): Promise<unknown> {
+    const guestSessionVerified = await this.assertGuestSessionIfGuestBooking('apply_coupon', ctx);
+    return this.bookings.applyCoupon(ctx.user ?? null, ctx.bookingId, ctx.code, {
+      guestSessionVerified,
+    });
   }
 
   // ── Status ────────────────────────────────────────────────────────────────

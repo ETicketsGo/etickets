@@ -2,6 +2,7 @@ import { PhoneOtpService } from './phone-otp.service';
 import { SmsChannel } from '../notifications/channels/sms.channel';
 import { NotificationProviderResolver } from '../notifications/channels/notification-provider.resolver';
 import type { RenderedNotification } from '../notifications/channels/notification-channel.interface';
+import { withTransactions } from './test-support/otp-sms-memory-store';
 
 /**
  * Sign-in codes never appear in a deployed environment's log.
@@ -46,7 +47,7 @@ async function requestCodeIn(appEnv: string, nodeEnv: string) {
     SMS_PROVIDER: 'log',
   };
   const config = { get: (key: string) => values[key] };
-  const prisma = {
+  const prisma = withTransactions({
     phoneOtp: {
       count: jest.fn().mockResolvedValue(0),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -55,7 +56,7 @@ async function requestCodeIn(appEnv: string, nodeEnv: string) {
         ...data,
       })),
     },
-  };
+  });
   const channel = new SmsChannel(new NotificationProviderResolver(config as never));
   let body = '';
   const deliver = channel.deliver.bind(channel);

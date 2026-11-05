@@ -352,6 +352,7 @@ export class DeliveryWebhookService {
       const outcome = await this.recorder.applyProviderEvent({
         provider,
         providerMessageId: event.providerMessageId,
+        eventId: event.eventId,
         state: event.state,
         providerStatus: event.providerStatus,
         failureCode: event.failureCode,

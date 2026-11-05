@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata } from '@/lib/seo';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import {
   PolicyUpdated,
@@ -6,24 +6,30 @@ import {
   LegalDocument,
   BackToLegal,
 } from '@/components/legal/policy-chrome';
-import { resolveJurisdiction } from '@/lib/market';
+import { resolveJurisdiction, resolveSelectedMarket } from '@/lib/market';
 import { Link } from '@/i18n/navigation';
-import { INDIA_OPERATOR_SENTENCE, LEGAL_INFORMATION_HREF } from '@/lib/legal-entity';
+import {
+  INDIA_OPERATOR_SENTENCE,
+  LEGAL_INFORMATION_HREF,
+  US_OPERATOR_SENTENCE,
+} from '@/lib/legal-entity';
 import { BrandPage } from '@/components/storefront-brand';
 
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/terms', {
   title: 'Terms & Conditions',
   description: 'The terms governing use of the ETicketsGo platform.',
-  alternates: { canonical: '/terms' },
   robots: { index: false, follow: true },
-};
+});
 
 export default async function TermsPage({
   searchParams,
 }: {
   searchParams: Promise<{ country?: string | string[] }>;
 }) {
-  const country = await resolveJurisdiction((await searchParams).country);
+  const asked = (await searchParams).country;
+  const country = await resolveJurisdiction(asked);
+  // Which company the operator line names: what the reader chose, never an IP guess.
+  const market = await resolveSelectedMarket(asked);
 
   return (
     <BrandPage>
@@ -144,6 +150,7 @@ export default async function TermsPage({
           ) : null}
           {country === 'US' ? (
             <ul>
+              <li>{US_OPERATOR_SENTENCE}</li>
               <li>Tickets are sold in US dollars.</li>
               <li>
                 Our text message programme and how to leave it are described in the{' '}
@@ -167,7 +174,7 @@ export default async function TermsPage({
             <Link href={LEGAL_INFORMATION_HREF}>legal and business information</Link>.
           </p>
         </Prose>
-        <OperatorLine country={country} />
+        <OperatorLine market={market} />
       </LegalDocument>
     </BrandPage>
   );

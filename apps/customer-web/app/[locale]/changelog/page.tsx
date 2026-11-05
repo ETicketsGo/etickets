@@ -1,13 +1,12 @@
-import type { Metadata } from 'next';
+import { localizedMetadata } from '@/lib/seo';
 import { Container, Section } from '@/components/marketing/kit';
 import { PageHero } from '@/components/marketing/blocks';
 import { BrandPage } from '@/components/storefront-brand';
 
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/changelog', {
   title: 'Changelog',
   description: 'What has shipped on ETicketsGo - from the Phase 1 platform through RC1 and beyond.',
-  alternates: { canonical: '/changelog' },
-};
+});
 
 const RELEASES = [
   {

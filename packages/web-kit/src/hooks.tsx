@@ -3,6 +3,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePathname, useRouter } from 'next/navigation';
 import {
+  createContext,
+  useContext,
   useEffect,
   useReducer,
   useRef,
@@ -10,7 +12,14 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from 'react';
-import { api, tokenStore, getAuthSnapshot, getServerAuthSnapshot, type AuthUser } from './api';
+import {
+  api,
+  backfillSessionHintCookie,
+  tokenStore,
+  getAuthSnapshot,
+  getServerAuthSnapshot,
+  type AuthUser,
+} from './api';
 import { Spinner } from './components';
 import {
   subscribeConnectivity,
@@ -18,6 +27,40 @@ import {
   getServerConnectivitySnapshot,
   type ConnectivitySnapshot,
 } from './connectivity';
+
+const subscribeNothing = () => () => {};
+
+/**
+ * False during the server render and hydration, true in every render after it.
+ *
+ * For a component whose first render must match the server HTML but which may know better
+ * straight after - and for one mounted later, which can trust the browser from its first render.
+ */
+export function useHydrated(): boolean {
+  return useSyncExternalStore(
+    subscribeNothing,
+    () => true,
+    () => false,
+  );
+}
+
+const SessionHintContext = createContext(false);
+
+/**
+ * What the SERVER believed about the session when it drew this page: the `etg_session` hint
+ * cookie `tokenStore` writes beside the tokens (see `SESSION_HINT_COOKIE`), read by the root
+ * layout and handed down here. A hint, never a credential: it only chooses which waiting screen
+ * the server draws, so the first paint already matches the person looking at it.
+ */
+export function SessionHintProvider({
+  signedIn,
+  children,
+}: {
+  signedIn: boolean;
+  children: ReactNode;
+}) {
+  return <SessionHintContext.Provider value={signedIn}>{children}</SessionHintContext.Provider>;
+}
 
 /** Fetches the current user; null when signed out. */
 export function useAuthUser() {
@@ -49,6 +92,7 @@ export function RequireAuth({
   children,
   loginPath = '/login',
   roleMismatchRedirect,
+  frame,
 }: {
   roles?: string[];
   children: ReactNode;
@@ -63,11 +107,27 @@ export function RequireAuth({
    * them access to it.
    */
   roleMismatchRedirect?: string;
+  /**
+   * The console's frame (sidebar, top bar), drawn round the page AND round the wait while a
+   * signed-in person's session is confirmed - the same element in both, so it is never
+   * remounted. Without it the wait was a bare spinner on an empty page, and every refresh of
+   * every console page showed that blank page for a moment before the console appeared round
+   * it. Whether to draw it before the token can be read comes from `SessionHintProvider`.
+   */
+  frame?: (content: ReactNode) => ReactNode;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, isLoading } = useAuthUser();
+  const hydrated = useHydrated();
+  const hint = useContext(SessionHintContext);
   const hasToken = typeof window !== 'undefined' && !!tokenStore.access;
+  /*
+    Who the frame is drawn for. The server cannot read localStorage, so it - and the hydration
+    pass, which must draw exactly what the server drew - go by the hint; every render after
+    that goes by the token itself, which wins whenever the two disagree.
+  */
+  const framed = !!frame && (hydrated ? hasToken : hint);
   /*
     Re-read the session when it changes. A session can end under an open page - a team removal
     answers the next request, whichever request it is, by clearing the tokens - and without this
@@ -80,15 +140,20 @@ export function RequireAuth({
   useEffect(() => {
     if (!hasToken) {
       router.replace(`${loginPath}?next=${encodeURIComponent(pathname)}`);
+    } else if (frame) {
+      backfillSessionHintCookie();
     }
-  }, [hasToken, router, pathname, loginPath]);
+  }, [hasToken, router, pathname, loginPath, frame]);
 
   if (!hasToken || isLoading) {
-    return (
+    const spinner = (
       <div className="flex h-64 items-center justify-center text-text-muted">
         <Spinner />
       </div>
     );
+    // A fragment in both places, like the return below, so the frame keeps its place in the
+    // tree when the page replaces the spinner inside it.
+    return <>{framed && frame ? frame(spinner) : spinner}</>;
   }
 
   if (roles && user && !user.roles.some((r) => roles.includes(r)) && roleMismatchRedirect) {
@@ -103,7 +168,7 @@ export function RequireAuth({
       </div>
     );
   }
-  return <>{children}</>;
+  return <>{frame ? frame(children) : children}</>;
 }
 
 /**

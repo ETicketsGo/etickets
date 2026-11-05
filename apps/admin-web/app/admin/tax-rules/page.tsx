@@ -221,7 +221,12 @@ export default function AdminTaxRules() {
     {
       key: 'applies',
       header: 'On',
-      render: (r) => (r.appliesTo === 'FEES' ? 'Booking fee' : 'Tickets'),
+      render: (r) =>
+        r.appliesTo === 'FEES'
+          ? 'Booking fee'
+          : r.appliesTo === 'PLATFORM_SERVICES'
+            ? 'Organizer plans'
+            : 'Tickets',
     },
     {
       key: 'scope',
@@ -483,6 +488,7 @@ export default function AdminTaxRules() {
               <option value="TICKETS">Tickets</option>
               <option value="FEES">Booking fee</option>
               <option value="TICKETS_AND_FEES">Tickets and booking fee</option>
+              <option value="PLATFORM_SERVICES">Organizer plans and credit packs</option>
             </Select>
             <Input
               label="Group (alternatives — leave empty to always apply)"

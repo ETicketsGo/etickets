@@ -9,7 +9,13 @@ import {
 } from '@eticketsgo/validation';
 import { RefundsService } from './refunds.service';
 import { AdminPermission } from '@eticketsgo/shared-types';
-import { CurrentUser, RequiresAdmin, Roles, type RequestUser } from '../common/decorators';
+import {
+  CurrentUser,
+  RequiresAdmin,
+  RequiresRecentMfa,
+  Roles,
+  type RequestUser,
+} from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { groupScopeFields, type GroupScope } from '../admin/group-scope';
 import { listFilterFields, refineDateOrder, type ListFilters } from '../admin/list-filters';
@@ -51,6 +57,12 @@ export class RefundsController {
     The requirement belongs where the two audiences are already told apart, which is inside
     the service. See `RefundsService.process`.
   */
+  /*
+    Step-up for staff: approving a refund sends money out and it does not come back. MfaGuard
+    applies it to back-office accounts only, so an organizer owner refunding their own customer
+    is not asked for a code they do not have.
+  */
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Approve or reject a refund.' })
   process(
     @CurrentUser() user: RequestUser,

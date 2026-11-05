@@ -933,3 +933,49 @@ describe('PaymentsService - ops alerts on money paths', () => {
     expect(alerts.seen).toEqual([]);
   });
 });
+
+/*
+  The amount check accepted 50000 of any currency as 50000 of the booking's. Razorpay reports the
+  currency it charged in; a mismatch is now refused exactly like an amount mismatch.
+*/
+describe('PaymentsService.confirm - the paid currency must be the booking currency', () => {
+  const twoTickets = [{ ticketTypeId: 't1' }, { ticketTypeId: 't1' }];
+
+  it('refuses a capture in another currency: no tickets, audited, the webhook fails', async () => {
+    const { service, provider, audit, prisma, tx } = setup({
+      booking: pendingBooking({ currency: 'INR' }),
+      specs: twoTickets,
+    });
+    provider.verifyWebhook.mockResolvedValue({ ...SUCCEEDED_EVENT, currency: 'USD' });
+    const err = await service.handleWebhook(webhook).catch((e: AppException) => e);
+    expect(err).toBeInstanceOf(AppException);
+    expect((err as AppException).code).toBe(ErrorCodes.PAYMENT_WEBHOOK_INVALID);
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'PAYMENT_CURRENCY_MISMATCH',
+        entityId: 'b1',
+        metadata: expect.objectContaining({ expectedCurrency: 'INR', receivedCurrency: 'USD' }),
+      }),
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.ticket.create).not.toHaveBeenCalled();
+  });
+
+  it('confirms when the currency matches, whatever its case', async () => {
+    const { service, provider, audit } = setup({
+      booking: pendingBooking({ currency: 'INR' }),
+      specs: twoTickets,
+    });
+    provider.verifyWebhook.mockResolvedValue({ ...SUCCEEDED_EVENT, currency: 'inr' });
+    await expect(service.handleWebhook(webhook)).resolves.toMatchObject({ status: 'confirmed' });
+    expect(audit.record).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'PAYMENT_CURRENCY_MISMATCH' }),
+    );
+  });
+
+  it('confirms as before when the provider reports no currency (Stripe, mock)', async () => {
+    const { service } = setup({ booking: pendingBooking({ currency: 'USD' }), specs: twoTickets });
+    // SUCCEEDED_EVENT has no currency, which is what Stripe and the mock deliver.
+    await expect(service.handleWebhook(webhook)).resolves.toMatchObject({ status: 'confirmed' });
+  });
+});

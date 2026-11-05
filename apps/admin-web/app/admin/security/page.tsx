@@ -13,6 +13,7 @@ import {
   PageHeader,
   Skeleton,
   tokenStore,
+  useAuthUser,
   useToast,
 } from '@eticketsgo/web-kit';
 import { RecoveryCodes } from '@/components/recovery-codes';
@@ -27,6 +28,9 @@ export default function SecurityPage() {
   const qc = useQueryClient();
   const router = useRouter();
   const toast = useToast();
+  // Whether this server can hold an authenticator at all (no MFA_ENCRYPTION_KEY: it cannot).
+  const { user } = useAuthUser();
+  const canEnroll = user?.mfa?.stepUp === 'available';
   const [codes, setCodes] = useState<string[] | null>(null);
   const [replacing, setReplacing] = useState(false);
 
@@ -68,10 +72,22 @@ export default function SecurityPage() {
           onRetry={() => status.refetch()}
         />
       ) : !status.data.enrolled ? (
-        <Card>
-          <p className="text-[0.9375rem] text-text-primary">
-            The second sign-in step is not turned on for this server.
-          </p>
+        <Card className="space-y-2">
+          {canEnroll ? (
+            <>
+              <p className="text-[0.9375rem] text-text-primary">
+                You have not set up two-step sign-in yet. You need it for refunds, payouts, payment
+                settings and staff changes.
+              </p>
+              <Button size="sm" onClick={() => router.push('/enroll-mfa')}>
+                Set up two-step sign-in
+              </Button>
+            </>
+          ) : (
+            <p className="text-[0.9375rem] text-text-primary">
+              The second sign-in step is not turned on for this server.
+            </p>
+          )}
         </Card>
       ) : (
         <div className="space-y-4">

@@ -62,6 +62,11 @@ export function isUndeliverableDomain(email: string): boolean {
 /** What the mailbox copy and the acknowledgement need to know about one submission. */
 export interface SupportMailInput {
   feedbackId: string;
+  /**
+   * The readable reference (ETG-SUP-2026-000142). Both mails quote this, never the id. Null only
+   * for a row written before references existed, and then the id is quoted, as it always was.
+   */
+  reference: string | null;
   kind: string;
   /** Where replies go: the signed-in account's address, or the one typed into the form. */
   replyTo: string | null;
@@ -124,14 +129,14 @@ export class SupportMailService {
   /**
    * The admin console page for this message, or null when this deployment has no admin URL.
    *
-   * The inbox search matches a submission's id exactly, so the link opens a list of one.
-   * Missing configuration costs the button, never the mail.
+   * The inbox search matches a submission's reference (or, for an old row, its id) exactly, so
+   * the link opens a list of one. Missing configuration costs the button, never the mail.
    */
-  private adminLink(feedbackId: string): string | null {
+  private adminLink(reference: string): string | null {
     const configured = this.config.get<string>('ADMIN_WEB_URL')?.trim().replace(/\/+$/, '');
     const appEnv = this.config.get<string>('APP_ENV') ?? 'LOCAL';
     const base = configured || (['LOCAL', 'DEV'].includes(appEnv) ? 'http://localhost:3002' : null);
-    return base ? `${base}/admin/support?q=${encodeURIComponent(feedbackId)}` : null;
+    return base ? `${base}/admin/support?q=${encodeURIComponent(reference)}` : null;
   }
 
   /** Queue both mails inside the submission's transaction. Writes rows; sends nothing. */
@@ -141,7 +146,9 @@ export class SupportMailService {
     // A Reply-To that is not a plain address is dropped, never "cleaned up" into one.
     const replyTo = input.replyTo && isSafeReplyTo(input.replyTo) ? input.replyTo : null;
     const inbox = this.inboxAddress();
+    // The intent key stays on the id: it is the row's identity, and it never reaches a reader.
     const intent = `support-request:${input.feedbackId}`;
+    const reference = input.reference?.trim() || input.feedbackId;
 
     if (inbox) {
       const truncated = input.message.length > SUPPORT_MESSAGE_EMAIL_MAX;
@@ -155,7 +162,9 @@ export class SupportMailService {
           locale: 'en',
           intentKey: intent,
           payload: {
-            reference: input.feedbackId,
+            reference,
+            // Kept for tracing a mail back to its row; no template shows it.
+            feedbackId: input.feedbackId,
             kind: input.kind,
             topic: input.topic ?? '',
             message: truncated ? input.message.slice(0, SUPPORT_MESSAGE_EMAIL_MAX) : input.message,
@@ -165,7 +174,7 @@ export class SupportMailService {
             accountEmail: input.accountEmail ?? '',
             organizationName: input.organizationName ?? '',
             bookingReference: input.bookingReference ?? '',
-            link: this.adminLink(input.feedbackId) ?? '',
+            link: this.adminLink(reference) ?? '',
           },
         },
         tx,
@@ -215,7 +224,8 @@ export class SupportMailService {
         ...(input.locale && isLocale(input.locale) ? { locale: input.locale } : {}),
         intentKey: intent,
         payload: {
-          reference: input.feedbackId,
+          reference,
+          feedbackId: input.feedbackId,
           email: replyTo,
           // A reply to the acknowledgement reaches support rather than the no-reply sender.
           ...(inbox ? { replyTo: inbox } : {}),

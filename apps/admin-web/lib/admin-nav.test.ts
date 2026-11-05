@@ -39,6 +39,8 @@ describe('the admin menu', () => {
     */
     const FROM_PARENT: Record<string, string> = {
       '/admin/cinema-pricing/legal-types': '/admin/cinema-pricing',
+      // The draft editor is opened from a schedule on the Booking fees page.
+      '/admin/settings/schedule': '/admin/settings',
     };
     const missing = adminRoutes().filter(
       (r) => !hrefs.has(r) && !(FROM_PARENT[r] && hrefs.has(FROM_PARENT[r])),
@@ -69,6 +71,24 @@ describe('the admin menu', () => {
       'Platform configuration',
       'My account',
     ]);
+  });
+
+  it('puts platform fee policies under Payouts & reconciliation, as a page, not a row', () => {
+    const payouts = ADMIN_NAV.find((g) => g.key === 'payouts')!;
+    const before = payouts.links.length;
+    const recon = payouts.links.find((l) => l.href === '/admin/finance-reconciliation')!;
+    expect(recon.children?.map((l) => l.href)).toContain('/admin/fee-policies');
+    // A sub-item of an existing row: the group still has its four top-level rows.
+    expect(before).toBe(4);
+    expect(payouts.links.map((l) => l.href)).not.toContain('/admin/fee-policies');
+    // And it is gone from configuration.
+    const config = ADMIN_NAV.find((g) => g.key === 'config')!;
+    expect(allNavLinks([config]).map((l) => l.href)).not.toContain('/admin/fee-policies');
+    expect(allNavLinks().find((l) => l.href === '/admin/fee-policies')?.needs).toBe(
+      'PLATFORM_CONFIG_READ',
+    );
+    expect(activeHref('/admin/fee-policies')).toBe('/admin/fee-policies');
+    expect(activeGroupKey('/admin/fee-policies')).toBe('payouts');
   });
 
   it('puts the approval queue and the calendar under Events', () => {
@@ -134,9 +154,17 @@ describe('the menu lists only what the operator can open', () => {
     'PAYOUT_MANAGE',
     'PAYMENT_ADMIN',
     'ADMIN_MANAGE',
+    'AUDIT_READ',
+    'CRM_AGENT',
+    'CRM_MANAGER',
+    'BILLING_READ',
   ];
+  // Sections unfolded: a section's own pages are reachable from the menu too.
   const hrefsFor = (perms: string[]) =>
-    visibleNav(adminNavItems(), { roles: ['ADMIN'], adminPermissions: perms }).map((i) => i.href);
+    visibleNav(adminNavItems(), { roles: ['ADMIN'], adminPermissions: perms }).flatMap((i) => [
+      i.href,
+      ...(i.children ?? []).map((c) => c.href),
+    ]);
 
   it('gives somebody holding every capability every page', () => {
     // A super admin: /auth/me returns every capability for SUPER_ADMIN.
@@ -193,9 +221,14 @@ describe('the menu lists only what the operator can open', () => {
       'Events',
       'Bookings & payments',
       'Refunds & disputes',
-      'Audit history',
+      // Not 'Audit history': the log needs AUDIT_READ now, which the support desk does not hold.
       'My account',
     ]);
+  });
+
+  it('shows the audit log only to somebody holding AUDIT_READ', () => {
+    expect(hrefsFor(['BOOKING_READ'])).not.toContain('/admin/audit');
+    expect(hrefsFor(['AUDIT_READ'])).toContain('/admin/audit');
   });
 
   it('keeps platform configuration away from the support desk', () => {
@@ -205,13 +238,24 @@ describe('the menu lists only what the operator can open', () => {
     */
     const CONFIG = ['/admin/settings', '/admin/tax-rules', '/admin/cinema-pricing'];
     const support = hrefsFor(['BOOKING_READ', 'ORGANIZER_READ']);
-    for (const page of CONFIG) expect(support).not.toContain(page);
+    for (const page of [...CONFIG, '/admin/fee-policies']) expect(support).not.toContain(page);
 
     const reader = hrefsFor(['PLATFORM_CONFIG_READ']);
     for (const page of CONFIG) expect(reader).toContain(page);
     // The write capability alone does not open a page whose list it cannot load.
     const writer = hrefsFor(['PLATFORM_CONFIG']);
-    for (const page of CONFIG) expect(writer).not.toContain(page);
+    for (const page of [...CONFIG, '/admin/fee-policies']) expect(writer).not.toContain(page);
+  });
+
+  it('opens platform fee policies to Finance, under reconciliation', () => {
+    /*
+      Owner decision 2026-10-27: the page sits under Finance reconciliation, so the menu shows
+      it to whoever opens that section (FINANCE_READ) and can load the policies
+      (PLATFORM_CONFIG_READ) - the Finance bundle holds both. Somebody with the config read
+      alone still reaches it from the Booking fees page, which links to it.
+    */
+    expect(hrefsFor(['FINANCE_READ', 'PLATFORM_CONFIG_READ'])).toContain('/admin/fee-policies');
+    expect(hrefsFor(['FINANCE_READ'])).not.toContain('/admin/fee-policies');
   });
 
   it('quick navigation cannot find a page the operator cannot open', () => {

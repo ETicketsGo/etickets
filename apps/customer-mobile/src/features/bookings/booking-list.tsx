@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { EmptyState, ErrorState, Skeleton } from '@/components/states';
-import { Badge, Chip, Text, haptics } from '@/ui';
+import { Badge, Button, Chip, Text, haptics } from '@/ui';
 import { useTheme } from '@/theme';
 import { useNow } from '@/hooks/use-now';
-import { formatDateTime, formatMoney } from '@/services/locale';
+import { formatEventWhen, formatMoney, formatShortTime, dateParts } from '@/services/locale';
 import { useBookings } from './api';
-import { bookingTone, isLiveBooking, type Booking } from './schema';
+import { useOfflineTickets } from './use-offline-tickets';
+import { OfflineWallet } from './offline-wallet';
+import { bookingStatusLabel, bookingTone, isLiveBooking, type Booking } from './schema';
 
 type Filter = 'upcoming' | 'past';
 
@@ -27,6 +28,7 @@ export function BookingList() {
   const { colors } = useTheme();
   const [filter, setFilter] = useState<Filter>('upcoming');
   const { data, isPending, isError, isPaused, refetch, isRefetching } = useBookings();
+  const saved = useOfflineTickets();
 
   // A minute's granularity is ample for an upcoming/past split, and keeps this list
   // from re-partitioning once a second while the user scrolls it.
@@ -73,6 +75,15 @@ export function BookingList() {
    * The check is on `isPaused` rather than a general offline flag, so a genuinely slow
    * request still gets skeletons.
    */
+  // No signal and nothing fetched, or the fetch failed: show what is saved on the phone.
+  if ((isPending && isPaused) || isError) {
+    if (saved.tickets.length > 0) {
+      return (
+        <OfflineWallet tickets={saved.tickets} syncedAt={saved.syncedAt} stale={saved.stale} />
+      );
+    }
+  }
+
   if (isPending && isPaused) {
     return (
       <ErrorState
@@ -85,13 +96,9 @@ export function BookingList() {
 
   if (isPending) {
     return (
-      <View className="gap-3 px-5 pt-3">
+      <View className="gap-3 px-4 pt-3">
         {[0, 1, 2].map((i) => (
-          <View key={i} className="gap-2 rounded-md border border-border p-4">
-            <Skeleton className="h-4 w-2/3" />
-            <Skeleton className="h-3 w-1/2" />
-            <Skeleton className="h-3 w-1/3" />
-          </View>
+          <Skeleton key={i} className="h-[104px] w-full rounded-card" />
         ))}
       </View>
     );
@@ -123,7 +130,7 @@ export function BookingList() {
         />
       }
       ListHeaderComponent={
-        <View className="flex-row gap-2 px-5 pb-3 pt-1">
+        <View className="flex-row gap-2 px-4 pb-4 pt-1">
           <Chip
             label={`Upcoming${upcoming.length ? ` (${upcoming.length})` : ''}`}
             selected={filter === 'upcoming'}
@@ -144,19 +151,11 @@ export function BookingList() {
               title="No upcoming bookings"
               message="When you book something, it'll show up here with your ticket."
               action={
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Browse events"
-                  onPress={() => {
-                    haptics.tap();
-                    router.push('/(tabs)');
-                  }}
-                  className="mt-2 rounded-md bg-action-primary px-4 py-2.5 active:opacity-80"
-                >
-                  <Text variant="subhead" tone="onAccent" className="font-semibold">
-                    Browse events
-                  </Text>
-                </Pressable>
+                <Button
+                  label="Browse events"
+                  fullWidth={false}
+                  onPress={() => router.push('/(tabs)')}
+                />
               }
             />
           ) : (
@@ -172,13 +171,19 @@ export function BookingList() {
   );
 }
 
+/**
+ * One booking, as a ticket stub: a date tile at the left (the storefront's date tiles), then
+ * the title, time and venue, the reference, and a status pill.
+ */
 function BookingCard({ booking }: { booking: Booking }) {
   const router = useRouter();
-  const { colors } = useTheme();
   const tone = bookingTone(booking.status);
   const count = booking._count.tickets;
   const total = formatMoney(booking.totalMinor, booking.currency);
-  const when = formatDateTime(booking.eventSession.startsAt);
+  const tz = booking.timeZone ?? undefined;
+  const when = formatEventWhen(booking.eventSession.startsAt, tz);
+  const { weekday, day, month } = dateParts(booking.eventSession.startsAt, tz);
+  const live = isLiveBooking(booking.status);
 
   return (
     <Pressable
@@ -188,7 +193,7 @@ function BookingCard({ booking }: { booking: Booking }) {
         when,
         `${count} ${count === 1 ? 'ticket' : 'tickets'}`,
         total,
-        booking.status.toLowerCase(),
+        bookingStatusLabel(booking.status),
         booking.reference ? `reference ${booking.reference}` : null,
       ]
         .filter(Boolean)
@@ -198,28 +203,44 @@ function BookingCard({ booking }: { booking: Booking }) {
         haptics.tap();
         router.push({ pathname: '/booking/[id]', params: { id: booking.id } });
       }}
-      className="mx-5 mb-3 flex-row items-center gap-3 rounded-md border border-border bg-background-surface p-4 active:opacity-70"
+      className="mx-4 mb-3 flex-row overflow-hidden rounded-card border border-border bg-background-surface active:bg-sunken"
     >
-      <View className="flex-1 gap-1">
-        <View className="flex-row items-center gap-2">
-          <Text variant="headline" numberOfLines={1} className="flex-1">
-            {booking.event.title}
-          </Text>
-          <Badge label={booking.status} tone={tone} />
-        </View>
-        <Text variant="footnote" tone="muted">
-          {when}
+      <View
+        style={{ width: 76 }}
+        className={`items-center justify-center gap-0.5 border-r border-dashed border-border-strong py-4 ${
+          live ? 'bg-ink' : 'bg-sunken'
+        }`}
+      >
+        <Text variant="eyebrow" tone={live ? 'goldOnStage' : 'muted'}>
+          {month ?? ''}
         </Text>
-        <Text variant="footnote" tone="muted">
-          {count} {count === 1 ? 'ticket' : 'tickets'} · {total}
+        <Text variant="figure" tone={live ? 'onStage' : 'secondary'}>
+          {day ?? ''}
         </Text>
-        {booking.reference ? (
-          <Text variant="caption" tone="muted">
-            {booking.reference}
-          </Text>
-        ) : null}
+        <Text variant="meta" tone={live ? 'onStage2' : 'muted'}>
+          {weekday ?? ''}
+        </Text>
       </View>
-      <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+      <View className="flex-1 gap-1 p-4">
+        <Text variant="card" numberOfLines={2}>
+          {booking.event.title}
+        </Text>
+        <Text variant="meta" tone="secondary" numberOfLines={1}>
+          {formatShortTime(booking.eventSession.startsAt, tz)}
+          {' - '}
+          {count} {count === 1 ? 'ticket' : 'tickets'} - {total}
+        </Text>
+        <View className="mt-1 flex-row items-center justify-between gap-2">
+          {booking.reference ? (
+            <Text variant="meta" tone="muted" numberOfLines={1} className="flex-1">
+              {booking.reference}
+            </Text>
+          ) : (
+            <View className="flex-1" />
+          )}
+          <Badge label={bookingStatusLabel(booking.status)} tone={tone} />
+        </View>
+      </View>
     </Pressable>
   );
 }

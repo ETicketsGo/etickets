@@ -1,10 +1,11 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import * as Crypto from 'expo-crypto';
 import { apiClient } from '@/services/api-client';
 import { postParsed } from '@/services/http';
 import { bookingKeys } from '@/features/bookings/api';
+import { openRazorpayCheckout } from '@/services/razorpay-checkout';
 import { eventKeys } from '@/features/events/api';
 import type { EventDetail } from '@/features/events/schema';
 import {
@@ -15,6 +16,7 @@ import {
 import {
   createBookingResponseSchema,
   paymentIntentSchema,
+  quoteSchema,
   type CreateBookingResponse,
   type PaymentIntent,
 } from './schema';
@@ -88,6 +90,33 @@ export function useCreateBooking() {
   });
 }
 
+/**
+ * The server's price for this cart, before anything is held. Public on the API, so it
+ * works before sign-in too. The total on the Pay button comes from here until the
+ * booking exists, and from the booking after: never from arithmetic in the app.
+ */
+export function useQuote(
+  eventSessionId: string | undefined,
+  items: CartItem[],
+  couponCode: string | null,
+) {
+  return useQuery({
+    queryKey: ['quote', eventSessionId, items, couponCode] as const,
+    queryFn: () =>
+      postParsed(
+        '/bookings/quote',
+        {
+          eventSessionId,
+          items,
+          ...(couponCode ? { couponCode } : {}),
+        },
+        quoteSchema,
+      ),
+    enabled: Boolean(eventSessionId) && items.length > 0,
+    staleTime: 30_000,
+  });
+}
+
 /** A fresh idempotency key. Call once when a checkout attempt begins, never per retry. */
 export function newIdempotencyKey(): string {
   return Crypto.randomUUID();
@@ -105,8 +134,16 @@ export function useStartPayment() {
   });
 }
 
+/**
+ * What happened on the device. None of these says the booking is paid: 'completed' means
+ * the buyer finished the provider's steps, 'failed' that the provider said no. The
+ * booking's status on the server is the only answer, and the caller reads it next.
+ */
 export type PaymentOutcome =
-  { kind: 'completed' } | { kind: 'dismissed' } | { kind: 'unsupported'; reason: string };
+  | { kind: 'completed' }
+  | { kind: 'dismissed' }
+  | { kind: 'failed'; reason: string | null }
+  | { kind: 'unsupported'; reason: string };
 
 /**
  * Follow whatever `clientActionUrl` the backend returned.
@@ -121,7 +158,29 @@ export type PaymentOutcome =
 export async function followPaymentAction(
   action: PaymentIntent,
   returnUrl: string,
+  bookingId?: string,
 ): Promise<PaymentOutcome> {
+  /*
+    A Razorpay order. Checked before the URL because in this response clientActionUrl is
+    the order id, which the checks below would refuse as "not a secure web address".
+  */
+  if (action.razorpay) {
+    if (!bookingId) {
+      return { kind: 'unsupported', reason: 'The payment could not be linked to a booking.' };
+    }
+    const result = await openRazorpayCheckout(action.razorpay);
+    if (result.kind === 'not-paid') return { kind: 'failed', reason: result.reason };
+    try {
+      // The signature check. It records the attempt and does NOT issue tickets: the
+      // signed webhook confirms the booking. A failure here is not a failed payment
+      // either, because the webhook may still arrive.
+      await apiClient.post(`/bookings/${bookingId}/payments/razorpay/verify`, result.response);
+    } catch {
+      // Fall through: the booking status read that follows decides.
+    }
+    return { kind: 'completed' };
+  }
+
   const url = action.clientActionUrl;
   if (!url) {
     return { kind: 'unsupported', reason: 'The payment provider did not return an action.' };

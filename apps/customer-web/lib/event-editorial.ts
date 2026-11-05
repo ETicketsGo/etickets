@@ -28,9 +28,11 @@ export function longVenueDate(
   iso: string,
   zone: string | undefined,
   locale: string,
+  /** The reader's zone, for a venue whose own is unknown (`useReaderZone`). */
+  reader: string | undefined = readerTimeZone(),
 ): LongVenueDate {
   const at = new Date(iso);
-  const shownZone = zone ?? readerTimeZone();
+  const shownZone = zone ?? reader;
   const opts = shownZone ? { timeZone: shownZone } : {};
   try {
     const part = (options: Intl.DateTimeFormatOptions) =>

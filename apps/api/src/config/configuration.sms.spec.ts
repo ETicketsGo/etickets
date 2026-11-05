@@ -19,6 +19,8 @@ describe('loadConfig: SMS', () => {
     NODE_ENV: 'production',
     DATABASE_URL: 'postgres://u:p@db/x',
     JWT_ACCESS_SECRET: STRONG,
+    // STAGING/PRODUCTION refuse to boot without the admin MFA key (assertAdminMfaArmed).
+    MFA_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
     JWT_REFRESH_SECRET: STRONG,
     QR_SIGNING_SECRET: STRONG,
     PAYMENT_WEBHOOK_SECRET: STRONG,
@@ -60,6 +62,37 @@ describe('loadConfig: SMS', () => {
       expect(() => loadConfig()).toThrow(/SENDS NO TEXT MESSAGES/);
     });
 
+    /*
+      A real provider with NO market table texts any country through one provider - the
+      routing layer only refuses an unknown market once a table exists - which is exactly the
+      opening an SMS-pumping attack needs.
+    */
+    it.each(['twilio', 'msg91'])(
+      'refuses production with SMS_PROVIDER=%s and no SMS_PROVIDER_BY_MARKET',
+      (provider) => {
+        process.env = env({ SMS_PROVIDER_BY_MARKET: undefined, SMS_PROVIDER: provider });
+        expect(() => loadConfig()).toThrow(/would send text messages to ANY country/);
+      },
+    );
+
+    it('still boots a production that declared text messages off, with no market table', () => {
+      process.env = env({
+        SMS_PROVIDER_BY_MARKET: undefined,
+        SMS_PROVIDER: 'twilio',
+        SMS_ENABLED: 'false',
+      });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it('leaves QA alone with a single provider and no market table', () => {
+      process.env = env({
+        APP_ENV: 'QA',
+        SMS_PROVIDER_BY_MARKET: undefined,
+        SMS_PROVIDER: 'twilio',
+      });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
     it('boots production with every enabled market on a real provider', () => {
       process.env = env();
       expect(() => loadConfig()).not.toThrow();
@@ -88,6 +121,37 @@ describe('loadConfig: SMS', () => {
         NOTIFICATION_MARKETS: 'IN,US,CA',
       });
       expect(() => loadConfig()).not.toThrow();
+    });
+  });
+
+  describe('sign-in code text limits', () => {
+    it('defaults every limit when nothing is set', () => {
+      process.env = env();
+      const cfg = loadConfig();
+      expect(cfg.OTP_SMS_RESEND_COOLDOWN_SECONDS).toBe(60);
+      expect(cfg.OTP_SMS_MAX_PER_NUMBER_PER_HOUR).toBe(5);
+      expect(cfg.OTP_SMS_MAX_PER_NUMBER_PER_DAY).toBe(10);
+      expect(cfg.OTP_SMS_DAILY_LIMIT_TOTAL).toBe(2000);
+      expect(cfg.OTP_SMS_BUDGET_WARN_PERCENT).toBe(80);
+      expect(cfg.OTP_SMS_DAILY_LIMIT_BY_MARKET).toBeUndefined();
+    });
+
+    it('accepts a per-market budget table', () => {
+      process.env = env({ OTP_SMS_DAILY_LIMIT_BY_MARKET: 'IN=100, US=20,CA=5' });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it.each(['IN=lots', 'India=100', 'IN:100', 'IN=100,'])(
+      'refuses a malformed per-market budget table (%s)',
+      (value) => {
+        process.env = env({ OTP_SMS_DAILY_LIMIT_BY_MARKET: value });
+        expect(() => loadConfig()).toThrow(/OTP_SMS_DAILY_LIMIT_BY_MARKET/);
+      },
+    );
+
+    it('refuses an hourly cap of zero, which would lock every phone user out', () => {
+      process.env = env({ OTP_SMS_MAX_PER_NUMBER_PER_HOUR: '0' });
+      expect(() => loadConfig()).toThrow(/OTP_SMS_MAX_PER_NUMBER_PER_HOUR/);
     });
   });
 
@@ -159,13 +223,30 @@ describe('loadConfig: SMS', () => {
       expect(() => loadConfig()).not.toThrow();
     });
 
-    it('refuses the rejected ETKTGO header by name', () => {
-      process.env = env({ DLT_SENDER_HEADER: 'ETKTGO', MSG91_SENDER_ID: 'ETKTGO' });
-      expect(() => loadConfig()).toThrow(/ETKTGO was REJECTED/);
+    // Owner, 2026-10-25: header ETKTGO, the PE-TM chain and eight templates are approved.
+    it('accepts ETKTGO when configured with valid ids', () => {
+      process.env = env({
+        DLT_SENDER_HEADER: 'ETKTGO',
+        MSG91_SENDER_ID: 'ETKTGO',
+        DLT_PRINCIPAL_ENTITY_ID: '1701179092181018311',
+        MSG91_SMS_TEMPLATE_OTP: 'tmpl-otp',
+        DLT_TEMPLATE_ID_OTP: '1707000000000000009',
+      });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it('refuses MSG91_SENDER_ID that differs from DLT_SENDER_HEADER', () => {
+      process.env = env({ DLT_SENDER_HEADER: 'ETKTGO', MSG91_SENDER_ID: 'DPTRCS' });
+      expect(() => loadConfig()).toThrow(/DLT_SENDER_HEADER and MSG91_SENDER_ID disagree/);
     });
 
     it('refuses a header that is not six letters', () => {
       process.env = env({ DLT_SENDER_HEADER: 'DPTRC5', MSG91_SENDER_ID: 'DPTRC5' });
+      expect(() => loadConfig()).toThrow(/six-letter DLT header/);
+    });
+
+    it('refuses an ETKTGO-like header that is not six letters', () => {
+      process.env = env({ DLT_SENDER_HEADER: 'ETKTG', MSG91_SENDER_ID: 'ETKTG' });
       expect(() => loadConfig()).toThrow(/six-letter DLT header/);
     });
 
@@ -200,7 +281,7 @@ describe('loadConfig: SMS', () => {
     it('accepts an OTP_SMS_TEMPLATE identical to the registered wording', () => {
       process.env = env({
         OTP_SMS_TEMPLATE:
-          '{code} is your ETicketsGo sign-in code. It expires in {minutes} minutes. Never share it with anyone.',
+          'Your ETicketsGo verification code is {code}. Valid for 5 minutes. Do not share this code.',
       });
       expect(() => loadConfig()).not.toThrow();
     });
@@ -215,6 +296,59 @@ describe('loadConfig: SMS', () => {
         MSG91_SMS_BODY_VAR: 'body',
       });
       expect(() => loadConfig()).not.toThrow();
+    });
+  });
+
+  describe('SMS_TRANSACTIONAL_TYPES', () => {
+    it('boots with the setting absent (the default: no type sends an SMS)', () => {
+      process.env = env({ APP_ENV: 'DEV', NODE_ENV: 'development' });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it('boots with eligible types named', () => {
+      process.env = env({
+        APP_ENV: 'DEV',
+        NODE_ENV: 'development',
+        SMS_TRANSACTIONAL_TYPES:
+          'BOOKING_CONFIRMED, booking_cancelled,PASSWORD_CHANGED,EVENT_REMINDER',
+      });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it.each(['PASSWORD_RESET_REQUESTED', 'SHOW_CANCELLED', 'PAYMENT_PENDING', 'NOT_A_TYPE'])(
+      'refuses %s, which may not send a transactional SMS',
+      (name) => {
+        process.env = env({
+          APP_ENV: 'DEV',
+          NODE_ENV: 'development',
+          SMS_TRANSACTIONAL_TYPES: `BOOKING_CONFIRMED,${name}`,
+        });
+        expect(() => loadConfig()).toThrow(new RegExp(`SMS_TRANSACTIONAL_TYPES names ${name}`));
+      },
+    );
+  });
+  describe('SMS_TRANSACTIONAL_MARKETS', () => {
+    it('boots with the setting absent (the default: India only)', () => {
+      process.env = env({ APP_ENV: 'DEV', NODE_ENV: 'development' });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it('boots with IN, US and CA named', () => {
+      process.env = env({
+        APP_ENV: 'DEV',
+        NODE_ENV: 'development',
+        SMS_TRANSACTIONAL_MARKETS: 'IN, us,CA',
+      });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it.each(['GB', 'XX'])('refuses %s, which has no SMS path', (name) => {
+      process.env = env({
+        APP_ENV: 'DEV',
+        NODE_ENV: 'development',
+        SMS_TRANSACTIONAL_MARKETS: `IN,${name}`,
+      });
+      expect(() => loadConfig()).toThrow(new RegExp(`SMS_TRANSACTIONAL_MARKETS names ${name}`));
     });
   });
 });

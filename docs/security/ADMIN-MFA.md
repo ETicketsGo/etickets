@@ -144,11 +144,45 @@ It acts only on an existing account holding `ADMIN`/`SUPER_ADMIN`; an unknown ad
 is left alone and the nonce is **not** spent, so a typo can be fixed and redeployed. It does not
 touch the password: an attacker who only has the switch still needs the password.
 
+## 4a. Deferred enrollment (`MFA_ENROLLMENT=deferred`)
+
+The owner's launch decision: staff sign in and do the ordinary back-office work without setting
+up an authenticator, but the sensitive actions are **not** relaxed. "Sensitive" means every route
+marked `@RequiresRecentMfa` (the lists in `auth/mfa/mfa.step-up-routes.spec.ts` and
+`admin/step-up-routes.spec.ts`): refund approval, payout payment and bank-account decisions,
+settlement approval and release, payment provider config, routes, failover and outage, payment
+promotion, fee, tax and regulated cinema price rules, organizer suspension and removal, account
+suspension and sign-out, staff permissions, grants, invites, revokes and MFA resets, and the
+caller's own recovery codes and device.
+
+| State for a staff account                   | Ordinary admin route | Sensitive route                                      |
+| ------------------------------------------- | -------------------- | ---------------------------------------------------- |
+| `required` (default), key set               | needs verified MFA   | needs MFA checked in the last `MFA_STEPUP_MINUTES`   |
+| `deferred`, key set, not enrolled           | allowed              | `403 MFA_SETUP_REQUIRED` (audited) until they enroll |
+| `deferred`, key set, enrolled               | needs verified MFA   | needs a fresh check, exactly as `required`           |
+| no key, PRODUCTION/STAGING/QA/UAT, any mode | allowed              | `403 MFA_NOT_CONFIGURED` (audited): blocked          |
+| no key, LOCAL/DEV, `required`               | allowed              | allowed (dormant: laptops and the test suite)        |
+| no key, LOCAL/DEV, `deferred`               | allowed              | `403 MFA_NOT_CONFIGURED`                             |
+
+Refusals write `MFA_SENSITIVE_ACTION_REFUSED` with `reason` (`not_enrolled` or `not_configured`),
+the handler (`operation`), method and route pattern. The console shows the API's message and, for
+`MFA_SETUP_REQUIRED`, a button to `/enroll-mfa`; Account security also offers setup.
+
+Boot: PRODUCTION and STAGING refuse to start without `MFA_ENCRYPTION_KEY` in `required` mode
+(`assertAdminMfaArmed`). In `deferred` mode they start without it and log one warning that the
+sensitive actions are blocked. The existing rule still holds in both modes: authenticators in the
+database and no key means the API refuses to start.
+
+Moving to `required` later: set `MFA_ENCRYPTION_KEY` (if not already) and `MFA_ENROLLMENT=required`
+on api AND worker and redeploy. Every staff account that has not enrolled is sent to enrollment at
+its next request; those who enrolled notice nothing. No code change and no migration.
+
 ## 7. Environment variables and owner actions
 
 | Variable                                         | Where                                              | Meaning                                                                                                                               |
 | ------------------------------------------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `MFA_ENCRYPTION_KEY`                             | api AND worker, same value; QA, UAT, PROD (secret) | 32 bytes base64. Encrypts secrets **and arms MFA**. Unset = dormant. Never rotate without re-enrolling (no key rotation tooling yet). |
+| `MFA_ENROLLMENT`                                 | api AND worker; optional                           | `required` (default) or `deferred`. Section 4a. `deferred` lets PRODUCTION boot without the key, with sensitive actions blocked.      |
 | `MFA_ISSUER`                                     | optional                                           | Name in the authenticator app (default `ETicketsGo`; `APP_ENV` is appended outside PRODUCTION so QA and PROD entries differ).         |
 | `MFA_STEPUP_MINUTES`                             | optional                                           | Step-up freshness, default 10.                                                                                                        |
 | `MFA_BREAK_GLASS_EMAIL`, `MFA_BREAK_GLASS_NONCE` | emergency only                                     | Section 6.                                                                                                                            |
@@ -163,7 +197,7 @@ shows `MFA_ENROLLMENT_COMPLETED`.
 `MFA_ENROLLMENT_STARTED`, `MFA_ENROLLMENT_REFUSED` (bad password), `MFA_ENROLLMENT_COMPLETED`,
 `MFA_VERIFY_FAILED` (method + reason only), `MFA_LOCKED_OUT`, `MFA_RECOVERY_CODE_USED` (remaining
 count), `MFA_RECOVERY_CODES_REGENERATED`, `MFA_DEVICE_REPLACED`, `MFA_RESET_BY_ADMIN`,
-`MFA_BREAK_GLASS`.
+`MFA_BREAK_GLASS`, `MFA_SENSITIVE_ACTION_REFUSED` (reason + operation; section 4a).
 
 ## 9. Database
 

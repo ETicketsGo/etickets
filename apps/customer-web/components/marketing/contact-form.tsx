@@ -33,6 +33,8 @@ export function ContactForm() {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  // The readable reference the API gave the message (ETG-SUP-2026-000142), shown once it is sent.
+  const [reference, setReference] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // The acknowledgement email is written in the language this page was read in.
   const locale = useLocale();
@@ -56,7 +58,7 @@ export function ContactForm() {
         an email, a subject and a message, and inventing a field here would mean changing a
         contract shared with the organizer console and the admin inbox.
       */
-      await api.support.submit({
+      const res = await api.support.submit({
         kind: 'CONTACT',
         email: email.trim(),
         // Also sent on its own, so the support mailbox's copy can say who wrote.
@@ -65,6 +67,7 @@ export function ContactForm() {
         subject: `[${topic}] Website enquiry`,
         message: `From: ${name.trim()}\n\n${message.trim()}`,
       });
+      setReference(res.reference ?? null);
       setSent(true);
     } catch {
       // Say what to do next. An error that only says "something went wrong" wastes the visit.
@@ -91,6 +94,13 @@ export function ContactForm() {
           It is with our support team and we will reply to{' '}
           <span className="font-medium text-brand-ink">{email.trim()}</span>.
         </p>
+        {reference && (
+          <p className="mt-2 text-brand-ui text-brand-ink-2">
+            Your reference is{' '}
+            <span className="font-mono font-medium text-brand-ink">{reference}</span>. Please give
+            it if you write to us again about this.
+          </p>
+        )}
       </div>
     );
   }

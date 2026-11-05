@@ -73,24 +73,24 @@ export function BackToLegal() {
  * Who operates ETicketsGo, as a quiet footer line on a legal document.
  *
  * -- WHAT IT SAYS, AND WHAT IT DOES NOT ----------------------------------------------------
- * The owner has stated who operates the platform in India: "ETicketsGo is operated in India
- * by DeepTrics Software Solutions Private Limited". That is a fact about the company, so every
- * document carries it - an India reader gets it alone, everybody else gets it beside the
- * brand's own entity, which is what this line said before. See `operatorSentences`.
+ * The owner has stated who operates the platform in each country: "ETicketsGo is operated in
+ * India by <the Indian company>" and "... in the United States by <the US company>". Every
+ * document carries the line for the market the reader SELECTED, and a reader with no market
+ * gets one sentence naming both. See `operatorSentences` and `resolveSelectedMarket`.
  *
  * What it still does NOT say is "your contract is with". An earlier version resolved a
  * contracting entity from the reader's market, and nothing in this project establishes that;
  * which entity is the counterparty to a sale is still open with counsel
  * (docs/compliance/LEGAL-REVIEW-QUESTIONS.md).
  */
-export function OperatorLine({ country }: { country?: PolicyJurisdiction | null }) {
+export function OperatorLine({ market }: { market?: string | null }) {
   const support = publishedDetail(BUSINESS_DETAILS.supportEmail);
   return (
     <p
       data-testid="operator-line"
       className="border-t border-brand-line pt-6 text-[0.875rem] text-brand-ink-2"
     >
-      {operatorSentences(country).join(' ')}{' '}
+      {operatorSentences(market).join(' ')}{' '}
       <Link
         className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:text-brand-gold-text hover:decoration-brand-gold-text"
         href={LEGAL_INFORMATION_HREF}

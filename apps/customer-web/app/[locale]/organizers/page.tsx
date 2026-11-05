@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata } from '@/lib/seo';
 import {
   CalendarPlus,
   Boxes,
@@ -23,12 +23,11 @@ import {
 import { PageHero } from '@/components/marketing/blocks';
 import { BrandPage } from '@/components/storefront-brand';
 
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/organizers', {
   title: 'For organizers',
   description:
     'Create events, manage inventory, run coupons and promotions, view analytics and reports, operate offline check-in, manage your team, take payments, and receive payouts.',
-  alternates: { canonical: '/organizers' },
-};
+});
 
 const STEPS = [
   {

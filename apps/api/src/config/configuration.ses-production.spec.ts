@@ -31,6 +31,8 @@ describe('loadConfig: SES production readiness', () => {
     NODE_ENV: 'production',
     DATABASE_URL: 'postgres://u:p@db/x',
     JWT_ACCESS_SECRET: STRONG,
+    // STAGING/PRODUCTION refuse to boot without the admin MFA key (assertAdminMfaArmed).
+    MFA_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
     JWT_REFRESH_SECRET: STRONG,
     QR_SIGNING_SECRET: STRONG,
     PAYMENT_WEBHOOK_SECRET: STRONG,

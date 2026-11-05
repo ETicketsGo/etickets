@@ -2,6 +2,10 @@ import { AdminPayoutsController } from '../../payouts/payouts.controller';
 import { AdminStaffController } from '../../admin/admin-staff.controller';
 import { SettlementController } from '../../payments/settlement/settlement.controller';
 import { MFA_RECENT_KEY } from '../../common/decorators';
+import { AdminBillingController } from '../../billing/billing-admin.controller';
+import { AdminCampaignsController } from '../../campaigns/campaigns.controller';
+import { PlatformFeePoliciesController } from '../../admin/platform-fee-policies.controller';
+import { AdminController } from '../../admin/admin.controller';
 
 /*
   Which actions demand a fresh second-factor check. A list in a test is deliberate: dropping
@@ -15,6 +19,38 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
   ],
   ['settlements', SettlementController, ['approve', 'release']],
   ['staff', AdminStaffController, ['setPermissions', 'grant', 'invite', 'revoke', 'resetMfa']],
+  [
+    'organizer billing',
+    AdminBillingController,
+    [
+      'loadCatalog',
+      'updatePlan',
+      'setPlanEntitlements',
+      'createPrice',
+      'updatePrice',
+      'deactivatePrice',
+      'grantTrial',
+      'grantComplimentary',
+      'endGrant',
+      'grantCredits',
+      'recordDiscount',
+      'grantOverride',
+      'revokeOverride',
+      'setCreditPackPrice',
+      'publishCreditPack',
+      'unpublishCreditPack',
+    ],
+  ],
+  // Stopping, or releasing, an organizer's campaign: mail going out under the platform's name.
+  ['organizer campaigns', AdminCampaignsController, ['pause', 'release']],
+  // A fee waiver or override changes what buyers pay from the next sale on.
+  [
+    'platform fee policies',
+    PlatformFeePoliciesController,
+    ['createPlatformFeePolicy', 'deactivatePlatformFeePolicy'],
+  ],
+  // The platform fee schedule itself: adding, changing or deleting a band.
+  ['platform fee bands', AdminController, ['createFeeRule', 'updateFeeRule', 'deleteFeeRule']],
 ];
 
 describe('sensitive back-office actions require a recent second-factor check', () => {

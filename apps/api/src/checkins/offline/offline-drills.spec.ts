@@ -38,6 +38,7 @@ function statefulPrisma(
   devices: Map<string, { organizationId: string; status: string }>,
 ) {
   return {
+    organization: { findUnique: () => Promise.resolve({ status: 'APPROVED' }) },
     checkInDevice: {
       findUnique: ({ where }: { where: { id: string } }) =>
         Promise.resolve(devices.get(where.id) ? { id: where.id, ...devices.get(where.id)! } : null),

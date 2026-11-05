@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import {
   CostSource,
   DeliveryState,
@@ -15,6 +15,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MetricsService } from '../../metrics/metrics.service';
 import { SuppressionService, type DestinationRef } from './suppression.service';
 import { NotificationRateService } from '../cost/notification-rate.service';
+import { ProviderEventSinks } from './provider-event-sinks';
 
 /** Why a logged message was not delivered, as an operator reads it in `lastError`. */
 export const LOG_MODE_REASON = 'log_mode_not_delivered';
@@ -48,6 +49,11 @@ export class DeliveryRecorderService {
       rate -- and is exactly what a deployment with no rates configured records anyway.
     */
     private readonly rates?: NotificationRateService,
+    /*
+      Other senders on the same provider stream (organizer campaigns). Optional for the same
+      reason as the two above. Asked only for a message no notification delivery owns.
+    */
+    @Optional() private readonly sinks?: ProviderEventSinks,
   ) {}
 
   /**
@@ -291,6 +297,8 @@ export class DeliveryRecorderService {
   async applyProviderEvent(input: {
     provider: string;
     providerMessageId: string;
+    /** The provider's id for this event, when known. Passed to other senders' sinks. */
+    eventId?: string | null;
     state: DeliveryState;
     providerStatus?: string | null;
     failureCode?: string | null;
@@ -313,6 +321,11 @@ export class DeliveryRecorderService {
       select: { id: true, status: true, channel: true, deliveredAt: true },
     });
 
+    if (!delivery && this.sinks) {
+      // Not a notification. Perhaps another sender's (a campaign): ask before calling it unknown.
+      const sunk = await this.sinks.apply(input);
+      if (sunk !== 'unknown') return sunk;
+    }
     if (!delivery) {
       /*
         A callback for something this platform has no record of. Not an error, and certainly

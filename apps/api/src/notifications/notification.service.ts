@@ -27,7 +27,7 @@ import { dedupeKeyFor, intentKeyFor } from './policy/dedupe-key';
 import { MetricsService } from '../metrics/metrics.service';
 import { TransportError } from './channels/transports/transport-http';
 import { DeliveryRecorderService, LOG_MODE_REASON } from './delivery/delivery-recorder.service';
-import { SuppressionService } from './delivery/suppression.service';
+import { SuppressionService, type SendPurpose } from './delivery/suppression.service';
 import { resolvePhoneDestination } from './channels/phone-destination';
 import { redactProviderText } from './channels/transports/provider-text';
 import { ProviderEventReplayService } from './delivery/webhook/provider-event-replay.service';
@@ -572,6 +572,14 @@ export class NotificationService {
     });
 
     const summary: DispatchSummary = { sent: 0, failed: 0, retried: 0 };
+    /*
+      Every per-row write below is `updateMany` on the row id, not `update`. A row can vanish
+      between the read above and the write (an account deletion purging its notifications, or
+      another process): `update` then throws "Record to update not found" and ABORTED THE WHOLE
+      SWEEP, so every other due message waited for the next tick. `updateMany` writes the same
+      data and simply matches nothing. Seen as a flaky CI failure (notification-atomicity), the
+      same race a busy worker can hit.
+    */
     for (const row of due) {
       const key = row.channel as ChannelKey;
       const channel = this.channels.resolve(row.channel);
@@ -612,8 +620,17 @@ export class NotificationService {
           bounce in between. Suppression is about whether the address WORKS, so unlike
           consent it stops transactional messages too: continuing to email an address that
           hard-bounces is what gets a sending domain throttled by SES.
+
+          The message's class decides which suppressions apply. A TRANSACTIONAL message
+          (ticket, confirmation, receipt, sign-in code, refund) is stopped only by an address
+          that does not work; a complaint or a marketing unsubscribe never withholds it. A
+          MARKETING message is stopped by those as well (owner decision 2026-10-27).
         */
-        const suppressed = await this.isSuppressed(key, rendered);
+        const suppressed = await this.isSuppressed(
+          key,
+          rendered,
+          isTransactional(row.type) ? 'transactional' : 'marketing',
+        );
         if (suppressed) {
           /*
             SKIPPED, with an attempt that says why. This was FAILED with no attempt row at
@@ -626,7 +643,7 @@ export class NotificationService {
               ?.notAttempted(skipId, OutcomeClass.POLICY_SUPPRESSED, 'destination_suppressed')
               .catch(() => undefined);
           }
-          await this.prisma.notification.update({
+          await this.prisma.notification.updateMany({
             where: { id: row.id },
             data: { status: NotificationStatus.SKIPPED, lastError: 'destination_suppressed' },
           });
@@ -706,7 +723,7 @@ export class NotificationService {
           : logged
             ? NotificationStatus.LOGGED
             : NotificationStatus.SENT;
-        await this.prisma.notification.update({
+        await this.prisma.notification.updateMany({
           where: { id: row.id },
           data: {
             status,
@@ -771,7 +788,7 @@ export class NotificationService {
         */
         const permanent = !isRetryableFailure(failureClass);
         const failed = permanent || attempts >= maxAttempts;
-        await this.prisma.notification.update({
+        await this.prisma.notification.updateMany({
           where: { id: row.id },
           data: {
             attempts,
@@ -825,12 +842,15 @@ export class NotificationService {
   private async isSuppressed(
     channel: ChannelKey,
     rendered: RenderedNotification,
+    purpose: SendPurpose,
   ): Promise<boolean> {
     if (!this.suppression) return false;
-    if (channel === 'email') return this.suppression.isSuppressed('email', rendered.toEmail);
+    if (channel === 'email') {
+      return this.suppression.isSuppressed('email', rendered.toEmail, purpose);
+    }
     if (channel !== 'sms' && channel !== 'whatsapp') return false;
     const addressed = await resolvePhoneDestination(rendered, this.prisma);
-    return this.suppression.isSuppressed(channel, addressed.destination);
+    return this.suppression.isSuppressed(channel, addressed.destination, purpose);
   }
 
   /** Open a delivery attempt, tolerating the recorder being absent in unit fixtures. */
@@ -983,6 +1003,7 @@ export class NotificationService {
         requested: input.channels,
         known: (c) => this.channels.has(c),
         allowDeferred: input.allowDeferredChannel === true,
+        payload: input.payload,
       });
       return resolved.channels;
     }

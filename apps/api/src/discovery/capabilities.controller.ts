@@ -11,6 +11,7 @@ import {
 } from '@eticketsgo/shared-types';
 import { Public } from '../common/decorators';
 import { messageContentLoggable } from '../notifications/channels/transports/content-logging';
+import { humanCheckSettings } from '../human-check/human-check.settings';
 
 /**
  * The countries whose mobile numbers can be sent a sign-in code from THIS deployment.
@@ -55,6 +56,11 @@ export function smsReachableCountries(config: Pick<ConfigService, 'get'>): strin
   }).map((market) => market.code);
 }
 
+function humanCheckCapability(config: Pick<ConfigService, 'get'>) {
+  const { mode, siteKey } = humanCheckSettings(config);
+  return { humanCheckMode: mode, humanCheckSiteKey: mode === 'off' ? null : siteKey };
+}
+
 @ApiTags('public')
 @Controller('capabilities')
 export class CapabilitiesController {
@@ -63,7 +69,7 @@ export class CapabilitiesController {
   @Public()
   @Get()
   @ApiOperation({ summary: 'Resolved feature flags (capabilities) for the platform.' })
-  get(): Record<string, boolean | string[]> {
+  get(): Record<string, boolean | string | string[] | null> {
     const flags = Object.keys(FEATURE_DEFAULTS) as FeatureFlag[];
     return {
       ...Object.fromEntries(flags.map((flag) => [flag, isFeatureEnabled(flag)])),
@@ -71,6 +77,12 @@ export class CapabilitiesController {
       phoneSignIn: this.config.get<string>('SMS_ENABLED') !== 'false',
       // Which numbers a code can actually reach - see `smsReachableCountries`.
       phoneSignInCountries: smsReachableCountries(this.config),
+      /*
+        The human check: which mode, and the PUBLIC site key the widget is drawn with (null when
+        off). Served here, not baked into a build, so each environment has its own widget. The
+        secret is never part of this answer.
+      */
+      ...humanCheckCapability(this.config),
     };
   }
 }

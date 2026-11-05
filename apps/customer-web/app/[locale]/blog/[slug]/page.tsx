@@ -6,6 +6,7 @@ import { NoticeBanner } from '@/components/marketing/blocks';
 import { POSTS, getPost, relatedPosts, formatDate } from '@/lib/blog';
 import { Link } from '@/i18n/navigation';
 import { BrandPage } from '@/components/storefront-brand';
+import { alternatesFor, shareCards } from '@/lib/seo';
 
 export function generateStaticParams() {
   return POSTS.map((p) => ({ slug: p.slug }));
@@ -22,16 +23,23 @@ export function generateStaticParams() {
 export async function generateMetadata({
   params,
 }: {
-  params: Promise<{ slug: string }>;
+  params: Promise<{ locale: string; slug: string }>;
 }): Promise<Metadata> {
-  const { slug } = await params;
+  const { locale, slug } = await params;
   const post = getPost(slug);
   if (!post) return { title: 'Article not found' };
+  const path = `/blog/${post.slug}`;
   return {
     title: post.title,
     description: post.excerpt,
-    alternates: { canonical: `/blog/${post.slug}` },
-    openGraph: { type: 'article', title: post.title, description: post.excerpt },
+    alternates: alternatesFor(locale, path),
+    ...shareCards({
+      locale,
+      path,
+      title: `${post.title} - ETicketsGo`,
+      description: post.excerpt,
+      type: 'article',
+    }),
   };
 }
 

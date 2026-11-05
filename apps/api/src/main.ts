@@ -9,6 +9,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { quietBootLogger } from './common/quiet-boot-logger';
+import { applyHttpTimeouts, resolveHttpTimeouts } from './common/http-timeouts';
 import { swaggerVisibility } from './common/swagger-visibility';
 
 async function bootstrap(): Promise<void> {
@@ -82,6 +83,13 @@ async function bootstrap(): Promise<void> {
   // the platform health check fail with no other symptom.
   const port = config.get<number>('PORT') ?? config.get<number>('API_PORT', 4000);
   await app.listen(port, '0.0.0.0');
+  // Idle keep-alive longer than Railway's 60 s edge timeout, and a bound on slow request bodies.
+  // See common/http-timeouts.ts for the values and why each is what it is.
+  const timeouts = resolveHttpTimeouts((key) => config.get(key));
+  applyHttpTimeouts(app.getHttpServer(), timeouts);
+  logger.log(
+    `HTTP timeouts: keep-alive ${timeouts.keepAliveTimeoutMs} ms, headers ${timeouts.headersTimeoutMs} ms, request ${timeouts.requestTimeoutMs} ms`,
+  );
   logger.log(`ETicketsGo API listening on 0.0.0.0:${port}/${prefix}`);
   if (swagger.enabled) logger.log(`Swagger docs at /${prefix}/docs`);
 }

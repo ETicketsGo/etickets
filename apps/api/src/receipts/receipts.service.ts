@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { refundTaxForTickets, ticketNetPrices } from '../refunds/refund-tax';
+import { documentOperator, type DocumentOperator } from '@eticketsgo/shared-types';
 import {
   buildReceiptDocument,
   negateTotals,
@@ -104,7 +105,9 @@ export class ReceiptsService {
             addOn: { select: { name: true } },
           },
         },
-        event: { select: { title: true, venue: { select: { name: true, city: true } } } },
+        event: {
+          select: { title: true, venue: { select: { name: true, city: true, country: true } } },
+        },
         eventSession: { select: { startsAt: true } },
       },
     });
@@ -160,6 +163,15 @@ export class ReceiptsService {
         inclusive: t.inclusive ?? null,
       })),
       totals,
+      /*
+        The platform's company for this sale: where it happened, then the currency the payment
+        routing took it in. Frozen on the document; a later change to the registry does not
+        reach a receipt already issued.
+      */
+      operator: documentOperator({
+        transactionCountry: booking.event?.venue?.country ?? null,
+        currency: booking.currency,
+      }),
       /*
         Itemised only when the customer bears the whole fee, so the parts always foot to the
         line above them. See ReceiptFeeParts for why this is conditional.
@@ -333,6 +345,7 @@ export class ReceiptsService {
       totals,
       reverses: sale ? { number: sale.number, issuedAt: sale.issuedAt } : null,
       reason: refund.reason,
+      operator: reversalOperator(sale?.documentJson, booking.currency),
     });
 
     await tx.receipt.create({
@@ -458,6 +471,7 @@ export class ReceiptsService {
           }
         : undefined,
       reverses: { number: sale.number, issuedAt: sale.issuedAt },
+      operator: reversalOperator(sale.documentJson, sale.currency),
       reason,
     });
 
@@ -609,4 +623,14 @@ export class ReceiptsService {
     ]);
     return { items, total, page, pageSize };
   }
+}
+
+/**
+ * The operator a reversal names: the one its sale document names, so the pair agree. A sale
+ * issued before documents recorded an operator has none, and the credit note (a NEW
+ * document) resolves its own from the currency. The sale document itself is never touched.
+ */
+function reversalOperator(saleDocument: unknown, currency: string): DocumentOperator {
+  const stored = (saleDocument as { operator?: DocumentOperator } | null | undefined)?.operator;
+  return stored?.legalName && stored.country ? stored : documentOperator({ currency });
 }

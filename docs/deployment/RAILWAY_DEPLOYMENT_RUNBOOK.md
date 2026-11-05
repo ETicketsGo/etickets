@@ -12,9 +12,20 @@
 > [AWS topology](../p6/P6.1-CLOUD-DEPLOYMENT.md) ·
 > [Docker Compose](../guides/DEPLOYMENT.md)
 
-**Nothing in this repository has been deployed.** No Railway project, service, plugin,
-domain, or token exists yet. Every portal step below is written for the repository owner to
-execute with their own authenticated access. Placeholders are marked `<LIKE_THIS>`.
+> **As built (2026-11-01).** This runbook was written before anything was deployed, and the
+> real setup differs in three ways. (1) There is **one** Railway project, `ETicketsGo`, with
+> three environments (`qa`, `uat`, `production`). Each environment has its own Postgres, Redis
+> and services, and its own project token scoped to that environment only, which gives the
+> credential isolation the three-project design below was meant to give. A new environment
+> must be created by duplicating an existing one in the dashboard, then its secrets rotated
+> (`scripts/deploy/provision-railway-environment.mjs`, `rotate-environment-secrets.mjs`).
+> (2) Each environment also runs a `db-seed` cron service (nightly verified backup;
+> `deploy/railway/db-seed.railway.json`). (3) Nothing deploys on push: every deploy is a manual
+> dispatch, and production releases are pinned to a named commit per service. The current
+> topology, deploy procedure and flags are in [DEPLOYMENT-GUIDE](../DEPLOYMENT-GUIDE.md).
+
+Every portal step below is written for the repository owner to execute with their own
+authenticated access. Placeholders are marked `<LIKE_THIS>`.
 
 ---
 
@@ -39,17 +50,24 @@ ETicketsGo-QA              ETicketsGo-UAT             ETicketsGo-Production
 Five application services per project. There is **no separate scheduler service** — the
 schedule lives in BullMQ repeatable jobs registered by the `worker` process at boot
 (`expire-holds`, `dispatch-notifications`, `process-webhooks`, `inventory-sync-sweep`,
-`outbox-dispatch`, `outbox-maintenance`, `reconcile-finance`, `prune-tokens`). Do not
-invent one.
+`outbox-dispatch`, `outbox-maintenance`, `reconcile-finance`, `prune-tokens`, and since then
+also notification fallbacks, callback replay, reminders, cancellation refunds, sellability,
+reversal reconcile, payout runs, billing sweep and price check, plus the separate
+`campaigns` queue; full list in [ARCHITECTURE](../architecture/ARCHITECTURE.md#33-bullmq-queues-and-jobs-from-appsworkersrcmaints)).
+Do not invent one.
 
 ### Branch → environment flow
 
+> **Changed 2026-10-24: no branch deploys on push any more.** Pushing `develop` or a
+> `release/**` branch used to deploy QA or UAT automatically, so a branch NAME was a deploy
+> switch (a PR branch called `release/android-1.0.0` started an unintended UAT deploy).
+> Every deployment is now a manual dispatch with the environment name typed again to
+> confirm. Sections below that say "automatic on push" describe the old flow.
+
 ```
-feature/*  ──PR──▶  develop  ──▶  QA          (automatic on push)
-                       │
-                    release/*  ──▶  UAT       (automatic on push)
-                       │
-                      main    ──▶  Production (NOT automatic — dispatch only, §13)
+QA          dispatch: Deploy (Railway), environment=qa, confirm=qa
+UAT         dispatch: Deploy (Railway), environment=uat, confirm=uat
+Production  dispatch from main only: environment=production, confirm=production (§13)
 ```
 
 Every environment additionally requires its `DEPLOY_ENABLED_<ENV>` repository variable to
@@ -58,6 +76,8 @@ be `true`, so a branch can exist and build long before it can deploy anywhere.
 ---
 
 ## 1. Creating the three Railway projects
+
+> **As built:** one project with three environments was used instead; see the note at the top.
 
 For each of `ETicketsGo-QA`, `ETicketsGo-UAT`, `ETicketsGo-Production`:
 
@@ -331,6 +351,10 @@ DNS records, SSL mode, proxy settings and cache rules: [Cloudflare & DNS](./CLOU
 
 ## 11. Configuring deployment branches
 
+> **As built:** automatic deploys are off everywhere, and deploys are dispatched by hand, so
+> the branch setting only matters for a manual dashboard deploy. The `develop` and `release/*`
+> rows below describe the retired push flow.
+
 For **every service in every project**: **Settings → Source → Automatic Deploys → OFF**.
 
 This is deliberate and important. If Railway auto-deploys on push, code reaches an
@@ -412,8 +436,8 @@ Environment **secrets and variables** work on every plan, so the environments ar
 worth creating: they scope `RAILWAY_TOKEN_<ENV>` so a QA run cannot read the production
 token.
 
-For `qa` and `uat`: no reviewers are needed by design — they deploy automatically from
-`develop` and `release/**`.
+For `qa` and `uat`: no reviewers are needed by design; they deploy only when dispatched
+with a typed confirmation (no push trigger since 2026-10-24).
 
 ### Environment variables (Settings → Environments → `<env>` → Variables)
 
@@ -449,6 +473,10 @@ Intended configuration once available: protect `main` and `develop`, require the
 ---
 
 ## 14. Deploying QA
+
+> **As built:** the push trigger was removed on 2026-10-24. Dispatch **Deploy (Railway)** with
+> `environment=qa` and `confirm=qa`, or run `scripts/deploy/railway-deploy-and-wait.mjs` per
+> service (api first). The gate and order below are unchanged.
 
 ```bash
 git checkout -b develop origin/main   # first time only
@@ -623,6 +651,7 @@ deploy path here, and `npm run verify:deploy` fails the build if one is introduc
 
 5. **If the migration partially applied** (state: failed, schema partly changed) — this is
    the serious case. Decide between:
+
    - **Finish it forward:** apply the remaining statements by hand in a psql session, then
      `prisma migrate resolve --applied <migration_name>`. Preferred when the remainder is
      small and well understood.

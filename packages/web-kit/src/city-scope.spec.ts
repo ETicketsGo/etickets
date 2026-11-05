@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { cityScope, countryName, countryPhrase, type CityPreference } from './city';
+import { countryName, countryPhrase, type CityPreference } from './city';
+import { cityScope } from './city-scope';
 
 /**
  * What the storefront asks the API for, given where we think the customer is.

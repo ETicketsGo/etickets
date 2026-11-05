@@ -734,3 +734,70 @@ describe('the tax category comes from the classification, never the seat class (
     expect(quote.fees.totalMinor).toBe(18_000 + quote.fees.customerFeeMinor);
   });
 });
+
+describe('a quote and the booking agree on the fee schedule version', () => {
+  /*
+    A booking made from a quote must not silently switch to a fee schedule published in
+    between. The quote names the schedule (`feeScheduleVersion`); the booking compares.
+  */
+  const ticketTypes = [{ id: 'gen', priceMinor: 49_990 }];
+  const items = [{ ticketTypeId: 'gen', quantity: 2 }];
+  const buyer = { buyerName: 'G', buyerEmail: 'gst@t.test' };
+  const published = [
+    {
+      id: 'fr-new',
+      minMinor: 0,
+      maxMinor: null,
+      feeMinor: 9_900,
+      feeType: 'FLAT',
+      country: 'India',
+      region: '*',
+      active: true,
+      currency: 'INR',
+    },
+  ];
+
+  it('refuses a booking whose quote was priced by the schedule before a publish', async () => {
+    const { service, cart, prisma, bookingCreate } = setup({ ticketTypes, items });
+    const quote = (await service.quote(cart as never)) as { feeScheduleVersion: string };
+    expect(typeof quote.feeScheduleVersion).toBe('string');
+    (prisma.feeRule.findMany as jest.Mock).mockResolvedValue(published);
+    await expect(
+      service.create(BUYER, {
+        ...cart,
+        ...buyer,
+        feeScheduleVersion: quote.feeScheduleVersion,
+      } as never),
+    ).rejects.toMatchObject({ code: 'FEE_SCHEDULE_CHANGED', status: 409 });
+    expect(bookingCreate).not.toHaveBeenCalled();
+  });
+
+  it('books when the schedule is the one the quote used', async () => {
+    const { service, cart, bookingCreate } = setup({ ticketTypes, items });
+    const quote = (await service.quote(cart as never)) as { feeScheduleVersion: string };
+    await service.create(BUYER, {
+      ...cart,
+      ...buyer,
+      feeScheduleVersion: quote.feeScheduleVersion,
+    } as never);
+    expect(bookingCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('a new quote after the publish carries the new version, the new fee, and books', async () => {
+    const { service, cart, prisma, bookingCreate } = setup({ ticketTypes, items });
+    const before = (await service.quote(cart as never)) as { feeScheduleVersion: string };
+    (prisma.feeRule.findMany as jest.Mock).mockResolvedValue(published);
+    const after = (await service.quote(cart as never)) as {
+      feeScheduleVersion: string;
+      fees: { bookingFeeMinor: number };
+    };
+    expect(after.feeScheduleVersion).not.toBe(before.feeScheduleVersion);
+    expect(after.fees.bookingFeeMinor).toBe(9_900);
+    await service.create(BUYER, {
+      ...cart,
+      ...buyer,
+      feeScheduleVersion: after.feeScheduleVersion,
+    } as never);
+    expect(bookingCreate).toHaveBeenCalledTimes(1);
+  });
+});

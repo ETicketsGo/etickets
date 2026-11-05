@@ -23,6 +23,16 @@ import {
  *
  * The answer now is the one the question implies: the owner adds them and picks the
  * permission, and the invitee gets a link that creates their account.
+ *
+ * ── WHAT THE BROWSER CAN NO LONGER SEE (owner decision, 2026-10-26) ────────────────
+ * The link used to be shown to the owner to copy. That made the inviter a holder of the
+ * invitee's acceptance credential, so it is now emailed to the invitee ONLY, and accepting needs
+ * the invitee's own session with a code-confirmed email. A browser test has no inbox, so the
+ * invitee's half (claim with the emailed code, sign in, accept; reuse refused; another session
+ * refused) is proven over HTTP against a real database in
+ * `apps/api/src/organizations/invite-and-suspension.http.integration-postgres.spec.ts`. This
+ * walk proves the owner's half: the invitation is made, the owner is told whether the email
+ * left, and the page never carries the link.
  */
 const OWNER_EMAIL = 'owner@eticketsgo.test';
 
@@ -30,22 +40,17 @@ test.describe('adding a staff member', () => {
   test.describe.configure({ mode: 'serial' });
 
   let owner: Awaited<ReturnType<typeof apiLogin>>;
-  let organizationId = '';
   const staffEmail = uniqueEmail('newstaff');
-  let inviteUrl = '';
 
   test.beforeAll(async ({ request }) => {
-    // Minted once — the auth throttle is deliberately tight and is not weakened for a test.
+    // Minted once - the auth throttle is deliberately tight and is not weakened for a test.
     owner = await apiLogin(request, OWNER_EMAIL);
-    const orgs = await (
-      await request.get(`${API}/organizations`, {
-        headers: { Authorization: `Bearer ${owner.accessToken}` },
-      })
-    ).json();
-    organizationId = (Array.isArray(orgs) ? orgs : orgs.data)[0].id;
   });
 
-  test('1: the owner adds someone and is handed a link to send them', async ({ page, context }) => {
+  test('1: the owner adds someone and is told the invitation was emailed - never shown the link', async ({
+    page,
+    context,
+  }) => {
     await seedBrowserAuth(context, owner);
     await page.goto(`${ORGANIZER}/organizer/team`, { waitUntil: 'networkidle' });
 
@@ -55,79 +60,31 @@ test.describe('adding a staff member', () => {
 
     await page.getByLabel('Email').fill(staffEmail);
     await page.getByLabel('Role').selectOption('CHECKIN_STAFF');
+    const answer = page.waitForResponse(
+      (r) => r.url().includes('/members') && r.request().method() === 'POST',
+    );
     await page.getByRole('button', { name: 'Create invitation' }).click();
+    const response = await answer;
 
-    /*
-      The link is shown, not merely emailed. `EMAIL_PROVIDER=log` swallows mail in every
-      environment configured so far, so an invitation that only goes by email is the same
-      dead end wearing a new costume.
-    */
-    const field = page.getByLabel('Invitation link');
-    await expect(field).toBeVisible({ timeout: 30_000 });
-    inviteUrl = await field.inputValue();
-    expect(inviteUrl).toContain('/invite/');
+    // Whether the email left depends on this environment's mail; either way the owner is told.
+    await expect(page.getByTestId('invitation-email-status')).toBeVisible({ timeout: 30_000 });
+    // And never handed the credential: not in the answer, not on the page.
+    expect(await response.text()).not.toContain('/invite/');
+    await expect(page.getByLabel('Invitation link')).toHaveCount(0);
+    expect(await page.content()).not.toContain('/invite/');
 
-    // And they are listed as not yet joined, rather than silently looking like a member.
-    // Regex, not a literal: the page renders a typographic apostrophe, not an ASCII one.
+    // They are listed as not yet joined, rather than silently looking like a member.
     await expect(page.getByText(/Has not joined yet/).first()).toBeVisible();
   });
 
-  test('2: before accepting, the account cannot sign in at all', async ({ request }) => {
+  test('2: before it is claimed, the account cannot sign in at all', async ({ request }) => {
     /*
-      The security property, and the reason the old behaviour could not simply be "make them
-      ACTIVE immediately": being named by somebody else is not consent, and an account that
-      exists but was never claimed must not be usable.
+      Being named by somebody else is not consent, and an account that exists but was never
+      claimed (with a code sent to its own address) must not be usable.
     */
     const res = await request.post(`${API}/auth/login`, {
       data: { email: staffEmail, password: NEW_ACCOUNT_PASSWORD },
     });
     expect(res.ok()).toBe(false);
-  });
-
-  test('3: the invitee opens the link, sets a password, and joins', async ({ page }) => {
-    const path = new URL(inviteUrl).pathname;
-    await page.goto(`${ORGANIZER}${path}`, { waitUntil: 'networkidle' });
-
-    await expect(page.getByRole('heading', { name: /^Join / })).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(staffEmail)).toBeVisible();
-
-    await page.getByLabel('Your name').fill('New Staffer');
-    await page.getByLabel('Choose a password').fill(NEW_ACCOUNT_PASSWORD);
-    await page.getByRole('button', { name: 'Create account and join' }).click();
-
-    // Signed in with the password they just chose, straight into the console - not sent to a
-    // blank sign-in form to type it again.
-    await expect(page).toHaveURL(/\/organizer/, { timeout: 30_000 });
-    await expect(page).not.toHaveURL(/\/login/);
-  });
-
-  test('4: and now they can sign in and reach the organization', async ({ request }) => {
-    /*
-      What the whole feature is for, and what was broken: `assertMember` requires ACTIVE, and
-      nothing used to set it. Asserted against the API rather than the UI, because a console
-      that renders a team list proves nothing about whether the server would let them act.
-    */
-    const staff = await apiLogin(request, staffEmail, NEW_ACCOUNT_PASSWORD);
-    expect(staff.accessToken).toBeTruthy();
-
-    const res = await request.get(`${API}/organizations`, {
-      headers: { Authorization: `Bearer ${staff.accessToken}` },
-    });
-    expect(res.ok()).toBe(true);
-    const orgs = await res.json();
-    const list = Array.isArray(orgs) ? orgs : orgs.data;
-    expect(list.map((o: { id: string }) => o.id)).toContain(organizationId);
-  });
-
-  test('5: the link is spent, and says something useful when reused', async ({ page }) => {
-    const path = new URL(inviteUrl).pathname;
-    await page.goto(`${ORGANIZER}${path}`, { waitUntil: 'networkidle' });
-
-    await expect(page.getByRole('heading', { name: /cannot be used/i })).toBeVisible({
-      timeout: 30_000,
-    });
-    // The server's own wording, which points at the next thing to try rather than just
-    // reporting failure.
-    await expect(page.getByText(/already have been used/i)).toBeVisible();
   });
 });

@@ -219,6 +219,45 @@ describe('RazorpayWebhookProcessor idempotency + dispatch', () => {
     expect(payments.processVerifiedEvent.mock.calls[0][0]).not.toHaveProperty('failure');
   });
 
+  it('payment.captured carries the currency of the payment, for the confirm check', async () => {
+    const { processor, payments } = makeProcessor({
+      record: rec({
+        payload: {
+          object: {
+            payment: {
+              entity: { id: 'pay_1', amount: 150000, currency: 'INR', notes: { bookingId: 'b1' } },
+            },
+            // An order in another currency must not be read as the payment's.
+            order: { entity: { id: 'order_1', amount: 150000, currency: 'USD', receipt: 'b1' } },
+          },
+        },
+      }),
+    });
+    await processor.process('w1');
+    expect(payments.processVerifiedEvent.mock.calls[0][0]).toMatchObject({ currency: 'INR' });
+  });
+
+  it('order.paid with no payment entity reads the order currency', async () => {
+    const { processor, payments } = makeProcessor({
+      record: rec({
+        eventType: 'order.paid',
+        payload: {
+          object: {
+            order: { entity: { id: 'order_1', amount: 150000, currency: 'INR', receipt: 'b1' } },
+          },
+        },
+      }),
+    });
+    await processor.process('w1');
+    expect(payments.processVerifiedEvent.mock.calls[0][0]).toMatchObject({ currency: 'INR' });
+  });
+
+  it('a payload with no currency adds none (nothing to check)', async () => {
+    const { processor, payments } = makeProcessor({ record: rec() });
+    await processor.process('w1');
+    expect(payments.processVerifiedEvent.mock.calls[0][0]).not.toHaveProperty('currency');
+  });
+
   it('order.paid resolves the booking from order receipt/notes', async () => {
     const { processor, payments } = makeProcessor({
       record: rec({
@@ -258,6 +297,71 @@ describe('RazorpayWebhookProcessor idempotency + dispatch', () => {
     await processor.process('w1');
     // organizer share of a 50000 refund on a 150000 charge with 140000 net = round(50000*140000/150000)=46667
     expect(settlements.applyRefund).toHaveBeenCalledWith('e1', 'INR', 46667);
+  });
+
+  /*
+    R1: the settlement must charge the organizer what the payout ledger charges them -
+    `organizerShareOfRefund` (amount - taxAdded - platformFeeRefunded) - whenever our own
+    COMPLETED Refund row explains the refund. Pro-rata is only for dashboard refunds.
+  */
+  describe('organizer share of a refund (R1)', () => {
+    const r1Event = (amount: number) =>
+      rec({
+        eventType: 'refund.processed',
+        payload: {
+          object: {
+            refund: { entity: { id: 'rfnd_1', payment_id: 'pay_1', amount, currency: 'INR' } },
+          },
+        },
+      });
+    const r1Payment = {
+      id: 'p1',
+      bookingId: 'b1',
+      amountMinor: 105570,
+      organizerNetMinor: 100000,
+      refundedMinor: 0,
+      currency: 'inr',
+      booking: { eventId: 'e1' },
+    };
+    const ownRow = (amountMinor: number, platformFeeRefundedMinor: number) => ({
+      id: 'rf-1',
+      bookingId: 'b1',
+      organizationId: 'org-1',
+      status: 'COMPLETED',
+      amountMinor,
+      taxAddedMinor: 0,
+      platformFeeRefundedMinor,
+    });
+
+    it('a ticket-only refund of 100000 deducts the whole 100000, not 94724', async () => {
+      const { processor, settlements } = makeProcessor({
+        record: r1Event(100000),
+        payment: r1Payment,
+        refundRow: ownRow(100000, 0),
+      });
+      await processor.process('w1');
+      expect(settlements.applyRefund).toHaveBeenCalledWith('e1', 'INR', 100000);
+    });
+
+    it('a full cancellation refund returns the fees without charging them to the organizer', async () => {
+      const { processor, settlements } = makeProcessor({
+        record: r1Event(105570),
+        payment: r1Payment,
+        refundRow: ownRow(105570, 5570),
+      });
+      await processor.process('w1');
+      expect(settlements.applyRefund).toHaveBeenCalledWith('e1', 'INR', 100000);
+    });
+
+    it('with no Refund row of ours (a dashboard refund) the pro-rata share is kept', async () => {
+      const { processor, settlements } = makeProcessor({
+        record: r1Event(100000),
+        payment: r1Payment,
+      });
+      await processor.process('w1');
+      // round(100000 * 100000 / 105570) = 94724
+      expect(settlements.applyRefund).toHaveBeenCalledWith('e1', 'INR', 94724);
+    });
   });
 
   it('payment.dispute.lost syncs the dispute with provider=razorpay', async () => {

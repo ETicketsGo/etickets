@@ -72,6 +72,18 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'POST /auth/phone/attach/request-code': 'SELF',
   'POST /auth/phone/attach/verify': 'SELF',
   'GET /auth/me': 'SELF',
+  // Sign out everywhere: revokes the caller's own sessions only; no organization is involved.
+  'POST /auth/logout-all': 'SELF',
+  // Console handoff: a code for the caller's OWN account; the seat is re-read from the database.
+  'POST /auth/handoff': 'SELF',
+  // Adding a proved email to the caller's own phone-only account.
+  'POST /auth/email/request-code': 'SELF',
+  'POST /auth/email/verify': 'SELF',
+  // Proving the caller's OWN current email (asked before a team invitation can be accepted).
+  'POST /auth/email/confirm/request-code': 'SELF',
+  'POST /auth/email/confirm/verify': 'SELF',
+  // Accepting a team invitation: only the INVITED account's own session; the service checks it.
+  'POST /public/invitations/:token/accept': 'SELF',
   // Admin MFA: the caller's own sign-in security. No organization is involved.
   'GET /auth/mfa/status': 'SELF',
   'POST /auth/mfa/enroll/start': 'SELF',
@@ -192,6 +204,18 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'PUT /me/marketing-consent': 'SELF',
   'GET /me/notification-preferences': 'SELF',
   'PUT /me/notification-preferences': 'SELF',
+  // ── Following organizers and scoped consent (the caller's own follows and decisions) ──
+  'GET /me/following': 'SELF',
+  'GET /me/following/:organizationId': 'SELF',
+  'PUT /me/following/:organizationId': 'SELF',
+  'DELETE /me/following/:organizationId': 'SELF',
+  'GET /me/following/:organizationId/preferences': 'SELF',
+  'PUT /me/following/:organizationId/preferences': 'SELF',
+  'GET /me/communication-consent': 'SELF',
+  'PUT /me/communication-consent/marketing-email': 'SELF',
+  'PUT /me/communication-consent/organizers/:organizationId': 'SELF',
+  // Aggregates only, owners and managers. Staff who are not members are refused.
+  'GET /organizations/:id/audience/summary': 'NONE',
   'GET /notifications': 'SELF',
   'GET /notifications/unread-count': 'SELF',
   'POST /notifications/:id/read': 'SELF',
@@ -226,6 +250,47 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'GET /organizations/:id/counter-sales/shows': 'ORGANIZER_ONLY',
   'GET /organizations/:id/cash-returns': 'ORGANIZER_ONLY',
   'POST /organizations/:id/cash-returns/:bookingId/returned': 'ORGANIZER_ONLY',
+  // Organizer email campaigns. Staff oversee them on /admin/campaigns (ORGANIZER_READ, and
+  // ORGANIZER_REVIEW to pause); nothing here returns a recipient or an address.
+  'GET /organizations/:id/campaigns/status': 'NONE',
+  'GET /organizations/:id/campaigns': 'NONE',
+  'POST /organizations/:id/campaigns': 'NONE',
+  'POST /organizations/:id/campaigns/audience-preview': 'NONE',
+  'GET /organizations/:id/campaigns/segments': 'NONE',
+  'POST /organizations/:id/campaigns/segments': 'NONE',
+  'DELETE /organizations/:id/campaigns/segments/:segmentId': 'NONE',
+  'GET /organizations/:id/campaigns/analytics': 'NONE',
+  'GET /organizations/:id/campaigns/analytics/export': 'NONE',
+  'GET /organizations/:id/campaigns/:campaignId': 'NONE',
+  'PATCH /organizations/:id/campaigns/:campaignId': 'NONE',
+  'POST /organizations/:id/campaigns/:campaignId/duplicate': 'NONE',
+  'GET /organizations/:id/campaigns/:campaignId/audience': 'NONE',
+  'GET /organizations/:id/campaigns/:campaignId/preview': 'NONE',
+  /** Mail under the organization's name: its own decision, never staff's. */
+  'POST /organizations/:id/campaigns/:campaignId/test-send': 'ORGANIZER_ONLY',
+  'POST /organizations/:id/campaigns/:campaignId/review': 'NONE',
+  'POST /organizations/:id/campaigns/:campaignId/schedule': 'ORGANIZER_ONLY',
+  'POST /organizations/:id/campaigns/:campaignId/reschedule': 'NONE',
+  'POST /organizations/:id/campaigns/:campaignId/unschedule': 'NONE',
+  'POST /organizations/:id/campaigns/:campaignId/send': 'ORGANIZER_ONLY',
+  'POST /organizations/:id/campaigns/:campaignId/cancel': 'NONE',
+  'POST /organizations/:id/campaigns/:campaignId/pause': 'NONE',
+  'POST /organizations/:id/campaigns/:campaignId/resume': 'NONE',
+  'GET /organizations/:id/campaigns/:campaignId/history': 'NONE',
+  'GET /organizations/:id/campaigns/:campaignId/stats': 'NONE',
+  // Organizer billing. Staff read billing on /admin/billing (BILLING_READ), never here.
+  'GET /organizations/:id/entitlements': 'NONE',
+  'GET /organizations/:id/billing': 'NONE',
+  'GET /organizations/:id/billing/invoices': 'NONE',
+  'GET /organizations/:id/billing/invoices/:invoiceId/html': 'NONE',
+  /** Reads only: the quote before paying, and where a checkout in another tab stands. */
+  'GET /organizations/:id/billing/quote': 'NONE',
+  'GET /organizations/:id/billing/checkout-status': 'NONE',
+  /** The organization's own decision to pay for a plan, buy credits, or stop paying. */
+  'POST /organizations/:id/billing/checkout': 'ORGANIZER_ONLY',
+  'POST /organizations/:id/billing/credit-packs/checkout': 'ORGANIZER_ONLY',
+  'POST /organizations/:id/billing/portal': 'ORGANIZER_ONLY',
+  'POST /organizations/:id/billing/cancel': 'ORGANIZER_ONLY',
   'POST /organizations/:id/members': 'NONE',
   'POST /organizations/:id/members/:memberId/resend-invite': 'NONE',
   'DELETE /organizations/:id/members/:memberId': 'NONE',

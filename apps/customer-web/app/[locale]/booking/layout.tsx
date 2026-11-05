@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { PRIVATE_ROBOTS } from '@/lib/seo';
 import { sectionTitle } from '@/lib/page-title';
 
 /*
@@ -15,6 +16,8 @@ import { sectionTitle } from '@/lib/page-title';
 export const metadata: Metadata = {
   title: sectionTitle('Your booking'),
   description: 'Your booking and its tickets.',
+  // Somebody's own account, purchase or link: never a search result.
+  robots: PRIVATE_ROBOTS,
 };
 
 export default function SectionLayout({ children }: { children: React.ReactNode }) {

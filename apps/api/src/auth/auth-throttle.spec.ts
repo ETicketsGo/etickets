@@ -29,6 +29,7 @@ const TTL = 'THROTTLER:TTLdefault';
 const EXEMPT: Record<string, string> = {
   logout: 'needs a valid refresh token; nothing to guess',
   me: 'needs a valid access token; returns only your own record',
+  logoutAll: 'needs a valid access token; can only end your own sessions',
 };
 
 describe('the credential routes are rate limited', () => {

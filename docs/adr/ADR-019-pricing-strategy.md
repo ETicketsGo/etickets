@@ -1,6 +1,7 @@
 # ADR-019: Pricing Strategy
 
 - **Status:** Accepted
+- **Status (2026-11-01):** current for line pricing. Platform fees are a separate mechanism (`FeeRule` bands, fee schedule drafts, `PlatformFeePolicy`); see [FLOWS](../architecture/FLOWS.md#3-fee-schedule-draft-validate-publish).
 - **Date:** 2026-07-13
 - **Relates to:** ADR-010 (Inventory Strategy)
 - **Scope:** Pricing Platform sprint (one concern, one PR)

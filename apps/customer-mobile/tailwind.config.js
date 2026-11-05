@@ -1,15 +1,16 @@
 /**
- * NativeWind theme. Reuses the ETicketsGo design-tokens scales (radius/spacing/
- * type) as the single source of truth; colors map to CSS variables defined in
- * `global.css` (mirrored from packages/design-tokens/src/tokens.css) so light/dark
- * follow the device automatically.
+ * NativeWind theme: the customer storefront's design system (docs/design/DESIGN-SYSTEM.md),
+ * adapted to a phone. Colours come from packages/design-tokens/src/brand.css; the semantic
+ * names map to CSS variables in global.css, and the brand names below are the same values
+ * as literals for the places that need them by name (gold, the stage band).
+ *
+ * Light only, like the storefront. `darkMode: 'class'` with no class ever set means a phone
+ * in dark mode still gets the paper page, which is what the website does too.
  */
-const tokens = require('@eticketsgo/design-tokens');
-
 const hsl = (v) => `hsl(var(${v}) / <alpha-value>)`;
 
 module.exports = {
-  darkMode: 'media',
+  darkMode: 'class',
   content: ['./app/**/*.{ts,tsx}', './src/**/*.{ts,tsx}'],
   presets: [require('nativewind/preset')],
   theme: {
@@ -29,6 +30,7 @@ module.exports = {
         border: {
           DEFAULT: hsl('--border-default'),
           strong: hsl('--border-strong'),
+          field: hsl('--border-field'),
         },
         action: {
           primary: hsl('--action-primary'),
@@ -45,41 +47,79 @@ module.exports = {
           info: hsl('--status-info'),
         },
         ring: hsl('--ring'),
+        /*
+          The brand by name (brand.css --etg-*). Gold has three jobs and three values:
+          `gold` is decoration only (a dot, a rule, a selected seat) and is never text on
+          paper (2.5:1); gold words on paper are `gold-text`; gold on the stage is
+          `gold-on-ink`.
+        */
+        paper: '#F6F2EA',
+        sunken: '#F0EBE1',
+        ink: { DEFAULT: '#16130F', hover: '#2B2620', 2: '#3D3830', 3: '#6A6359' },
+        gold: { DEFAULT: '#B8955A', text: '#84652F', 'on-ink': '#E3CFA5', hover: '#EDDFC0' },
+        positive: { DEFAULT: '#2F5E45', tint: '#E6F0E9', dot: '#3F7A5A' },
+        caution: { DEFAULT: '#84652F', tint: '#F8F1E4' },
+        critical: { DEFAULT: '#B51D29', tint: '#FBE6E7' },
+        info: { DEFAULT: '#2A4F9D', tint: '#E8EEFA' },
+        /* The stage band (brand.css data-brand-tone="stage"): the lights go down. */
+        stage: {
+          DEFAULT: '#16130F',
+          surface: '#221E19',
+          sunken: '#2E2922',
+          line: '#3A342C',
+          'line-strong': '#4D463C',
+          field: '#8A8276',
+          ink: '#F6F2EA',
+          'ink-2': '#CFC7BA',
+          'ink-3': '#ADA497',
+          positive: '#8FC1A3',
+          critical: '#F4777D',
+        },
+        'image-fallback': '#2A221A',
       },
       borderRadius: {
-        sm: tokens.radius?.sm ?? '8px',
-        md: tokens.radius?.md ?? '14px',
-        lg: tokens.radius?.lg ?? '20px',
-        xl: tokens.radius?.xl ?? '24px',
+        /* DESIGN-SYSTEM.md section 3: controls 10px, cards and images 16px. Nothing else. */
+        control: '10px',
+        card: '16px',
+        sm: '8px',
+        md: '10px',
+        lg: '16px',
+        xl: '16px',
       },
+      /*
+        One family per weight. Android does not synthesise weights for a custom font: with
+        a single "Inter" family, `font-bold` silently renders the regular face (or the
+        system font). Each face is loaded under its own name in app/_layout.tsx.
+      */
       fontFamily: {
-        sans: ['Inter', 'System'],
+        sans: ['Inter'],
+        text: ['Inter'],
+        'text-medium': ['Inter_500Medium'],
+        'text-semibold': ['Inter_600SemiBold'],
+        'text-bold': ['Inter_700Bold'],
+        'display-semibold': ['BricolageGrotesque_600SemiBold'],
+        display: ['BricolageGrotesque_700Bold'],
+        'display-heavy': ['BricolageGrotesque_800ExtraBold'],
       },
-      /**
-       * Mobile type scale, in px, following Apple's HIG names and sizes.
-       *
-       * Deliberately NOT design-tokens' `typeScale`: that scale is built for desktop web
-       * (hero is 3rem/48px) and its rem values would be read against a 16px root, so a
-       * page heading would render at 48px on a 390pt-wide phone. The web and the app
-       * share colour, radius and spacing — the things that make them look like one
-       * product — but type size is a per-platform decision, and Apple's is the one an
-       * iOS user's eye is calibrated to.
-       *
-       * Sizes are unitless-px strings so NativeWind emits plain numbers; RN then scales
-       * them with the OS text-size setting (see `maxFontSizeMultiplier` in ui/text.tsx).
-       */
+      /*
+        The storefront's type scale (DESIGN-SYSTEM.md section 2) at its phone end. Display
+        sizes take the fluid scale's 390px value; reading sizes are fixed, as on the web.
+        Bricolage is tight by design, so display sizes carry a small negative tracking.
+      */
       fontSize: {
-        'large-title': ['34px', { lineHeight: '41px', letterSpacing: '0.37px' }],
-        title1: ['28px', { lineHeight: '34px', letterSpacing: '0.36px' }],
-        title2: ['22px', { lineHeight: '28px', letterSpacing: '0.35px' }],
-        title3: ['20px', { lineHeight: '25px', letterSpacing: '0.38px' }],
-        headline: ['17px', { lineHeight: '22px', letterSpacing: '-0.41px' }],
-        body: ['17px', { lineHeight: '22px', letterSpacing: '-0.41px' }],
-        callout: ['16px', { lineHeight: '21px', letterSpacing: '-0.32px' }],
-        subhead: ['15px', { lineHeight: '20px', letterSpacing: '-0.24px' }],
-        footnote: ['13px', { lineHeight: '18px', letterSpacing: '-0.08px' }],
-        caption: ['12px', { lineHeight: '16px' }],
-        caption2: ['11px', { lineHeight: '13px', letterSpacing: '0.07px' }],
+        hero: ['40px', { lineHeight: '42px', letterSpacing: '-0.8px' }],
+        d1: ['32px', { lineHeight: '35px', letterSpacing: '-0.6px' }],
+        d2: ['24px', { lineHeight: '28px', letterSpacing: '-0.4px' }],
+        d3: ['20px', { lineHeight: '24px', letterSpacing: '-0.3px' }],
+        card: ['17px', { lineHeight: '22px', letterSpacing: '-0.2px' }],
+        lead: ['18px', { lineHeight: '28px' }],
+        body: ['16px', { lineHeight: '25px' }],
+        ui: ['14px', { lineHeight: '20px' }],
+        meta: ['13px', { lineHeight: '18px' }],
+        eyebrow: ['12px', { lineHeight: '16px', letterSpacing: '0.96px' }],
+        figure: ['28px', { lineHeight: '34px' }],
+        'figure-sm': ['20px', { lineHeight: '26px' }],
+        tab: ['11px', { lineHeight: '14px' }],
       },
     },
   },

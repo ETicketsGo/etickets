@@ -2,6 +2,7 @@
 
 > Your first read. What the product is, what it's built with, how to run it, and how we
 > test it. Everything here matches the repo as it stands on **16 September 2026**.
+> For what is live today, read [PRODUCT-CURRENT-STATE.md](PRODUCT-CURRENT-STATE.md) (2026-10-30).
 > Deeper material: [Developer Handbook](handbooks/DEVELOPER-HANDBOOK.md) ·
 > [Architecture Handbook](handbooks/ARCHITECTURE-HANDBOOK.md) · [docs index](README.md).
 

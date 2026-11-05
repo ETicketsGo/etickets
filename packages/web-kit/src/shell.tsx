@@ -5,7 +5,9 @@ import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronsLeft, ChevronsRight, LogOut, Menu, Plus, X, type LucideIcon } from 'lucide-react';
 import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -13,8 +15,9 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from 'react';
-import { useAuthUser, useLogout } from './hooks';
+import { useAuthUser, useHydrated, useLogout } from './hooks';
 import { apiAssetUrl } from './api';
+import { SIDEBAR_COLLAPSED_COOKIE } from './shell-preferences';
 import { Wordmark, WordmarkMonogram } from './wordmark';
 import { consolePageTitle, navCurrentLabel, visibleNav, type NavItem } from './nav';
 import { IconButton } from './primitives';
@@ -35,6 +38,32 @@ import {
  * a preference that cannot be read is not worth failing a page over.
  */
 const SIDEBAR_KEY = 'etg_sidebar_collapsed';
+
+/** What the server read from `SIDEBAR_COLLAPSED_COOKIE`; see shell-preferences.ts. */
+const ServerCollapsedContext = createContext(false);
+export function SidebarPreferenceProvider({
+  collapsed,
+  children,
+}: {
+  collapsed: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <ServerCollapsedContext.Provider value={collapsed}>{children}</ServerCollapsedContext.Provider>
+  );
+}
+
+/** Mirrors the stored choice into the cookie the server reads, only when they differ. */
+function syncCollapsedCookie(value: boolean): void {
+  try {
+    const want = `${SIDEBAR_COLLAPSED_COOKIE}=${value ? '1' : '0'}`;
+    if (document.cookie.split('; ').includes(want)) return;
+    const secure = location.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = `${want}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
+  } catch {
+    /* the server keeps drawing it open; the effect below still folds it */
+  }
+}
 function readCollapsed(): boolean {
   try {
     return typeof window !== 'undefined' && window.localStorage.getItem(SIDEBAR_KEY) === '1';
@@ -48,6 +77,7 @@ function writeCollapsed(value: boolean): void {
   } catch {
     /* not saved; the sidebar still works for this visit */
   }
+  syncCollapsedCookie(value);
 }
 
 /**
@@ -241,11 +271,20 @@ export function AppShell({
   const [mobileOpen, setMobileOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   /*
-    Read after mount, not during render: the server has no localStorage, and a sidebar that
-    rendered collapsed on the server and expanded on the client would be a hydration error.
+    The server cannot read localStorage, so it draws what the cookie the shell keeps beside it
+    says (`SIDEBAR_COLLAPSED_COOKIE`, handed down by the root layout) and hydration starts from
+    the same answer. localStorage stays the truth: read after mount, it wins, and the cookie is
+    brought in line for the next load (a choice made before the cookie existed folds once more).
+    A shell mounted AFTER hydration reads it at once.
   */
-  const [collapsed, setCollapsed] = useState(false);
-  useEffect(() => setCollapsed(readCollapsed()), []);
+  const serverCollapsed = useContext(ServerCollapsedContext);
+  const hydrated = useHydrated();
+  const [collapsed, setCollapsed] = useState(() => (hydrated ? readCollapsed() : serverCollapsed));
+  useEffect(() => {
+    const stored = readCollapsed();
+    setCollapsed(stored);
+    syncCollapsedCookie(stored);
+  }, []);
   const toggleCollapsed = () =>
     setCollapsed((c) => {
       writeCollapsed(!c);

@@ -1,15 +1,14 @@
-import type { Metadata } from 'next';
+import { localizedMetadata } from '@/lib/seo';
 import { Container, Section } from '@/components/marketing/kit';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
 import { BrandPage } from '@/components/storefront-brand';
 
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/organizer-agreement', {
   title: 'Organizer Agreement',
   description: 'The agreement governing organizers selling tickets on ETicketsGo.',
-  alternates: { canonical: '/organizer-agreement' },
   robots: { index: false, follow: true },
-};
+});
 
 export default function OrganizerAgreementPage() {
   return (

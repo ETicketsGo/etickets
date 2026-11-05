@@ -1,5 +1,5 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
-import { API, CUSTOMER, apiLogin, seedBrowserAuth } from './helpers';
+import { API, CUSTOMER, apiLogin, browserFetchesStorefrontData, seedBrowserAuth } from './helpers';
 
 /**
  * A show that cannot be sold online, as the buyer meets it.
@@ -65,6 +65,8 @@ test.describe('a show that cannot be sold online', () => {
   test('1: the page says so before a seat is picked, and nothing can be picked', async ({
     page,
   }) => {
+    // The closed summary below is a stand-in the server cannot see.
+    await browserFetchesStorefrontData(page.context());
     await page.route(`**/public/shows/${show.sessionId}`, async (route) => {
       const response = await route.fetch();
       const summary = await response.json();

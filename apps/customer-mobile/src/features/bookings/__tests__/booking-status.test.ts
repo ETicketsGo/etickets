@@ -48,10 +48,11 @@ describe('isLiveBooking', () => {
     expect(isLiveBooking('COMPLETED')).toBe(true);
   });
 
-  it('keeps REFUNDED, which is a real ticket that was paid for', () => {
-    // A refunded booking is history rather than a dead hold, and the session-time split
-    // already files it under Past. Hiding it from both tabs would lose the receipt.
-    expect(isLiveBooking('REFUNDED')).toBe(true);
+  it('files a fully REFUNDED booking under Past, even for a future date', () => {
+    // It admits nobody, so "Upcoming" would tell the buyer they still have a ticket.
+    // Past is the exact complement of Upcoming, so the receipt stays reachable there.
+    expect(isLiveBooking('REFUNDED')).toBe(false);
+    expect(isLiveBooking('PARTIALLY_REFUNDED')).toBe(true);
   });
 
   it('treats an unrecognised status as live rather than hiding it', () => {

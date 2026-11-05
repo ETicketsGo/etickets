@@ -68,6 +68,40 @@ describe('resolveSaleKind', () => {
   it('issues a tax invoice once a registration is recorded', () => {
     expect(resolveSaleKind({ taxRegistrationNumber: '29AABCU9603R1ZM' })).toBe('TAX_INVOICE');
   });
+
+  const at = (country: string | null, kind: string | null, number: string | null) =>
+    resolveSaleKind({
+      taxRegistrationKind: kind,
+      taxRegistrationNumber: number,
+      address: { country },
+    });
+
+  it('India: a GSTIN makes a GST tax invoice, in any stored spelling of the country', () => {
+    expect(at('India', 'GSTIN', '29AABCU9603R1ZM')).toBe('TAX_INVOICE');
+    expect(at('IN', 'GSTIN', '29AABCU9603R1ZM')).toBe('TAX_INVOICE');
+    expect(at('India', null, null)).toBe('RECEIPT');
+  });
+
+  it('US: an EIN (or any number) never turns a receipt into a tax invoice', () => {
+    expect(at('United States', 'EIN', '12-3456789')).toBe('RECEIPT');
+    expect(at('USA', 'Sales tax permit', '123-456')).toBe('RECEIPT');
+    expect(at('US', null, '12-3456789')).toBe('RECEIPT');
+  });
+
+  it('unknown country: an EIN is still a receipt, other registrations keep the old rule', () => {
+    expect(at(null, 'EIN', '12-3456789')).toBe('RECEIPT');
+    expect(at(null, 'GSTIN', '29AABCU9603R1ZM')).toBe('TAX_INVOICE');
+  });
+
+  it('India: a PAN alone is an income-tax number, so the sale is a receipt, not a GST invoice', () => {
+    expect(at('India', 'PAN', 'AABCU9603R')).toBe('RECEIPT');
+    expect(at('India', 'Not GST registered', null)).toBe('RECEIPT');
+  });
+
+  it('other tax-invoice countries are unchanged', () => {
+    expect(at('Canada', 'GST/HST number', '123456789RT0001')).toBe('TAX_INVOICE');
+    expect(at('United Kingdom', 'VAT number', 'GB123456789')).toBe('TAX_INVOICE');
+  });
 });
 
 describe('buildReceiptDocument', () => {
@@ -185,5 +219,21 @@ describe('renderReceiptHtml', () => {
     expect(html).toContain('RCT-2026-000001');
     expect(html).toContain('Total refunded');
     expect(html).toContain('Event cancelled');
+  });
+});
+
+describe('the note about tax invoices on a US receipt', () => {
+  it('does not tell a US buyer the receipt is "not a tax invoice"', () => {
+    const doc = buildReceiptDocument(
+      input({ seller: seller({ address: { ...seller().address, country: 'United States' } }) }),
+    );
+    expect(doc.notes.join(' ')).not.toMatch(/tax invoice/i);
+  });
+
+  it('still says so in India, where an unregistered seller cannot issue one', () => {
+    const doc = buildReceiptDocument(
+      input({ seller: seller({ address: { ...seller().address, country: 'India' } }) }),
+    );
+    expect(doc.notes.join(' ')).toMatch(/not a tax invoice/);
   });
 });

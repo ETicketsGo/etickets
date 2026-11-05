@@ -30,6 +30,10 @@ Sent to `OPS_ALERT_EMAILS` (see MONITORING-GUIDE.md; `SENTRY_DSN` enables Sentry
 | `CONFIRMATION_FAILED_AFTER_PAYMENT` | Paid but not confirmed; it retries then dead-letters. Check the booking and the error code in the alert.                |
 | `WEBHOOK_DEAD_LETTERED`             | A provider event will not be retried. Read the WebhookEvent row's error; replay only after fixing the cause.            |
 | `NOTIFICATION_FAILED`               | A customer message stopped retrying. A CONFIGURATION/credential cause means the whole channel is down.                  |
+| `AUTH_REFRESH_TOKEN_REUSE`          | A used session token came back; that account was signed out everywhere. Many at once = tokens leaking: check the IPs.   |
+| `ADMIN_MFA_LOCKOUT`                 | Somebody has a staff password and is guessing the code. Ask the holder; if not them, revoke sessions and reset it.      |
+| `ADMIN_ACCESS_CHANGED`              | Staff role, duties or suspension changed. If nobody planned it, ask `changedBy` and revoke it in Admin > Staff.         |
+| `LOGIN_BACKOFF_BURST`               | Many accounts made to wait after wrong passwords: password guessing. Read AUTH_LOGIN_FAILED audit rows for the IPs.     |
 
 ## Kill switches (fastest mitigation)
 

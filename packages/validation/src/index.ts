@@ -12,3 +12,4 @@ export * from './share';
 export * from './coupon';
 export * from './commerce';
 export * from './payment';
+export * from './crm';

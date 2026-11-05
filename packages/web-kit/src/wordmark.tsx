@@ -77,6 +77,13 @@ const TONE: Record<WordmarkTone, { text: string; dot: string; label: string; rul
   for short runs of large text to save time, which is exactly where a wordmark lives.
 */
 const TYPE_STYLE: CSSProperties = {
+  /*
+    The display face by name, then a fallback sized for THIS word at the header's size (see
+    fonts/make-brand-fonts.py). With the headline fallback the mark was drawn 10px narrower until
+    the font arrived, and the city chip and search box beside it slid sideways when it did.
+  */
+  fontFamily:
+    "'Bricolage Grotesque', 'ETicketsGo Wordmark Fallback', 'Bricolage Grotesque Fallback', sans-serif",
   fontKerning: 'normal',
   fontFeatureSettings: '"kern" 1, "liga" 1',
   fontOpticalSizing: 'auto',

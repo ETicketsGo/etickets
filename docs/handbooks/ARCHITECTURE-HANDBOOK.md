@@ -5,6 +5,12 @@
 > aspirational. Companion docs: [Developer Handbook](./DEVELOPER-HANDBOOK.md),
 > [Runbooks](./RUNBOOKS.md), [Sequence Diagrams](../diagrams/SEQUENCE-DIAGRAMS.md),
 > [Context Map](../diagrams/CONTEXT-MAP.md).
+>
+> **2026-11-01:** this handbook explains the layering and strategy seams and stays valid for
+> them. Its module tables predate billing, campaigns, engagement, CRM, human-check, storage,
+> support and pilot. The complete current module map, queues and data model are in
+> [architecture/ARCHITECTURE.md](../architecture/ARCHITECTURE.md) and
+> [architecture/DATA-MODEL.md](../architecture/DATA-MODEL.md).
 
 ---
 
@@ -34,7 +40,7 @@ eticketsgo/
    └─ web-kit/        # Shared client: API client, hooks, UI kit, app shell
 ```
 
-Tech: NestJS 10, Prisma 5, PostgreSQL 16, Redis 7 (holds/cache/queues via BullMQ),
+Tech: NestJS 11 (Express 5), Prisma 5, PostgreSQL 16, Redis 7 (holds/cache/queues via BullMQ),
 Next.js App Router + React + Tailwind + shadcn/ui, Zod validation shared end-to-end,
 JWT auth (access + rotating refresh), strict TypeScript throughout.
 

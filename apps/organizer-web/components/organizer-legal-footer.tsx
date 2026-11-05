@@ -1,0 +1,22 @@
+import { footerLine } from '@eticketsgo/shared-types';
+
+/**
+ * The end of every console page: which DeepTrics company an organizer is dealing with.
+ *
+ * Resolved from the organization's REGISTERED country, which is business data the organizer
+ * gave us and the same signal the campaign footer and the platform invoice series use: an
+ * organizer registered in India deals with the Indian company, one in the United States with
+ * DeepTrics LLC. One line, the brand once and the company once: "(c) 2026 ETicketsGo.
+ * Operated by DeepTrics LLC." While the organization is loading, or for a country where we have
+ * no company, it is the neutral copyright line. Never a guess from an IP address.
+ */
+export function OrganizerLegalFooter({ country }: { country?: string | null }) {
+  return (
+    <footer
+      data-testid="organizer-legal-footer"
+      className="mt-12 border-t border-border pt-4 text-xs text-text-muted"
+    >
+      <p>{footerLine(country, new Date().getFullYear())}</p>
+    </footer>
+  );
+}

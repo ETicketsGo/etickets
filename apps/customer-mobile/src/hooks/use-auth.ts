@@ -6,6 +6,7 @@ export function useAuth() {
   const user = useAuthStore((s) => s.user);
   const login = useAuthStore((s) => s.login);
   const register = useAuthStore((s) => s.register);
+  const loginWithPhone = useAuthStore((s) => s.loginWithPhone);
   const logout = useAuthStore((s) => s.logout);
   // Drops the in-memory session without calling the API. Used after account deletion,
   // where the server session is already gone and a logout call would just 401.
@@ -15,6 +16,7 @@ export function useAuth() {
     user,
     login,
     register,
+    loginWithPhone,
     logout,
     expire,
     isAuthenticated: status === 'authenticated',

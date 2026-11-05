@@ -1,0 +1,717 @@
+'use client';
+
+import { useQuery } from '@tanstack/react-query';
+import { CalendarDays, MapPin, Search, Tag, Ticket, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
+import { useSearchParams } from 'next/navigation';
+import {
+  parseSearchQuery,
+  emptyResultSuggestions,
+  type SearchIntent,
+} from '@eticketsgo/shared-types';
+import { cityScope, countryPhrase, useCity, type SellableCity } from '@eticketsgo/web-kit';
+import { api } from '@/lib/api';
+import { BRAND_FOCUS } from '@eticketsgo/web-kit';
+import { BrandEventCard } from '@/components/brand-event-card';
+import { EmptyPlace } from '@/components/place-sections';
+import { BRAND_WRAP, BrandEmpty, BrandPage, FilmCard } from '@/components/storefront-brand';
+import { BRAND_LINK, BRAND_PANEL } from '@/components/booking-brand';
+import {
+  BrandActionButton,
+  BrandInput,
+  BrandLoadError,
+  BrandSelect,
+  BrandSkeleton,
+} from '@/components/brand-forms';
+import { useTranslations } from 'next-intl';
+import {
+  browseEventsQuery,
+  browseRequest,
+  categoriesQuery,
+  initialBrowseFilters,
+} from '@/lib/storefront-queries';
+
+/**
+ * What Browse is currently asking the API for.
+ *
+ * Kept as one object rather than as loose state because it IS the query — everything the
+ * customer can see about their own search has to be derivable from this, and every field
+ * in it has to actually be sent. The previous version parsed dates and a free-only flag
+ * out of the query, told the customer it had applied them, and then sent only three of
+ * them. That is the failure this shape exists to make impossible: if it is in here it is
+ * in the request, and if it is not in here it is not claimed in the UI.
+ */
+interface AppliedFilters {
+  q?: string;
+  city?: string;
+  category?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  freeOnly?: boolean;
+}
+
+/** Date windows worth one click. Anything more specific belongs in the query text. */
+type DateWindow = 'any' | 'today' | 'weekend' | 'month';
+
+function dateWindowRange(window: DateWindow): { dateFrom?: string; dateTo?: string } {
+  if (window === 'any') return {};
+  const now = new Date();
+  const start = new Date(now);
+  const end = new Date(now);
+  if (window === 'today') {
+    end.setHours(23, 59, 59, 0);
+  } else if (window === 'weekend') {
+    // The coming Saturday through Sunday night — "this weekend" means the next one, even
+    // when it is Tuesday.
+    const toSat = (6 - now.getDay() + 7) % 7;
+    start.setDate(now.getDate() + toSat);
+    start.setHours(0, 0, 0, 0);
+    end.setTime(start.getTime());
+    end.setDate(start.getDate() + 1);
+    end.setHours(23, 59, 59, 0);
+  } else {
+    end.setDate(now.getDate() + 30);
+    end.setHours(23, 59, 59, 0);
+  }
+  // A window that has already started never reaches into the past — the API refuses that
+  // anyway, and sending it would make the request disagree with the chip.
+  return {
+    dateFrom: start > now ? start.toISOString() : now.toISOString(),
+    dateTo: end.toISOString(),
+  };
+}
+
+const DATE_WINDOWS: { value: DateWindow; label: string }[] = [
+  { value: 'any', label: 'Any date' },
+  { value: 'today', label: 'Today' },
+  { value: 'weekend', label: 'This weekend' },
+  { value: 'month', label: 'Next 30 days' },
+];
+
+/** A parsed yyyy-mm-dd covers the whole day, not the instant it starts. */
+const isoStart = (day: string) => new Date(`${day}T00:00:00`).toISOString();
+const isoEnd = (day: string) => new Date(`${day}T23:59:59`).toISOString();
+
+/** One thing the customer has narrowed by, and how to stop narrowing by it. */
+function FilterChip({
+  icon: Icon,
+  label,
+  onRemove,
+}: {
+  icon: typeof MapPin;
+  label: string;
+  onRemove: () => void;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-brand-line-strong bg-brand-surface py-1 pl-3 pr-1 text-brand-meta font-medium text-brand-ink">
+      <Icon className="h-3.5 w-3.5 shrink-0 text-brand-ink-3" aria-hidden />
+      {label}
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Remove filter: ${label}`}
+        className={`-my-1 inline-flex h-7 w-7 items-center justify-center rounded-full text-brand-ink-2 transition-colors hover:bg-brand-sunken hover:text-brand-gold-text ${BRAND_FOCUS}`}
+      >
+        <X className="h-3.5 w-3.5" aria-hidden />
+      </button>
+    </span>
+  );
+}
+
+export function EventsPage() {
+  const n = useTranslations('common.nav');
+  /*
+    Where this page starts, decided in the FIRST render.
+
+    Three things can name a place and they are ranked, not merged: a link that says ?city=
+    is the most specific intent there is, then the city chip in the header, then the
+    country we think they are in. Preferring the URL matters because a shared link to
+    "events in Pune" has to open in Pune for somebody whose header says Mumbai.
+
+    This used to be read from `window.location` in an effect, after the first render - so the
+    server drew an unfiltered page, the browser re-asked with the filters, and the list was
+    replaced under the reader. Read from the URL here, the server renders (and prefetches,
+    `page.tsx`) exactly the list the browser will show.
+  */
+  const params = useSearchParams();
+  const preference = useCity();
+  const [start] = useState(() => initialBrowseFilters(params, preference));
+  const [q, setQ] = useState(start.q ?? '');
+  const [city, setCity] = useState(start.city ?? '');
+  const [category, setCategory] = useState(start.category ?? '');
+  const [dateWindow, setDateWindow] = useState<DateWindow>('any');
+  const [applied, setApplied] = useState<AppliedFilters>(start);
+  const [page, setPage] = useState(1);
+  // Accumulate loaded pages so "Load more" appends rather than replaces.
+  const [items, setItems] = useState<ComponentProps<typeof BrandEventCard>['event'][]>([]);
+  // Smart-search (WS6): deterministic interpretation of the free-text query.
+  const [intent, setIntent] = useState<SearchIntent | null>(null);
+
+  const catQ = useQuery(categoriesQuery());
+  const categoryNames = useMemo(() => (catQ.data ?? []).map((c) => c.category), [catQ.data]);
+
+  // Set once the page has decided its starting city, so a later guess from the header cannot
+  // come back and overwrite whatever the customer has typed since. A URL city or a city the
+  // customer chose in the header has already decided it.
+  const seeded = useRef(Boolean(params.get('city')) || preference.chosen || Boolean(start.city));
+
+  /*
+    The header, in its two different moods.
+
+    A GUESS arrives asynchronously and gets exactly one chance to seed the page, so it can
+    never come back later and overwrite something the customer has typed since.
+
+    A CHOICE — someone using the picker in the header — wins every time it happens, not
+    just the first time. Collapsing the two is a bug I wrote and the QA suite caught: the
+    country hint resolves within a second of load, burned the single seed, and from then on
+    picking Bengaluru in the header changed the chip and left Browse showing Mumbai. The
+    same class of disagreement this change exists to remove, reintroduced two files away.
+
+    A country, unlike a city, never appears in the City box — it is not something they
+    typed, and putting it there would make "India" look like a city name.
+  */
+  const headerScope = cityScope(preference);
+  const headerScopeKey = JSON.stringify(headerScope);
+  // What the header said when the page started: the first render already used it, so only a
+  // CHANGE from it is news (re-applying it would override a ?city= link on arrival).
+  const lastHeader = useRef(JSON.stringify([headerScopeKey, preference.chosen, preference.city]));
+  useEffect(() => {
+    const now = JSON.stringify([headerScopeKey, preference.chosen, preference.city]);
+    if (now === lastHeader.current) return;
+    lastHeader.current = now;
+    if (preference.chosen) {
+      seeded.current = true;
+      setPage(1);
+      setCity(preference.city ?? '');
+      setApplied((prev) => ({ ...prev, city: preference.city ?? undefined }));
+      return;
+    }
+    if (seeded.current || (!headerScope.city && !headerScope.country)) return;
+    seeded.current = true;
+    if (headerScope.city) setCity(headerScope.city);
+    setApplied((prev) => ({ ...prev, city: headerScope.city }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [headerScopeKey, preference.chosen, preference.city]);
+
+  /*
+    The country scope is applied to the REQUEST but is never part of `applied`.
+
+    `applied` is what the customer chose, and it drives the chips and the empty-state copy.
+    The country is what we inferred on their behalf; folding it in would put a chip saying
+    "India" on a page where nobody asked for India. It still has to reach the API, or the
+    homepage and Browse would disagree about which events exist.
+  */
+  const request = useMemo(
+    () => browseRequest(applied, preference),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [applied, preference.country, preference.city, preference.place],
+  );
+
+  /*
+    Nothing is asked for until the place is known: a first visit waits for the browser's one
+    location answer behind the skeleton, rather than listing every country and then swapping
+    to the visitor's own. A returning visitor's place came from the server, so this is
+    immediate - and the list itself usually came with the page (`page.tsx`).
+  */
+  const ready = preference.ready ?? true;
+  const { data, isPending, isError, isFetching, refetch } = useQuery({
+    ...browseEventsQuery(request, page),
+    enabled: ready,
+  });
+
+  /*
+    Films that match the words typed, in the same place.
+
+    Walking QA (2026-10-15): the header search says "Search events, films, venues and artists",
+    but typing a film's title here answered "No events match your search" - films are sold
+    through their own listing, which this page never asked. Only on a text search, and only
+    films with a show that can be bought (the film list's own rule).
+  */
+  const filmSearch = applied.q?.trim();
+  const filmsQ = useQuery({
+    queryKey: ['movies-search', filmSearch, request.city, request.country],
+    queryFn: () =>
+      api.listMovies({
+        q: filmSearch,
+        ...(request.city ? { city: request.city as string } : {}),
+        ...(!request.city && request.country ? { country: request.country as string } : {}),
+      }),
+    enabled: Boolean(filmSearch),
+    staleTime: 60_000,
+  });
+  const films = filmSearch ? (filmsQ.data ?? []) : [];
+  const ts = useTranslations('showtimes.search');
+
+  /*
+    Only the selected place. The "More in <country>" and "Elsewhere: <country>" groups that used
+    to follow the results are gone (owner, 2026-10-19): the list above IS the answer.
+  */
+
+  // Replace on a new search (page 1), append on Load more.
+  useEffect(() => {
+    if (!data) return;
+    setItems((prev) => (page === 1 ? data.data : [...prev, ...data.data]));
+  }, [data, page]);
+  /*
+    Page one is drawn straight from the answer, not from the copy the effect above keeps: the
+    copy is one render late, and that one render showed "No events available" between the
+    skeleton and the list. Later pages need the accumulated copy.
+  */
+  const shown = page === 1 && data ? data.data : items;
+  /*
+    The skeleton while the first page is on its way - never the empty state, which is a claim
+    that there is nothing here. "Load more" keeps the list and says so on its own button.
+  */
+  const loading = !ready || (isPending && page === 1);
+
+  /**
+   * The city the customer typed, resolved against cities we can actually sell in.
+   *
+   * `city=` is an exact match at the API, so a typed "mumb" or "bombay" would return an
+   * empty page for a city with thirteen events in it. Resolving a prefix to the real name
+   * fixes the near-misses; anything that resolves to nothing is deliberately NOT sent as a
+   * city — it goes into the free-text query instead, where it still matches a venue name
+   * or city, because finding something is better than a confident zero.
+   */
+  const resolveCity = useCallback(
+    async (typed: string): Promise<{ city?: string; asText?: string }> => {
+      const term = typed.trim();
+      if (!term) return {};
+      const found: SellableCity[] = await preference.searchCities(term);
+      const exact = found.find((c) => c.city.toLowerCase() === term.toLowerCase());
+      if (exact) return { city: exact.city };
+      if (found.length === 1) return { city: found[0].city };
+      return { asText: term };
+    },
+    [preference],
+  );
+
+  const applyFilters = async () => {
+    setPage(1);
+    // Deterministic parse of the free-text query: pull out category, city, date and the
+    // free-only flag, keep the rest as the title search. Explicit fields still win.
+    const parsed = parseSearchQuery(q, {
+      categories: categoryNames,
+      cities: preference.topCities.map((c) => c.city),
+      now: new Date(),
+    });
+    setIntent(parsed);
+
+    const typed = city || parsed.city || '';
+    const resolved = await resolveCity(typed);
+    const window = dateWindowRange(dateWindow);
+
+    const next: AppliedFilters = {
+      // A city we could not place is still worth searching for as text.
+      q: [parsed.text, resolved.asText].filter(Boolean).join(' ').trim() || undefined,
+      city: resolved.city,
+      category: category || parsed.category || undefined,
+      // The picker wins over the query text: it is the more recent, more deliberate act.
+      ...(dateWindow !== 'any'
+        ? window
+        : parsed.dateFrom
+          ? {
+              dateFrom: isoStart(parsed.dateFrom),
+              dateTo: isoEnd(parsed.dateTo ?? parsed.dateFrom),
+            }
+          : {}),
+      freeOnly: parsed.freeOnly || undefined,
+    };
+    setApplied(next);
+    if (resolved.city) setCity(resolved.city);
+
+    /*
+      The header is NOT written to from here.
+
+      This used to write the typed city through to the header (and clear it when the box was
+      empty), so searching "comedy" with Mumbai selected turned the header chip into "United
+      States". The selected city is chosen in the header's picker and nowhere else; the City
+      box on this page narrows THIS search, and leaving the page leaves the selection as it was.
+    */
+    seeded.current = true;
+  };
+
+  const hasFilters = Boolean(
+    applied.q || applied.city || applied.category || applied.dateFrom || applied.freeOnly,
+  );
+  /**
+   * Empty, and the ONLY thing narrowing it is the place.
+   *
+   * Distinguished from "empty with a search term in the box", where the customer already
+   * knows what they typed and a location message would be a red herring.
+   */
+  const nothingTyped = !applied.q && !applied.category && !applied.dateFrom && !applied.freeOnly;
+  const placeOnly = nothingTyped
+    ? (applied.city ?? (preference.country ? countryPhrase(preference.country) : null))
+    : null;
+
+  const clearFilters = () => {
+    setQ('');
+    setCity('');
+    setCategory('');
+    setDateWindow('any');
+    setPage(1);
+    setApplied({});
+    setIntent(null);
+  };
+
+  /** Drop one filter and re-run, leaving the others exactly as they were. */
+  const removeFilter = (key: keyof AppliedFilters) => {
+    setPage(1);
+    setApplied((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      if (key === 'dateFrom') delete next.dateTo;
+      return next;
+    });
+    if (key === 'q') setQ('');
+    if (key === 'city') {
+      // Taking the city chip off leaves the country scope in place: the customer removed
+      // one filter, not every filter. The header's selected city is not touched.
+      setCity('');
+    }
+    if (key === 'category') setCategory('');
+    if (key === 'dateFrom') setDateWindow('any');
+  };
+
+  const dateLabel = DATE_WINDOWS.find((w) => w.value === dateWindow)?.label ?? 'Dates';
+
+  /*
+    ── ON A PHONE, THE FILTERS WERE THE WHOLE FIRST SCREEN ──────────────────────────
+    Search, city, category, date and a button, stacked: measured on the device, the first event
+    card began 755px down a 873px screen. Every visit to Browse started by scrolling past a form
+    to reach the thing the page is for.
+
+    So on a phone the search box stays - it is the one field people actually use - and the other
+    three fold behind a Filters button that says how many are applied. Nothing is removed and
+    nothing moves on a larger screen, where the row fits across and costs nothing.
+  */
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const narrowingCount = [applied.city, applied.category, applied.dateFrom].filter(Boolean).length;
+
+  return (
+    <BrandPage>
+      <div className={`${BRAND_WRAP} space-y-8 pt-8 lg:pt-12`}>
+        <div>
+          <h1 className="text-balance font-brand-display text-brand-d1 text-brand-ink">
+            {n('browseEvents')}
+          </h1>
+          <p className="mt-2 text-brand-body text-brand-ink-2">
+            Search by title, city, category or date.
+          </p>
+        </div>
+
+        <form
+          className={`${BRAND_PANEL} grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr_auto] lg:p-5`}
+          onSubmit={(e) => {
+            e.preventDefault();
+            setFiltersOpen(false);
+            void applyFilters();
+          }}
+        >
+          <BrandInput
+            id="q"
+            label="Search"
+            icon={Search}
+            placeholder="Artist, event or venue..."
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+
+          {/* The way into the other three on a phone. It is a row, not a screenful. */}
+          <div className="flex items-center gap-2 sm:hidden">
+            <BrandActionButton
+              variant="secondary"
+              className="flex-1"
+              aria-expanded={filtersOpen}
+              onClick={() => setFiltersOpen((v) => !v)}
+            >
+              {filtersOpen ? 'Hide filters' : 'Filters'}
+              {narrowingCount > 0 ? ` (${narrowingCount})` : ''}
+            </BrandActionButton>
+            <BrandActionButton type="submit" className="flex-1">
+              Search
+            </BrandActionButton>
+          </div>
+
+          <div className={`${filtersOpen ? 'grid' : 'hidden'} gap-3 sm:contents`}>
+            <CityField value={city} onChange={setCity} search={preference.searchCities} />
+            {/*
+          A list, not a text box.
+
+          City and category were both free-text inputs matched with `equals` at the API, so
+          a customer typing "music" got twelve events and one typing "Musics", "concert" or
+          "Live Music" got a confident empty page with nothing to explain it. The category
+          set is small, known, and comes with counts — there is no reason to make anyone
+          guess at it.
+        */}
+            <BrandSelect
+              id="category"
+              label="Category"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            >
+              <option value="">Any category</option>
+              {(catQ.data ?? []).map((c) => (
+                <option key={c.category} value={c.category}>
+                  {c.category} ({c.count})
+                </option>
+              ))}
+            </BrandSelect>
+            <BrandSelect
+              id="dates"
+              label="When"
+              value={dateWindow}
+              onChange={(e) => setDateWindow(e.target.value as DateWindow)}
+            >
+              {DATE_WINDOWS.map((w) => (
+                <option key={w.value} value={w.value}>
+                  {w.label}
+                </option>
+              ))}
+            </BrandSelect>
+          </div>
+          {/* The wide layout keeps its own Search button in the last column. */}
+          <div className="hidden items-end sm:flex">
+            <BrandActionButton type="submit" className="w-full">
+              Search
+            </BrandActionButton>
+          </div>
+        </form>
+
+        {/*
+        What is actually narrowing the results, and how to undo each part.
+
+        This replaces an "Interpreted your search as:" line that was read-only — and, worse,
+        listed things the request did not contain. Every chip here corresponds to a
+        parameter that was sent, and removing one re-runs the search without it.
+      */}
+        {hasFilters && (
+          <div className="flex flex-wrap items-center gap-2" role="status">
+            <span className="text-brand-meta text-brand-ink-3">Filtered by</span>
+            {applied.q && (
+              <FilterChip
+                icon={Search}
+                label={`"${applied.q}"`}
+                onRemove={() => removeFilter('q')}
+              />
+            )}
+            {applied.city && (
+              <FilterChip
+                icon={MapPin}
+                label={applied.city}
+                onRemove={() => removeFilter('city')}
+              />
+            )}
+            {applied.category && (
+              <FilterChip
+                icon={Tag}
+                label={applied.category}
+                onRemove={() => removeFilter('category')}
+              />
+            )}
+            {applied.dateFrom && (
+              <FilterChip
+                icon={CalendarDays}
+                label={dateWindow === 'any' ? 'Selected dates' : dateLabel}
+                onRemove={() => removeFilter('dateFrom')}
+              />
+            )}
+            {applied.freeOnly && (
+              <FilterChip
+                icon={Ticket}
+                label="Free only"
+                onRemove={() => removeFilter('freeOnly')}
+              />
+            )}
+            <button
+              type="button"
+              onClick={clearFilters}
+              className={`inline-flex min-h-6 items-center px-2 text-brand-meta ${BRAND_LINK}`}
+            >
+              Clear all
+            </button>
+          </div>
+        )}
+
+        {/*
+        Naming the wider scope, since it narrows the results and nobody asked for it.
+
+        It offers the PICKER, not "show everywhere". Somewhere else means a particular
+        somewhere else, so the useful thing to hand them is the box they can name it in; a
+        link that dumped every country on them would answer a question nobody asked.
+      */}
+        {/*
+          On a first visit the place is still being worked out. Its line holds its room until it
+          is, so the results do not drop by a line when it arrives.
+        */}
+        {!ready && !applied.city && (
+          <p aria-hidden className="invisible text-brand-meta text-brand-ink-2">
+            Showing events in your country.{' '}
+            <span className="-my-3 inline-flex min-h-11 items-center px-1 lg:my-0 lg:min-h-0">
+              Change location
+            </span>
+          </p>
+        )}
+        {ready && !applied.city && preference.country && (
+          <p className="text-brand-meta text-brand-ink-2">
+            Showing events in {countryPhrase(preference.country)}.{' '}
+            <button
+              type="button"
+              onClick={() => preference.requestPicker()}
+              className={`-my-3 inline-flex min-h-11 items-center px-1 lg:my-0 lg:min-h-0 ${BRAND_LINK}`}
+            >
+              Change location
+            </button>
+          </p>
+        )}
+
+        {films.length > 0 ? (
+          <section aria-labelledby="film-results" className="space-y-4">
+            <div>
+              <h2 id="film-results" className="font-brand-display text-brand-d2 text-brand-ink">
+                {ts('filmsHeading')}
+              </h2>
+              <p className="mt-2 text-brand-meta text-brand-ink-3">{ts('filmsHint')}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-5 lg:gap-x-6">
+              {films.map((m) => (
+                <FilmCard key={m.id} movie={m} />
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {isError ? (
+          <BrandLoadError
+            message="We couldn't load events. Please try again."
+            onRetry={() => refetch()}
+          />
+        ) : loading ? (
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <BrandSkeleton key={i} className="h-72 w-full" />
+            ))}
+          </div>
+        ) : shown.length > 0 ? (
+          <>
+            <p className="text-brand-meta text-brand-ink-3">
+              {/* Not "event(s)". A reader gets one number and one word for it. */}
+              {shown.length === (data?.meta.total ?? shown.length)
+                ? `${shown.length} ${shown.length === 1 ? 'event' : 'events'}`
+                : `Showing ${shown.length} of ${data?.meta.total ?? shown.length} events`}
+            </p>
+            <div className="grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {shown.map((e, index) => (
+                <BrandEventCard key={e.id} event={e} priority={index < 2} />
+              ))}
+            </div>
+            {data && shown.length < data.meta.total && (
+              <div className="flex justify-center pt-2">
+                <BrandActionButton
+                  variant="secondary"
+                  disabled={isFetching}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  {isFetching ? 'Loading...' : 'Load more'}
+                </BrandActionButton>
+              </div>
+            )}
+          </>
+        ) : /*
+          An empty page has to name its cause, and the place is the cause the customer is
+          least likely to guess.
+
+          The location lives in the header and is set once — or inferred and never
+          announced — so by the time somebody opens Browse a fortnight later they have
+          forgotten it is there. "No events match your search" then reads as "this platform
+          has nothing", when the truth is "nothing in Bengaluru": a real state on this
+          platform today, where the events are in Mumbai and the films are in Bengaluru.
+        */
+        placeOnly ? (
+          <EmptyPlace place={placeOnly} />
+        ) : films.length > 0 ? null : (
+          <BrandEmpty
+            title="No events match your search"
+            hint={
+              hasFilters
+                ? intent
+                  ? emptyResultSuggestions(intent, categoryNames).slice(0, 3).join(' - ')
+                  : 'Try removing a filter above.'
+                : 'Check back soon for new events.'
+            }
+            action={
+              hasFilters ? (
+                <BrandActionButton variant="secondary" onClick={clearFilters}>
+                  Clear filters
+                </BrandActionButton>
+              ) : undefined
+            }
+          />
+        )}
+      </div>
+    </BrandPage>
+  );
+}
+
+/**
+ * A city box that suggests real cities as you type.
+ *
+ * Backed by the server search rather than by whatever cities happen to be in the current
+ * results — which is what the old suggestion list did, so it was empty on first load and
+ * could only ever offer cities already on screen. A `datalist` keeps it a plain text field:
+ * the customer can still type a city we have not heard of, and `resolveCity` decides what
+ * to do with that rather than the input refusing it.
+ */
+function CityField({
+  value,
+  onChange,
+  search,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  search: (q: string) => Promise<SellableCity[]>;
+}) {
+  const [options, setOptions] = useState<SellableCity[]>([]);
+
+  useEffect(() => {
+    const term = value.trim();
+    if (!term) {
+      setOptions([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void search(term).then((found) => {
+        if (!cancelled) setOptions(found);
+      });
+    }, 180);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [value, search]);
+
+  return (
+    <div>
+      <BrandInput
+        id="city"
+        label="City"
+        icon={MapPin}
+        list="city-options"
+        // Neutral placeholder: a city name here reads as "this is where the product
+        // operates", which misleads visitors outside that market.
+        placeholder="Any city"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <datalist id="city-options">
+        {options.map((c) => (
+          <option key={`${c.country}-${c.city}`} value={c.city}>
+            {c.country} - {c.eventCount} event{c.eventCount === 1 ? '' : 's'}
+          </option>
+        ))}
+      </datalist>
+    </div>
+  );
+}

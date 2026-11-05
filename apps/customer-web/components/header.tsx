@@ -58,8 +58,9 @@ import {
   and checkout keep the plain shop bar with "Sign in". Somebody choosing seats or paying is
   not offered a tour of the platform.
 
-  A signed-in customer gets the pure shop bar everywhere. Until the session is known nothing on
-  the right is drawn, so a signed-in customer never sees "Sign in" or the platform links flash.
+  A signed-in customer gets the pure shop bar everywhere. Which bar the server draws comes from
+  the session-hint cookie (`useShellAuth`), so the first paint is already the right one - for a
+  visitor as much as for a customer.
 */
 
 const navLink = `inline-flex h-11 items-center rounded-brand-control px-3 text-brand-ui font-semibold transition-colors hover:text-brand-gold-text ${BRAND_FOCUS}`;
@@ -114,11 +115,11 @@ export function Header({
     The hint is used ONLY until this component has mounted, and the token decides for ever
     after. The same hook drives the marketing header and footer, so every bar agrees.
   */
-  const { authed, known } = useShellAuth(initialSignedIn);
+  const { authed } = useShellAuth(initialSignedIn);
   // Every shop page but the purchase steps offers a visitor the platform pages too.
   const combinedRoute = !isPurchaseRoute(pathname);
   // The combined bar: shop controls plus the platform pages, for a visitor only.
-  const visitor = combinedRoute && known && !authed;
+  const visitor = combinedRoute && !authed;
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => setMenuOpen(false), [pathname, visitor]);
 
@@ -261,9 +262,6 @@ export function Header({
               */}
               <AccountMenu onSignOut={logout} />
             </>
-          ) : combinedRoute && !known ? (
-            // The answer is not known yet: hold the space, draw nothing.
-            <span aria-hidden data-auth="pending" className="inline-block h-11 w-11" />
           ) : (
             <>
               {/*
