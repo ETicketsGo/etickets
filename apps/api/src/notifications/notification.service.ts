@@ -24,6 +24,7 @@ import { ChannelKey, RenderedNotification } from './channels/notification-channe
 import { isCritical, permittedChannels } from './policy/channel-policy';
 import { NotificationPolicyResolver } from './policy/notification-policy.resolver';
 import { dedupeKeyFor, intentKeyFor } from './policy/dedupe-key';
+import { smsConsentRefusal } from './policy/sms-consent';
 import { MetricsService } from '../metrics/metrics.service';
 import { TransportError } from './channels/transports/transport-http';
 import { DeliveryRecorderService, LOG_MODE_REASON } from './delivery/delivery-recorder.service';
@@ -697,6 +698,42 @@ export class NotificationService {
         }
 
         /*
+          ── TEXT-MESSAGE CONSENT, AGAIN, AT THE LAST MOMENT ───────────────────────────────
+          The resolver checked it when the row was written, and that is not enough: a booking
+          confirmed this morning and a reminder queued for Friday leave days in which the
+          person can withdraw. So the rule is applied again here, to the number about to be
+          dialled, immediately before the provider is called.
+
+          Inside the dispatch lock, so no other sweep can send this row meanwhile. What the
+          lock cannot cover is a withdrawal committed in the milliseconds between this read
+          and the provider call; for a STOP, Twilio's own opt-out list refuses that send.
+
+          SKIPPED, never retried: the next attempt would read the same answer, and a person
+          who withdrew must not be texted because a retry raced their next decision. A lookup
+          that THROWS is different -- it falls through to the catch below and is retried, so
+          "we could not tell" is never read as consent.
+        */
+        if (key === 'sms') {
+          const refusal = await this.smsConsentRefusalAtSend(row, rendered);
+          if (refusal) {
+            const skipId = await this.openAttempt(row.id, key, row.attempts + 1, kind);
+            if (skipId) {
+              await this.deliveries
+                ?.notAttempted(skipId, OutcomeClass.POLICY_SUPPRESSED, `not_sent: ${refusal}`)
+                .catch(() => undefined);
+            }
+            await this.prisma.notification.updateMany({
+              where: { id: row.id, status: { in: ['PENDING', 'SCHEDULED'] } },
+              data: { status: NotificationStatus.SKIPPED, lastError: `not_sent: ${refusal}` },
+            });
+            this.logger.log(`[sms:${row.type}] notification ${row.id} not sent: ${refusal}`);
+            summary.failed += 1;
+            this.metrics?.recordNotification(key, 'none', 'suppressed');
+            continue;
+          }
+        }
+
+        /*
           The attempt is opened BEFORE the provider is called, and that order is the whole
           point. Written afterwards, a crash mid-call leaves no trace and the next sweep
           sends again believing it is the first attempt. Written first, an ATTEMPTING row is
@@ -895,6 +932,28 @@ export class NotificationService {
     if (channel !== 'sms' && channel !== 'whatsapp') return false;
     const addressed = await resolvePhoneDestination(rendered, this.prisma);
     return this.suppression.isSuppressed(channel, addressed.destination, purpose);
+  }
+
+  /**
+   * Why this SMS may not go out for lack of consent, or null when it may.
+   *
+   * Transactional types only. A marketing SMS answers to its own `sms` marketing consent at
+   * enqueue, and the transactional consent read here must never stand in for it. The number
+   * is resolved exactly as the channel will resolve it, so the market checked is the market
+   * of the number that will actually be dialled. The phone number is never logged.
+   */
+  private async smsConsentRefusalAtSend(
+    row: { type: NotificationType | string; userId: string | null; toEmail: string | null },
+    rendered: RenderedNotification,
+  ): Promise<string | null> {
+    if (!isTransactional(row.type as NotificationType)) return null;
+    const addressed = await resolvePhoneDestination(rendered, this.prisma);
+    return smsConsentRefusal({
+      phone: addressed.destination ?? null,
+      hasSubject: Boolean(row.userId || row.toEmail),
+      readConsent: () =>
+        this.consent.smsTransactionalConsent({ userId: row.userId, email: row.toEmail }),
+    });
   }
 
   /** Open a delivery attempt, tolerating the recorder being absent in unit fixtures. */

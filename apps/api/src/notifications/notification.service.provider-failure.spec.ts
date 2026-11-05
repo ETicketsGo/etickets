@@ -58,7 +58,8 @@ function setup(channel: 'sms' | 'email', deliver: jest.Mock) {
     templates as never,
     {} as never,
     channels as never,
-    {} as never,
+    // The +1 recipient agreed to texts; this suite is about the provider, not consent.
+    { smsTransactionalConsent: jest.fn().mockResolvedValue('granted') } as never,
     undefined,
     deliveries as never,
     undefined,

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NotificationType } from '@eticketsgo/shared-types';
 import type { ChannelKey } from '../channels/notification-channel.interface';
@@ -6,6 +6,8 @@ import { MarketingConsentService } from '../marketing-consent.service';
 import { NotificationPreferencesService } from '../notification-preferences.service';
 import { isTransactional, messageClassOf } from '../message-class';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SuppressionService } from '../delivery/suppression.service';
+import { SMS_SKIP_REASON, smsConsentRefusal } from './sms-consent';
 import {
   parseSmsTransactionalMarkets,
   smsTransactionalEnabled,
@@ -87,6 +89,11 @@ export class NotificationPolicyResolver {
       switch (SMS_TRANSACTIONAL_TYPES) adds nothing: it cannot read the recipient's phone.
     */
     private readonly prisma?: PrismaService,
+    /*
+      Optional for the same reason. Absent, a suppressed number is still refused at send (the
+      sweep checks every row); it simply is not named on the booking at enqueue.
+    */
+    @Optional() private readonly suppression?: SuppressionService,
   ) {}
 
   /**
@@ -131,6 +138,9 @@ export class NotificationPolicyResolver {
 
     // 3. Consent. Two different questions, in the right order.
     channels = await this.applyConsent(input, policy, channels, transactional, removed);
+
+    // 4. SMS only: the recipient's text-message consent where the market needs one, and STOP.
+    channels = await this.applySmsGate(input, transactional, channels, removed);
 
     if (removed.length > 0) {
       this.logger.log(
@@ -198,6 +208,68 @@ export class NotificationPolicyResolver {
       return channels;
     }
     return [...channels, 'sms'];
+  }
+
+  /**
+   * The last word on an SMS row: consent where the market requires it, and STOP.
+   *
+   * ── WHY THIS RUNS FOR EVERY SMS, NOT ONLY THE SWITCH ───────────────────────────────
+   * SMS reaches a row two ways: the per-type switch above, and policy itself (the
+   * SHOW_CANCELLED fallback). Both text the same number under the same campaign, so both need
+   * the same answer. Checked last, after preferences and marketing consent, so a reason
+   * recorded here means everything else already said yes.
+   *
+   * ── WHAT IT NEVER DOES ─────────────────────────────────────────────────────────────
+   * Throw. This runs inside the transaction that confirms a booking (sendCritical), and a
+   * failed lookup must cost the text, never the booking or its email. A lookup that fails is
+   * a refusal with its own reason, because "we could not tell" is not consent.
+   *
+   * It is checked again at send (NotificationService.sweepDue): consent can be withdrawn and
+   * a STOP can arrive between this moment and the worker picking the row up.
+   *
+   * Marketing is untouched: a commercial SMS needs its `sms` marketing consent (step 3), and
+   * this transactional consent never authorises one, because this step only removes.
+   */
+  private async applySmsGate(
+    input: { type: NotificationType; recipient: PolicyRecipient },
+    transactional: boolean,
+    channels: ChannelKey[],
+    removed: { channel: ChannelKey; reason: string }[],
+  ): Promise<ChannelKey[]> {
+    if (!channels.includes('sms') || !transactional || !this.prisma) return channels;
+    const userId = input.recipient.userId ?? null;
+    /*
+      No account: there is no number on file to place in a market. The sweep resolves the
+      destination it will actually dial and applies the same rule there, so nothing is lost
+      by deferring, and nothing is written here that the send could contradict.
+    */
+    if (!userId) return channels;
+    const without = channels.filter((c) => c !== 'sms');
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { phone: true },
+      });
+      const phone = user?.phone ?? null;
+      if (phone && (await this.suppression?.isSuppressed('sms', phone, 'transactional'))) {
+        removed.push({ channel: 'sms', reason: SMS_SKIP_REASON.SUPPRESSED });
+        return without;
+      }
+      const refusal = await smsConsentRefusal({
+        phone,
+        hasSubject: true,
+        readConsent: () =>
+          this.consent.smsTransactionalConsent({ userId, email: input.recipient.email }),
+      });
+      if (refusal) {
+        removed.push({ channel: 'sms', reason: refusal });
+        return without;
+      }
+      return channels;
+    } catch {
+      removed.push({ channel: 'sms', reason: SMS_SKIP_REASON.CONSENT_UNREADABLE });
+      return without;
+    }
   }
 
   /**
