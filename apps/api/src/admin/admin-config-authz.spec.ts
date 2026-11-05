@@ -14,6 +14,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { OpsController } from '../ops/ops.controller';
 import { AdminController } from './admin.controller';
 import { AdminCinemasController } from '../cinemas/admin-cinemas.controller';
+import { PlatformFeePoliciesController } from './platform-fee-policies.controller';
 
 /**
  * Who may read and who may change platform configuration - over real HTTP, through the real
@@ -69,15 +70,29 @@ const CONFIG_ROUTES: {
   path: string;
   kind: 'read' | 'write';
   body?: unknown;
+  /** A retired route: allowed callers get 410 and the handler reaches no service. */
+  gone?: boolean;
 }[] = [
   { method: 'GET', path: '/admin/fee-rules', kind: 'read' },
+  /*
+    Retired single-band writes: still guarded exactly like a publish, but an allowed caller is
+    answered 410 Gone and no service is reached (`gone`).
+  */
   {
     method: 'POST',
     path: '/admin/fee-rules',
     kind: 'write',
     body: { currency: 'INR', label: 'Band', minMinor: 0, maxMinor: null, feeMinor: 0 },
+    gone: true,
   },
-  { method: 'PATCH', path: '/admin/fee-rules/fr1', kind: 'write', body: { label: 'Band' } },
+  {
+    method: 'PATCH',
+    path: '/admin/fee-rules/fr1',
+    kind: 'write',
+    body: { label: 'Band' },
+    gone: true,
+  },
+  { method: 'DELETE', path: '/admin/fee-rules/fr1', kind: 'write', gone: true },
   { method: 'GET', path: '/admin/tax-rules', kind: 'read' },
   { method: 'GET', path: '/admin/tax-rules/readiness', kind: 'read' },
   {
@@ -118,6 +133,41 @@ const CONFIG_ROUTES: {
       reason: 'Checked against the licence.',
     },
   },
+  /*
+    Platform fee waivers and overrides change what buyers of one organizer or event pay, so
+    they are configuration like the bands above. The preview is a POST that changes nothing.
+  */
+  { method: 'GET', path: '/admin/platform-fee-policies', kind: 'read' },
+  { method: 'GET', path: '/admin/platform-fee-policies/pfp1', kind: 'read' },
+  {
+    method: 'POST',
+    path: '/admin/platform-fee-policies/preview',
+    kind: 'read',
+    body: {
+      scope: 'ORGANIZATION',
+      organizationId: 'o1',
+      kind: 'WAIVE',
+      currency: 'INR',
+      subtotalMinor: 50000,
+    },
+  },
+  {
+    method: 'POST',
+    path: '/admin/platform-fee-policies',
+    kind: 'write',
+    body: {
+      scope: 'ORGANIZATION',
+      organizationId: 'o1',
+      kind: 'WAIVE',
+      reason: 'Launch partner waiver',
+    },
+  },
+  {
+    method: 'POST',
+    path: '/admin/platform-fee-policies/pfp1/deactivate',
+    kind: 'write',
+    body: { reason: 'Pilot is over now', version: 1 },
+  },
   {
     method: 'POST',
     path: '/admin/ops/maintenance',
@@ -134,7 +184,12 @@ describe('platform configuration is least-privilege', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
-      controllers: [AdminController, OpsController, AdminCinemasController],
+      controllers: [
+        AdminController,
+        OpsController,
+        AdminCinemasController,
+        PlatformFeePoliciesController,
+      ],
     })
       .useMocker((token) => {
         const name = typeof token === 'function' ? token.name : String(token);
@@ -199,7 +254,11 @@ describe('platform configuration is least-privilege', () => {
 
   const ok = (status: number) => status >= 200 && status < 300;
 
-  describe.each(CONFIG_ROUTES)('$method $path ($kind)', ({ method, path, kind, body }) => {
+  describe.each(CONFIG_ROUTES)('$method $path ($kind)', ({ method, path, kind, body, gone }) => {
+    // What "let through" looks like: the handler ran, or (retired route) it refused with 410.
+    const allowed = (r: { status: number; ran: boolean }) =>
+      gone ? r.status === 410 && !r.ran : ok(r.status) && r.ran;
+
     it('refuses the support desk (BOOKING_READ only) with 403', async () => {
       const { status, ran } = await call('bookingReadOnly', method, path, body);
       expect(status).toBe(403);
@@ -213,9 +272,7 @@ describe('platform configuration is least-privilege', () => {
     });
 
     it('lets a super admin through, by role, with no grant rows', async () => {
-      const { status, ran } = await call('superAdmin', method, path, body);
-      expect(ok(status)).toBe(true);
-      expect(ran).toBe(true);
+      expect(allowed(await call('superAdmin', method, path, body))).toBe(true);
     });
 
     if (kind === 'read') {
@@ -229,9 +286,7 @@ describe('platform configuration is least-privilege', () => {
       });
     } else {
       it('opens to PLATFORM_CONFIG', async () => {
-        const { status, ran } = await call('configEditor', method, path, body);
-        expect(ok(status)).toBe(true);
-        expect(ran).toBe(true);
+        expect(allowed(await call('configEditor', method, path, body))).toBe(true);
       });
       it('is refused to a read-only config account', async () => {
         expect((await call('configReader', method, path, body)).status).toBe(403);
@@ -314,7 +369,10 @@ describe('platform configuration is least-privilege', () => {
         r.path.startsWith('/admin/') &&
         !r.path.includes('/ops/') &&
         // AdminCinemasController's, held to the rule above but not a handler on this class.
-        !r.path.startsWith('/admin/cinemas'),
+        !r.path.startsWith('/admin/cinemas') &&
+        // PlatformFeePoliciesController's, likewise. Its class default is PLATFORM_CONFIG (the
+        // write), so a handler that forgot its own decorator fails closed, not open.
+        !r.path.startsWith('/admin/platform-fee-policies'),
     ).map(
       (r) =>
         `${r.method} ${r.path

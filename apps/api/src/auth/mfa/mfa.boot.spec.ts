@@ -60,3 +60,127 @@ describe('MFA boot check', () => {
     );
   });
 });
+
+/*
+  What JwtStrategy hands MfaGuard for a back-office account, per MFA_ENROLLMENT. The guard's
+  decisions on these states are in mfa.guard.spec.ts; this is where the states come from.
+*/
+describe('MFA session state by MFA_ENROLLMENT', () => {
+  function svcWith(env: Record<string, string | undefined>, cred: object | null) {
+    const prisma = {
+      adminMfaCredential: { findUnique: jest.fn().mockResolvedValue(cred) },
+    };
+    const config = { get: (k: string) => env[k], getOrThrow: (k: string) => env[k] };
+    return new MfaService(
+      prisma as never,
+      config as never,
+      { record: jest.fn() } as never,
+      {} as never,
+    );
+  }
+  const ADMIN = ['CUSTOMER', 'ADMIN'];
+  const enrolledCred = { id: 'c1', confirmedAt: new Date() };
+
+  it('required + key: the console needs MFA whether or not the account has enrolled', async () => {
+    const svc = svcWith({ APP_ENV: 'PRODUCTION', MFA_ENCRYPTION_KEY: KEY }, null);
+    expect(svc.enrollment).toBe('required');
+    expect(await svc.sessionState('u', ADMIN, {})).toEqual({
+      required: true,
+      enrolled: false,
+      verified: false,
+      verifiedAt: null,
+      stepUp: 'available',
+    });
+  });
+
+  it('deferred + key, not enrolled: the console is open, step-up waits for enrollment', async () => {
+    const svc = svcWith(
+      { APP_ENV: 'PRODUCTION', MFA_ENCRYPTION_KEY: KEY, MFA_ENROLLMENT: 'deferred' },
+      null,
+    );
+    expect(await svc.sessionState('u', ADMIN, {})).toMatchObject({
+      required: false,
+      enrolled: false,
+      stepUp: 'available',
+    });
+    expect(await svc.requiresChallenge('u', ADMIN)).toBe(false);
+  });
+
+  it('deferred + key, enrolled: held to the full rule, exactly as in required mode', async () => {
+    const svc = svcWith(
+      { APP_ENV: 'PRODUCTION', MFA_ENCRYPTION_KEY: KEY, MFA_ENROLLMENT: 'deferred' },
+      enrolledCred,
+    );
+    expect(await svc.sessionState('u', ADMIN, {})).toMatchObject({
+      required: true,
+      enrolled: true,
+      verified: false,
+    });
+    expect(await svc.requiresChallenge('u', ADMIN)).toBe(true);
+  });
+
+  it('no key: step-up is blocked everywhere but a LOCAL/DEV machine in required mode', async () => {
+    const cases: Array<[Record<string, string>, string]> = [
+      [{ APP_ENV: 'PRODUCTION', MFA_ENROLLMENT: 'deferred' }, 'unconfigured'],
+      [{ APP_ENV: 'STAGING', MFA_ENROLLMENT: 'deferred' }, 'unconfigured'],
+      [{ APP_ENV: 'QA' }, 'unconfigured'],
+      [{ APP_ENV: 'UAT' }, 'unconfigured'],
+      [{ APP_ENV: 'LOCAL', MFA_ENROLLMENT: 'deferred' }, 'unconfigured'],
+      [{ APP_ENV: 'LOCAL' }, 'dormant'],
+      [{ APP_ENV: 'DEV' }, 'dormant'],
+    ];
+    for (const [env, expected] of cases) {
+      const state = await svcWith(env, null).sessionState('u', ADMIN, {});
+      expect({ env, stepUp: state.stepUp, required: state.required }).toEqual({
+        env,
+        stepUp: expected,
+        required: false,
+      });
+    }
+  });
+
+  it('an unknown MFA_ENROLLMENT value in a hand-built config reads as required (stricter)', () => {
+    expect(svcWith({ MFA_ENROLLMENT: 'Deferred' }, null).enrollment).toBe('required');
+  });
+
+  it('customers and organizers carry no MFA requirement in either mode', async () => {
+    for (const MFA_ENROLLMENT of ['required', 'deferred']) {
+      const svc = svcWith({ MFA_ENCRYPTION_KEY: KEY, MFA_ENROLLMENT }, enrolledCred);
+      expect((await svc.sessionState('u', ['CUSTOMER', 'ORGANIZER_OWNER'], {})).required).toBe(
+        false,
+      );
+      expect(await svc.requiresChallenge('u', ['CUSTOMER'])).toBe(false);
+    }
+  });
+});
+
+describe('MFA boot warning when enrollment is deferred', () => {
+  const spyWarn = (svc: MfaService) =>
+    jest
+      .spyOn((svc as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn')
+      .mockImplementation(() => undefined);
+
+  it('PRODUCTION + deferred + no key boots and says, once, that sensitive actions are blocked', async () => {
+    const { svc } = build({ APP_ENV: 'PRODUCTION', MFA_ENROLLMENT: 'deferred' }, 0);
+    const warn = spyWarn(svc);
+    await expect(svc.onModuleInit()).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/BLOCKED until an operator sets MFA_ENCRYPTION_KEY/);
+  });
+
+  it('PRODUCTION + deferred + no key still refuses to boot when authenticators exist', async () => {
+    const { svc } = build({ APP_ENV: 'PRODUCTION', MFA_ENROLLMENT: 'deferred' }, 2);
+    await expect(svc.onModuleInit()).rejects.toThrow(/MFA_ENCRYPTION_KEY is not set/);
+  });
+
+  it('PRODUCTION + deferred + key boots and warns that enrollment is optional', async () => {
+    const { svc } = build(
+      { APP_ENV: 'PRODUCTION', MFA_ENROLLMENT: 'deferred', MFA_ENCRYPTION_KEY: KEY },
+      0,
+    );
+    const warn = spyWarn(svc);
+    await expect(svc.onModuleInit()).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/DEFERRED/);
+  });
+});

@@ -32,6 +32,7 @@ export interface ReplaySummary {
 interface LedgerRow {
   id: string;
   provider: string;
+  providerEventId?: string | null;
   processingStatus: string;
   createdAt: Date;
   updatedAt: Date;
@@ -161,6 +162,7 @@ export class ProviderEventReplayService {
       const outcome = await this.recorder.applyProviderEvent({
         provider,
         providerMessageId: event.providerMessageId,
+        eventId: row.providerEventId ?? null,
         state: event.state,
         providerStatus: event.providerStatus,
         failureCode: event.failureCode,
@@ -239,6 +241,7 @@ export class ProviderEventReplayService {
 const ROW_SELECT = {
   id: true,
   provider: true,
+  providerEventId: true,
   processingStatus: true,
   createdAt: true,
   updatedAt: true,

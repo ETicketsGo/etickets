@@ -1,11 +1,21 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # ETicketsGo — Railway continuous delivery (QA / UAT / Production).
 #
-# Branch → environment mapping:
+# EVERY deployment is dispatched by a person. Nothing deploys because a branch was pushed.
 #
-#     develop      → ETicketsGo-QA           automatic on push
-#     release/**   → ETicketsGo-UAT          automatic on push
-#     main         → ETicketsGo-Production   NOT automatic — workflow_dispatch only
+#     qa / uat / production   Actions > Deploy (Railway) > Run workflow, choose the
+#                             environment, and type its name again in "confirm".
+#                             Production may only be dispatched from `main`.
+#
+# ── Why no branch deploys on push (2026-10-24) ──
+#
+# This used to map `develop` → QA and `release/**` → UAT automatically on push. A branch
+# NAME was therefore a deploy switch: a version-bump PR branch called
+# `release/android-1.0.0` started a UAT deployment that nobody intended (cancelled while the
+# CI gate ran, before the deploy job). A deployment is a decision, so it is now always an
+# explicit dispatch with a typed confirmation, and the push trigger is gone. QA is deployed
+# the same way, or with scripts/deploy/railway-deploy-and-wait.mjs, as it already was in
+# practice.
 #
 # ── Why production is dispatch-only, and not gated by a GitHub Environment ──
 #
@@ -70,9 +80,7 @@
 name: Deploy (Railway)
 
 on:
-  push:
-    # `main` is deliberately absent — production is dispatch-only (see the header).
-    branches: [develop, 'release/**']
+  # No `push` trigger, on purpose: see the header. Do not add one.
   workflow_dispatch:
     inputs:
       environment:
@@ -80,6 +88,10 @@ on:
         type: choice
         options: [qa, uat, production]
         default: qa
+      confirm:
+        description: Type the environment name again (qa, uat or production) to authorise the deploy
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -97,18 +109,18 @@ jobs:
       - id: pick
         run: |
           set -euo pipefail
-          if [ -n "${{ github.event.inputs.environment }}" ]; then
-            ENV="${{ github.event.inputs.environment }}"
-          else
-            case "${{ github.ref }}" in
-              refs/heads/develop)     ENV=qa ;;
-              refs/heads/release/*)   ENV=uat ;;
-              # `main` is not a push trigger; reaching here means the mapping changed
-              # without the header's reasoning being revisited. Fail rather than deploy.
-              refs/heads/main)
-                echo "::error::main must not auto-deploy. Production is workflow_dispatch only — see the workflow header." && exit 1 ;;
-              *) echo "::error::${{ github.ref }} does not map to a deploy environment." && exit 1 ;;
-            esac
+          # Only a person may start a deployment. If a push trigger is ever re-added, this
+          # refuses rather than deploying whatever branch happened to be pushed.
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "::error::Deployments are dispatch-only (event was ${{ github.event_name }}). See the workflow header." && exit 1
+          fi
+          ENV="${{ github.event.inputs.environment }}"
+          CONFIRM="${{ github.event.inputs.confirm }}"
+          if [ "$CONFIRM" != "$ENV" ]; then
+            echo "::error::The confirmation '$CONFIRM' does not match the environment '$ENV'. Nothing was deployed." && exit 1
+          fi
+          if [ "$ENV" = "production" ] && [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "::error::Production may only be deployed from main (this run is on ${{ github.ref }})." && exit 1
           fi
           echo "environment=$ENV" >> "$GITHUB_OUTPUT"
           echo "app_env=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')" >> "$GITHUB_OUTPUT"

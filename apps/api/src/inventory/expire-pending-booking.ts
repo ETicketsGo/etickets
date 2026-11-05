@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { BookingStatus, PaymentStatus } from '@eticketsgo/shared-types';
 import type { AddOnInventoryService } from '../commerce/addon-inventory.service';
 import type { InventoryService } from './inventory.service';
+import { releaseFeePolicyRedemption } from '../pricing/fee-policy-redemption';
 
 /** The parts of an unpaid booking needed to give its stock back. */
 export interface PendingBookingToExpire {
@@ -11,6 +12,12 @@ export interface PendingBookingToExpire {
   /** Settled when the booking was created; the release must use the strategy the hold used. */
   seatBased: boolean;
   items: { ticketTypeId: string | null; addOnId: string | null; quantity: number }[];
+  /**
+   * The platform fee policy the hold was priced under, if any. A limited policy reserved one
+   * of its orders at the hold, and gets it back here. Every caller passes the whole booking row
+   * (`include`, not `select`), which carries it.
+   */
+  feePolicyId?: string | null;
 }
 
 type ReleaseDeps = { inventory: InventoryService; addOnInventory: AddOnInventoryService };
@@ -113,5 +120,7 @@ async function releasePendingBooking(
     where: { bookingId: booking.id, status: PaymentStatus.REQUIRES_PAYMENT },
     data: { status: PaymentStatus.FAILED },
   });
+  // Only the transaction that won the claim above reaches here, so this runs exactly once.
+  if (booking.feePolicyId) await releaseFeePolicyRedemption(tx, booking.feePolicyId);
   return true;
 }

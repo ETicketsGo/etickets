@@ -2,6 +2,7 @@ import type { NavItem } from '@eticketsgo/web-kit';
 import type { OrgPermissions } from '@/lib/org-permissions';
 import {
   Banknote,
+  BarChart3,
   BriefcaseBusiness,
   Gauge,
   Bell,
@@ -12,6 +13,7 @@ import {
   Film,
   LayoutDashboard,
   LifeBuoy,
+  Mail,
   Megaphone,
   ReceiptText,
   Rocket,
@@ -20,6 +22,7 @@ import {
   Sparkles,
   Ticket,
   Undo2,
+  UserPlus,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -36,7 +39,7 @@ import {
  *
  * Nothing was removed and no route changed. Secondary pages are the TABS of the page they
  * belong to (`children`, rendered by `SectionTabs`): Payouts, Receipts and invoices and Refunds
- * under Finance; Premium under Settings. Counter was a tab of Bookings and is now its own row
+ * under Finance; Billing & plans (which replaced Premium) under Settings. Counter was a tab of Bookings and is now its own row
  * under it, because nobody found it there. Quick navigation (Ctrl/Cmd+K)
  * lists every one of them, and Get started (`sidebar: false`) too.
  *
@@ -164,6 +167,32 @@ export function navFor({
       keywords: ['promotions', 'coupons', 'promote', 'discount codes', 'promo codes'],
       href: '/organizer/promotions',
       icon: Megaphone,
+      /*
+        Followers and audience counts (aggregates only, never names), as a TAB of Marketing
+        rather than a sidebar row: one more row makes the expanded sidebar scroll at a
+        768px-tall window (console-navigation e2e). Quick navigation finds it by name and by
+        "followers". Campaigns and their results are tabs here too, for the same reason.
+      */
+      children: [
+        {
+          label: 'Audience & growth',
+          href: '/organizer/audience',
+          icon: UserPlus,
+          keywords: ['followers', 'subscribers', 'fans', 'audience', 'growth'],
+        },
+        {
+          label: 'Email campaigns',
+          href: '/organizer/campaigns',
+          icon: Mail,
+          keywords: ['email', 'campaign', 'newsletter', 'mailing', 'announce', 'send email'],
+        },
+        {
+          label: 'Campaign results',
+          href: '/organizer/campaigns/analytics',
+          icon: BarChart3,
+          keywords: ['campaign analytics', 'clicks', 'attributed sales', 'email results'],
+        },
+      ],
     },
 
     /*
@@ -219,7 +248,30 @@ export function navFor({
         'dark mode',
         'logo',
       ],
-      children: [{ label: 'Premium & enterprise', href: '/organizer/premium', icon: Sparkles }],
+      /*
+        Billing & plans - what the organization pays ETicketsGo for (Free, Pro, Premium), never
+        ticket money - takes the place Premium & enterprise had, as a tab of Settings: one more
+        sidebar row made the desk sidebar scroll at a 768px-tall window (console-navigation e2e).
+        The old Premium address redirects here and is matched so the tab stays marked.
+      */
+      children: [
+        {
+          label: 'Billing & plans',
+          href: '/organizer/billing',
+          icon: Sparkles,
+          match: ['/organizer/premium'],
+          keywords: [
+            'plan',
+            'upgrade',
+            'pro',
+            'premium',
+            'subscription',
+            'pricing',
+            'trial',
+            'credits',
+          ],
+        },
+      ],
     },
     {
       label: 'Help & support',

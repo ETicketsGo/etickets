@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { Screen } from '@/components/screen';
-import { Button, Card, Field, IconButton, Text } from '@/ui';
+import { TopBar } from '@/components/top-bar';
+import { Button, Card, Field, Text } from '@/ui';
 import { useAuth } from '@/hooks/use-auth';
 import { useOnline } from '@/hooks/use-online';
 import { apiClient } from '@/services/api-client';
@@ -70,23 +71,14 @@ export default function SupportScreen() {
   return (
     <Screen padded={false}>
       <Stack.Screen options={{ headerShown: false }} />
-      <View className="flex-row items-center gap-1 px-2 py-1">
-        <IconButton
-          icon="chevron-back"
-          accessibilityLabel="Go back"
-          onPress={() => router.back()}
-        />
-        <Text variant="callout" className="flex-1 font-semibold">
-          Help &amp; contact
-        </Text>
-      </View>
+      <TopBar title="Help and contact" />
 
       {sent ? (
         <View className="flex-1 justify-center px-5">
           <Card className="gap-2">
-            <Text variant="title3">Thanks — we&rsquo;ve got it</Text>
+            <Text variant="d3">Thanks, we have it</Text>
             <Text variant="subhead" tone="muted">
-              We&rsquo;ll reply to {email}. Most questions get an answer within a working day.
+              We will reply to {email}. Most questions get an answer within a working day.
             </Text>
             <Button label="Done" className="mt-2" onPress={() => router.back()} />
           </Card>
@@ -101,8 +93,8 @@ export default function SupportScreen() {
             keyboardShouldPersistTaps="handled"
           >
             <Text variant="subhead" tone="muted">
-              Trouble with a booking, a ticket that won&rsquo;t scan, or a refund — tell us what
-              happened and we&rsquo;ll pick it up.
+              Trouble with a booking, a ticket that will not scan, or a refund: tell us what
+              happened and we will pick it up.
             </Text>
 
             <Field

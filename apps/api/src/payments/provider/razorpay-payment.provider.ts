@@ -37,6 +37,7 @@ interface RazorpayWebhookBody {
         id?: string;
         order_id?: string;
         amount?: number;
+        currency?: string;
         notes?: Record<string, string | number> | null;
         error_code?: string | null;
         error_reason?: string | null;
@@ -182,6 +183,10 @@ export class RazorpayPaymentProvider implements PaymentProvider {
       providerRef: entity?.id ?? body.payload?.order?.entity?.id ?? bookingId,
       bookingId,
       amountMinor,
+      // Checked against the booking's currency before anything is confirmed.
+      ...(typeof entity?.currency === 'string' && entity.currency
+        ? { currency: entity.currency }
+        : {}),
       ...(type === 'payment.failed'
         ? {
             failure: {

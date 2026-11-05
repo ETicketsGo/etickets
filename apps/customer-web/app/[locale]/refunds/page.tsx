@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata } from '@/lib/seo';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
 import {
@@ -7,16 +7,15 @@ import {
   LegalDocument,
   BackToLegal,
 } from '@/components/legal/policy-chrome';
-import { resolveJurisdiction } from '@/lib/market';
+import { resolveJurisdiction, resolveSelectedMarket } from '@/lib/market';
 import { BrandPage } from '@/components/storefront-brand';
 
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/refunds', {
   title: 'Refund and Cancellation Policy',
   description:
     'When you can get a refund on ETicketsGo, what comes back, and what happens if an event is cancelled.',
-  alternates: { canonical: '/refunds' },
   robots: { index: false, follow: true },
-};
+});
 
 /*
   ── WHY THIS PAGE CHANGED ──────────────────────────────────────────────────────────
@@ -44,7 +43,10 @@ export default async function RefundsPage({
 }: {
   searchParams: Promise<{ country?: string | string[] }>;
 }) {
-  const country = await resolveJurisdiction((await searchParams).country);
+  const asked = (await searchParams).country;
+  const country = await resolveJurisdiction(asked);
+  // Which company the operator line names: what the reader chose, never an IP guess.
+  const market = await resolveSelectedMarket(asked);
   return (
     <BrandPage>
       <PageHero
@@ -146,7 +148,7 @@ export default async function RefundsPage({
             team. Also read our <Link href="/terms">Terms</Link>.
           </p>
         </Prose>
-        <OperatorLine country={country} />
+        <OperatorLine market={market} />
       </LegalDocument>
     </BrandPage>
   );

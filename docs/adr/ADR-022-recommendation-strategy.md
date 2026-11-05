@@ -1,6 +1,7 @@
 # ADR-022: Recommendation Strategy
 
 - **Status:** Accepted · **Date:** 2026-07-13 · **Scope:** Recommendation Platform (Prompt 5)
+- **Status (2026-11-01):** current.
 
 ## Context
 

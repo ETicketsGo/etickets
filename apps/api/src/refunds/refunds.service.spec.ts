@@ -324,6 +324,33 @@ describe('RefundsService.process', () => {
     );
   });
 
+  it('tells the customer the refund is on its way, not complete, while it is PROCESSING', async () => {
+    // Found on UAT 2026-10-23: "Your refund is complete" went out while the refund was pending.
+    const { service, notifications } = setupProcess({
+      approveClaimCount: 1,
+      providerStatus: 'PROCESSING',
+    });
+    await service.process(ADMIN, 'rf-1', 'APPROVE');
+    // The booking ended, so a BOOKING_CANCELLED (SMS only) is also written: see
+    // paid-cancellation-sms.spec.ts. This test is about the refund notice alone.
+    const sent = notifications.sendCritical.mock.calls
+      .map((c) => c[1])
+      .filter((n) => n.type !== 'BOOKING_CANCELLED');
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      type: 'REFUND_COMPLETED',
+      payload: expect.objectContaining({ stage: 'processing' }),
+    });
+  });
+
+  it('says complete only when the provider says the refund is complete', async () => {
+    const { service, notifications } = setupProcess({ approveClaimCount: 1 });
+    await service.process(ADMIN, 'rf-1', 'APPROVE');
+    expect(notifications.sendCritical.mock.calls[0][1].payload).toMatchObject({
+      stage: 'completed',
+    });
+  });
+
   it('refuses to refund a cash booking online, before claiming it', async () => {
     const { service, prisma, payments } = setupProcess({
       approveClaimCount: 1,

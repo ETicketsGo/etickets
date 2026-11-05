@@ -1,6 +1,7 @@
 # ADR-050: What it takes to call a notification channel live
 
 - **Status:** Accepted
+- **Status (2026-11-01):** current.
 - **Date:** 2026-09-07
 - **Extends:** [ADR-045](./ADR-045-notification-provider-routing.md) … [ADR-049](./ADR-049-notification-product-surfaces.md)
 - **Supersedes:** ADR-049 §11 (test sends are `TEST`, not `MANUAL_RESEND`)

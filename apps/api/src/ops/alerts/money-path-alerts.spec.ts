@@ -408,7 +408,8 @@ describe('a customer notification stops retrying', () => {
       ),
       notification: {
         findMany: jest.fn().mockResolvedValue([row]),
-        update: jest.fn().mockResolvedValue({}),
+        // The sweep writes each row with updateMany (a vanished row must not abort it).
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     };
     const service = new NotificationService(
@@ -468,7 +469,7 @@ describe('a customer notification stops retrying', () => {
       const { service, prisma } = make(alerts, new Error('socket hang up'), 9);
       await service.dispatchDue(new Date('2026-06-01T00:00:00Z'));
       writes.push(
-        prisma.notification.update.mock.calls.map((c) => {
+        prisma.notification.updateMany.mock.calls.map((c) => {
           const data = { ...(c[0] as { data: Record<string, unknown> }).data };
           return data;
         }),

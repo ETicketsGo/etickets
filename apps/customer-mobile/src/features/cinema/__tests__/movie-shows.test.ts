@@ -4,6 +4,7 @@ import {
   isShowBookable,
   localDateKey,
   publicShowsResponseSchema,
+  showDateKey,
   type PublicShow,
 } from '../movie-schema';
 
@@ -114,10 +115,22 @@ describe('bookability', () => {
 });
 
 describe('date grouping', () => {
-  it('groups by the VIEWER’s local date, not UTC', () => {
-    // 2026-09-01T20:30Z is 2026-09-02 in IST. The API cannot know the venue's zone, so
-    // the client groups in the viewer's — asserted here against whatever zone the test
-    // runs in, by comparing to the same computation rather than a hardcoded string.
+  it('groups by the date AT THE VENUE that the server sends', () => {
+    // 10:30 in Bengaluru on 15 Nov is 22:00 on 14 Nov in Denver. A phone set to Denver
+    // filed it under the 14th; the server's localDate is the venue's own calendar.
+    const s1 = show({ startsAt: '2026-11-15T05:00:00.000Z', localDate: '2026-11-15' });
+    expect(showDateKey(s1)).toBe('2026-11-15');
+    expect(availableDates([s1])).toEqual(['2026-11-15']);
+  });
+
+  it('falls back to the device date for an API that sends no localDate', () => {
+    const iso = '2026-09-01T20:30:00.000Z';
+    expect(showDateKey(show({ startsAt: iso, localDate: undefined }))).toBe(localDateKey(iso));
+  });
+
+  it('computes the DEVICE local date, not UTC', () => {
+    // Asserted against whatever zone the test runs in, by comparing to the same
+    // computation rather than a hardcoded string.
     const iso = '2026-09-01T20:30:00.000Z';
     const local = new Date(iso);
     const expected = `${local.getFullYear()}-${`${local.getMonth() + 1}`.padStart(2, '0')}-${`${local.getDate()}`.padStart(2, '0')}`;

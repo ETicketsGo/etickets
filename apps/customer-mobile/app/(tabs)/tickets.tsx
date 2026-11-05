@@ -18,11 +18,14 @@ export default function TicketsScreen() {
   const online = useOnline();
 
   return (
-    <Screen padded={false}>
+    <Screen padded={false} edges={['top']}>
       {!online ? <OfflineBanner /> : null}
-      <View className="px-5 pb-2 pt-2">
-        <Text variant="largeTitle" accessibilityRole="header">
-          Tickets
+      <View className="gap-1 px-4 pb-4 pt-4">
+        <Text variant="d1" accessibilityRole="header">
+          Your tickets
+        </Text>
+        <Text variant="ui" tone="muted">
+          Saved on this phone, so they open without a signal.
         </Text>
       </View>
       <AuthGate

@@ -354,6 +354,14 @@ export const NotificationType = {
   /// never promotional — see MESSAGE_CLASS, which will not compile until this is classified.
   PASSWORD_RESET_REQUESTED: 'PASSWORD_RESET_REQUESTED',
   PASSWORD_CHANGED: 'PASSWORD_CHANGED',
+  /// A six-digit code proving somebody receives mail at an address they are adding to their own
+  /// account (a phone-only organizer's address for organizer messages). Sent straight through
+  /// the email channel, never stored as a Notification row: the code is a credential.
+  EMAIL_VERIFICATION_CODE: 'EMAIL_VERIFICATION_CODE',
+  /// A team (or back-office) invitation, sent to the invitee's own address - the only way the
+  /// link leaves the platform. Sent straight through the email channel, never stored as a
+  /// Notification row: the link is a credential.
+  TEAM_INVITATION: 'TEAM_INVITATION',
   // Onboarding + approval lifecycle (admin-directed, and their organizer replies).
   ORGANIZATION_REGISTERED: 'ORGANIZATION_REGISTERED',
   ORGANIZATION_APPROVED: 'ORGANIZATION_APPROVED',
@@ -428,6 +436,12 @@ export const NotificationType = {
    * is capped per address.
    */
   SUPPORT_REQUEST_ACKNOWLEDGED: 'SUPPORT_REQUEST_ACKNOWLEDGED',
+  /**
+   * The organization's plan payment failed, its retries are over, or its grace period is about to
+   * end (payload `stage`: PAST_DUE | GRACE | GRACE_ENDING). To the owners. Transactional: it is
+   * about what their organization pays the platform, and losing the plan is the consequence.
+   */
+  BILLING_PAYMENT_FAILED: 'BILLING_PAYMENT_FAILED',
 } as const;
 export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
 

@@ -20,6 +20,8 @@ const PROD_BASE: Record<string, string> = {
   NODE_ENV: 'production',
   CORS_ORIGINS: 'https://app.eticketsgo.example',
   PAYMENT_PROVIDER_NAME: 'stripe',
+  // And the back office must be armed with MFA (assertAdminMfaArmed).
+  MFA_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
   // A prod-like baseline must be able to DELIVER. Since assertDeliverabilityHardening,
   // EMAIL_PROVIDER=log (the default) is refused wherever customers are served, because a
   // platform that takes money and silently drops the ticket is worse than one that will

@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata } from '@/lib/seo';
 import {
   Search,
   Armchair,
@@ -21,12 +21,11 @@ import {
 import { PageHero } from '@/components/marketing/blocks';
 import { BrandPage } from '@/components/storefront-brand';
 
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/customers', {
   title: 'For attendees',
   description:
     'Discover events, pick your seats, check out fast, pay securely, keep tickets in your wallet, and get in quickly with QR passes that work offline.',
-  alternates: { canonical: '/customers' },
-};
+});
 
 const ITEMS = [
   {

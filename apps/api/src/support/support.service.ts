@@ -14,10 +14,13 @@ import type { RequestUser } from '../common/decorators';
 import { organizationIdsInCountry } from '../admin/country-filter';
 import { allOf, dayRangeWhere, type ListFilters } from '../admin/list-filters';
 import { SupportMailService } from './support-mail.service';
+import { assignSupportReference, canonicalSupportReference } from './support-reference';
 
 /** A support submission as surfaced to the admin triage inbox. */
 export interface FeedbackRow {
   id: string;
+  /** The readable reference the sender was given (ETG-SUP-2026-000142). */
+  reference: string | null;
   kind: string;
   status: string;
   email: string | null;
@@ -154,12 +157,21 @@ export class SupportService {
           createdAt: { gte: new Date(Date.now() - RESUBMIT_WINDOW_MS) },
         },
         orderBy: { createdAt: 'desc' },
-        select: { id: true, status: true },
+        select: { id: true, reference: true, status: true },
       });
       if (repeat) return repeat;
 
+      /*
+        The readable reference, taken in THIS transaction so the number and the row commit or
+        roll back together. `createdAt` is set to the same instant, so the year in the
+        reference is the year the row says it was created (UTC). See support-reference.ts.
+      */
+      const createdAt = new Date();
+      const reference = await assignSupportReference(tx, createdAt);
       const created = await tx.feedback.create({
         data: {
+          reference,
+          createdAt,
           kind: input.kind,
           userId: user?.id ?? null,
           email: email ?? null,
@@ -171,7 +183,7 @@ export class SupportService {
           bookingId,
           status: 'OPEN',
         },
-        select: { id: true, status: true },
+        select: { id: true, reference: true, status: true },
       });
 
       /*
@@ -193,6 +205,7 @@ export class SupportService {
         ]);
         await this.mail.queue(tx, {
           feedbackId: created.id,
+          reference: created.reference,
           kind: input.kind,
           replyTo: email ?? null,
           senderName: input.name?.trim() || user?.fullName?.trim() || null,
@@ -262,10 +275,18 @@ export class SupportService {
         ? {
             OR: [
               /*
-                The reference the sender was given, and the one the support mailbox's copy
-                links to (`?q=<id>`), finds exactly that message.
+                The reference the sender was given finds exactly that message: the readable one
+                (ETG-SUP-2026-000142, in any case, with or without its dashes), and the database
+                id that mails sent before readable references quoted and linked to (`?q=<id>`).
               */
               { id: params.q },
+              {
+                reference: {
+                  equals: canonicalSupportReference(params.q) ?? params.q,
+                  mode: 'insensitive' as const,
+                },
+              },
+              { reference: { contains: params.q, mode: 'insensitive' as const } },
               { message: { contains: params.q, mode: 'insensitive' as const } },
               { subject: { contains: params.q, mode: 'insensitive' as const } },
               { email: { contains: params.q, mode: 'insensitive' as const } },
@@ -317,6 +338,7 @@ export class SupportService {
     return {
       data: rows.map((r) => ({
         id: r.id,
+        reference: r.reference,
         kind: r.kind,
         status: r.status,
         email: r.email,

@@ -1,5 +1,10 @@
 # ETicketsGo — Sequence Diagrams
 
+> **Status (2026-11-01): historical.** These diagrams show the July 2026 design with the mock
+> payment provider. The current flows (Razorpay and Stripe webhooks, fee schedule versions,
+> refunds with the R1 settlement share, billing, OTP, campaigns, payouts) are in
+> [architecture/FLOWS.md](../architecture/FLOWS.md).
+
 > Mermaid `sequenceDiagram`s for the core flows, accurate to the code
 > (`apps/api/src`). Routes are under the global `/api` prefix. See the
 > [Architecture Handbook](../handbooks/ARCHITECTURE-HANDBOOK.md) for the seams

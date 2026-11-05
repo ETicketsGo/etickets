@@ -261,6 +261,44 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     }),
   }),
 
+  /*
+    A code proving an address. Like the reset link it is a live credential, so it is in the BODY
+    only - never the subject, which a locked screen shows.
+  */
+  [NotificationType.EMAIL_VERIFICATION_CODE]: (l, p) => ({
+    subject: t(l, 'emails.EMAIL_VERIFICATION_CODE.subject'),
+    /*
+      Two purposes, one code: ADDING an address to a phone-only account, or CONFIRMING the
+      address an account already has (asked before a team invitation can be accepted).
+    */
+    body: t(
+      l,
+      str(p, 'purpose') === 'confirm'
+        ? 'emails.EMAIL_VERIFICATION_CODE.confirmBody'
+        : 'emails.EMAIL_VERIFICATION_CODE.body',
+      { code: str(p, 'code'), minutes: str(p, 'minutes') },
+    ),
+  }),
+
+  /*
+    An invitation to join a team. The link is a credential, so it is in the BODY only - never
+    the subject, which a locked screen shows. It is useless without signing in as this address,
+    and the message says so, so a person who did not expect it knows nothing happens if they
+    ignore it.
+  */
+  [NotificationType.TEAM_INVITATION]: (l, p) => ({
+    subject: t(l, 'emails.TEAM_INVITATION.subject', {
+      organizationName: str(p, 'organizationName'),
+    }),
+    body: t(l, 'emails.TEAM_INVITATION.body', {
+      inviterName: str(p, 'inviterName'),
+      organizationName: str(p, 'organizationName'),
+      role: str(p, 'role'),
+      link: str(p, 'link'),
+      days: str(p, 'days'),
+    }),
+  }),
+
   [NotificationType.PASSWORD_CHANGED]: (l) => ({
     subject: t(l, 'emails.PASSWORD_CHANGED.subject'),
     body: t(l, 'emails.PASSWORD_CHANGED.body'),
@@ -396,13 +434,32 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     };
   },
 
-  [NotificationType.REFUND_COMPLETED]: (l, p) => ({
-    subject: t(l, 'emails.REFUND_COMPLETED.subject'),
-    body: t(l, 'emails.REFUND_COMPLETED.body', {
-      amount: moneyValue(l, p, 'amountMinor'),
-      reference: bookingName(l, p),
-    }),
-  }),
+  /*
+    One notice per refund, sent when the provider accepts it. Razorpay often answers "processing"
+    rather than "processed", and nothing later sends a second notice when the bank finishes, so
+    the wording follows the stage the refund was really in: "sent to your bank" while it is
+    processing, "complete" only when the provider said so. Telling somebody their refund is
+    complete while it is still moving is the message they forward to support a week later.
+  */
+  [NotificationType.REFUND_COMPLETED]: (l, p) => {
+    const processing = p.stage === 'processing';
+    return {
+      subject: t(
+        l,
+        processing
+          ? 'emails.REFUND_COMPLETED.subjectProcessing'
+          : 'emails.REFUND_COMPLETED.subject',
+      ),
+      body: t(
+        l,
+        processing ? 'emails.REFUND_COMPLETED.bodyProcessing' : 'emails.REFUND_COMPLETED.body',
+        {
+          amount: moneyValue(l, p, 'amountMinor'),
+          reference: bookingName(l, p),
+        },
+      ),
+    };
+  },
 
   /*
     A refund has been ASKED for, which is not the same as paid — and this one may not have been
@@ -627,6 +684,24 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
   },
 
   /*
+    Dunning. One type, three stages: the first failure (features kept while the provider
+    retries), retries over (grace, with the date the plan ends), and grace about to end. The
+    deadline is a date, pre-formatted by the producer, because it is the one fact to act on.
+  */
+  [NotificationType.BILLING_PAYMENT_FAILED]: (l, p) => {
+    const raw = str(p, 'stage', 'PAST_DUE');
+    const stage = raw === 'GRACE' || raw === 'GRACE_ENDING' ? raw : 'PAST_DUE';
+    const values = {
+      plan: str(p, 'planName', t(l, 'emails.BILLING_PAYMENT_FAILED.yourPlan')),
+      deadline: str(p, 'deadline', '-'),
+    };
+    return {
+      subject: t(l, `emails.BILLING_PAYMENT_FAILED.${stage}.subject`, values),
+      body: t(l, `emails.BILLING_PAYMENT_FAILED.${stage}.body`, values),
+    };
+  },
+
+  /*
     The support mailbox's copy of a form message. Composed in support-request.ts, which the
     email view also reads, so the text part and the HTML part name the same facts.
   */
@@ -638,7 +713,9 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     stranger send any text they liked to anybody, under our name.
   */
   [NotificationType.SUPPORT_REQUEST_ACKNOWLEDGED]: (l, p) => ({
-    subject: t(l, 'emails.SUPPORT_REQUEST_ACKNOWLEDGED.subject'),
+    subject: t(l, 'emails.SUPPORT_REQUEST_ACKNOWLEDGED.subject', {
+      reference: str(p, 'reference'),
+    }),
     body: t(l, 'emails.SUPPORT_REQUEST_ACKNOWLEDGED.body', {
       email: str(p, 'email'),
       reference: str(p, 'reference'),

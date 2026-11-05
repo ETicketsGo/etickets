@@ -2,7 +2,7 @@ import { render, waitFor, act } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
-import { useCityPreference } from '../api';
+import { resetCityStoreForTests, useCityPreference } from '../api';
 
 /** In-memory AsyncStorage. The real module is a native shim with no JS fallback. */
 // jest hoists mock factories above this declaration, so the name needs the `mock` prefix
@@ -94,6 +94,7 @@ function mount() {
 describe('useCityPreference', () => {
   beforeEach(async () => {
     await AsyncStorage.clear();
+    resetCityStoreForTests();
     jest.clearAllMocks();
   });
 

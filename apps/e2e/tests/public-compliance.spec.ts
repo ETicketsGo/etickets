@@ -134,7 +134,10 @@ test.describe('the public compliance surface', () => {
         expect(t, `${path} must not show a policy id`).not.toMatch(
           /(TERMS|PRIVACY|SMS|REFUNDS|COOKIES)\/[A-Z]+\/v\d/,
         );
-        expect(t).toMatch(/Last updated October 6, 2026/);
+        // Privacy v2 took effect on 2026-10-25 (packages/shared-types/src/legal.ts); the rest are v1.
+        expect(t).toMatch(
+          path === '/privacy' ? /Last updated October 25, 2026/ : /Last updated October 6, 2026/,
+        );
       }
     });
 
@@ -190,10 +193,9 @@ test.describe('the public compliance surface', () => {
     }) => {
       await page.goto(`${CUSTOMER}/terms`);
       const t = await page.locator('body').innerText();
-      // The brand's own entity stays; the owner's India statement sits beside it.
-      expect(t).toContain('operated by DeepTrics LLC');
+      // No market selected: one line naming both companies, each where it operates.
       expect(t).toContain(
-        'In India, ETicketsGo is operated by DeepTrics Software Solutions Private Limited.',
+        'ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited and in the United States by DeepTrics LLC.',
       );
       // The old misspelling must not survive anywhere a carrier compares against DLT.
       expect(t).not.toContain('Deeptrics Software Solution Pvt Ltd');
@@ -205,7 +207,8 @@ test.describe('the public compliance surface', () => {
       browser,
     }) => {
       const ctx = await browser.newContext();
-      await ctx.addCookies([{ name: 'etg_market', value: 'IN', url: CUSTOMER }]);
+      // The market the reader CHOSE (a city they picked), never the network's guess.
+      await ctx.addCookies([{ name: 'etg_selected_market', value: 'IN', url: CUSTOMER }]);
       const page = await ctx.newPage();
       for (const path of LEGAL_PAGES) {
         await page.goto(`${CUSTOMER}${path}`);
@@ -233,15 +236,38 @@ test.describe('the public compliance surface', () => {
       Entity - DeepTrics Software Solutions Private Limited - and connects it to the brand,
       on pages anybody can open without signing in.
     */
-    // The owner's line is "© 2026 ETicketsGo, ..."; the year is the current one, as in the app.
-    const FOOTER = `© ${new Date().getFullYear()} ETicketsGo, DeepTrics Software Solutions Pvt Ltd | All rights reserved.`;
+    // The owner's line is "© 2026 ETicketsGo. All rights reserved."; the year is the current one.
+    const FOOTER = `© ${new Date().getFullYear()} ETicketsGo. All rights reserved.`;
 
-    test('both footers carry the owner line exactly', async ({ page }) => {
+    test('both footers name no company with no market selected', async ({ page }) => {
       // `/` renders the storefront footer; `/about` renders the marketing one.
       for (const path of ['/', '/about', '/events']) {
         await page.goto(`${CUSTOMER}${path}`);
         await expect(page.getByTestId('footer-rights'), path).toHaveText(FOOTER);
+        await expect(page.getByTestId('footer-operator'), path).toHaveCount(0);
       }
+    });
+
+    test('both footers carry the owner line exactly once an Indian city is chosen', async ({
+      browser,
+    }) => {
+      const ctx = await browser.newContext();
+      await ctx.addInitScript(() => {
+        localStorage.setItem(
+          'etg.city',
+          JSON.stringify({ city: 'Hyderabad', region: 'Telangana', country: 'India' }),
+        );
+      });
+      const page = await ctx.newPage();
+      for (const path of ['/', '/about']) {
+        await page.goto(`${CUSTOMER}${path}`);
+        // One line, the brand once and the company by its short name (owner, 2026-11-05). The
+        // full legal name stays on About and the Legal & Policies pages (checked below).
+        await expect(page.getByTestId('footer-rights'), path).toHaveText(
+          `© ${new Date().getFullYear()} ETicketsGo. Operated by DeepTrics Software Solutions Pvt Ltd.`,
+        );
+      }
+      await ctx.close();
     });
 
     test('About states the operator and lists the company', async ({ page }) => {
@@ -262,6 +288,10 @@ test.describe('the public compliance surface', () => {
       const card = page.getByTestId('contact-operator');
       await expect(card).toContainText('DeepTrics Software Solutions Private Limited');
       await expect(card.locator('a[href="mailto:support@eticketsgo.com"]')).toHaveCount(1);
+      // A chosen market names only that company.
+      await page.goto(`${CUSTOMER}/contact?country=US`);
+      await expect(card).toContainText('DeepTrics LLC');
+      await expect(card).not.toContainText('DeepTrics Software Solutions Private Limited');
     });
 
     test('/cancellation reaches the cancellation policy', async ({ page }) => {

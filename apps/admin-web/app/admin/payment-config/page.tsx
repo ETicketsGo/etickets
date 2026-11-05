@@ -28,6 +28,8 @@ import {
   type ProviderHealthRow,
   type SettlementLine,
 } from '@eticketsgo/web-kit';
+import { NEUTRAL_LINE, legalEntityRows, type LegalEntityRow } from '@/lib/legal-entities';
+import { paymentConfigEnv } from '@/lib/payment-config-env';
 
 const ENVS: PaymentEnvValue[] = ['LOCAL', 'DEV', 'QA', 'UAT', 'STAGING', 'PRODUCTION'];
 const MODES: PaymentProviderModeValue[] = ['DUMMY', 'TEST', 'LIVE'];
@@ -39,19 +41,27 @@ function modeTone(mode: PaymentProviderModeValue): BadgeTone {
 }
 
 export default function PaymentConfigPage() {
-  const [env, setEnv] = useState<PaymentEnvValue>('LOCAL');
+  /*
+    Which environment the admin is looking at. Null until they choose one, so the first load asks
+    the API for THIS deployment's own environment (it defaults to the active one). It used to start
+    on LOCAL everywhere, so on UAT the page opened on a dummy provider and a `*.*.* -> dummy` route
+    while UAT really runs Razorpay - an admin could read, or edit, the wrong environment.
+  */
+  const [chosen, setChosen] = useState<PaymentEnvValue | null>(null);
   const qc = useQueryClient();
   const { push } = useToast();
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['admin', 'payment-config', env],
-    queryFn: () => api.admin.paymentConfig.overview(env),
+    queryKey: ['admin', 'payment-config', chosen ?? 'active'],
+    queryFn: () => api.admin.paymentConfig.overview(chosen ?? undefined),
   });
+  // The environment the data on screen belongs to: every edit below targets this one.
+  const env: PaymentEnvValue = paymentConfigEnv(chosen, data);
 
   const [editing, setEditing] = useState<PaymentProviderConfigRow | null>(null);
   const [routeEditing, setRouteEditing] = useState<PaymentRouteRow | 'new' | null>(null);
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['admin', 'payment-config', env] });
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['admin', 'payment-config'] });
 
   const testMutation = useMutation({
     mutationFn: (id: string) => api.admin.paymentConfig.testConnection(id, env),
@@ -89,7 +99,7 @@ export default function PaymentConfigPage() {
         <Select
           label="Environment"
           value={env}
-          onChange={(e) => setEnv(e.target.value as PaymentEnvValue)}
+          onChange={(e) => setChosen(e.target.value as PaymentEnvValue)}
           className="w-48"
         >
           {ENVS.map((e) => (
@@ -141,6 +151,8 @@ export default function PaymentConfigPage() {
           <OperationsSection />
         </>
       )}
+
+      <LegalEntitiesCard />
 
       {editing && (
         <ProviderDialog
@@ -733,6 +745,64 @@ function LiveReadinessCard() {
           </p>
         </div>
       )}
+    </Card>
+  );
+}
+
+/**
+ * Which DeepTrics company operates ETicketsGo where, read-only.
+ *
+ * The same registry every receipt, invoice, email footer and public page reads. Shown here
+ * beside the routing because the two must agree: INR routes to the Indian account and names
+ * the Indian company, USD routes to the US account and names DeepTrics LLC. Changing a name
+ * is a code change with a review, so there is nothing to edit.
+ */
+function LegalEntitiesCard() {
+  const columns: Column<LegalEntityRow>[] = [
+    {
+      key: 'entity',
+      header: 'Company',
+      render: (r) => (
+        <div className="min-w-0 space-y-1">
+          <p className="text-text-primary">
+            {r.legalName} <span className="text-text-muted">({r.country})</span>
+          </p>
+          <p className="text-caption text-text-muted">Short form: {r.shortName}</p>
+          <p className="text-caption text-text-muted">{r.publicLine}</p>
+        </div>
+      ),
+    },
+    {
+      key: 'usedFor',
+      header: 'Named on',
+      render: (r) => <p className="text-caption text-text-secondary">{r.usedFor}</p>,
+    },
+    {
+      key: 'record',
+      header: 'Company record',
+      render: (r) => (
+        <p className="text-caption text-text-muted">
+          Registered office: {r.registeredOffice}. Company ID: {r.companyId}. Tax ID: {r.taxId}.
+        </p>
+      ),
+    },
+  ];
+  return (
+    <Card
+      title="Operating entities"
+      action={<span className="text-xs text-text-muted">Read-only. Set in code.</span>}
+    >
+      <div data-testid="legal-entities">
+        <DataTable
+          columns={columns}
+          rows={legalEntityRows()}
+          rowKey={(r) => r.legalName}
+          mobile="cards"
+        />
+        <p className="mt-3 text-caption text-text-muted">
+          A public page with no market selected says: {NEUTRAL_LINE}
+        </p>
+      </div>
     </Card>
   );
 }

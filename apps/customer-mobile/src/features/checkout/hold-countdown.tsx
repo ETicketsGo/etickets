@@ -3,6 +3,7 @@ import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/ui';
 import { useNow } from '@/hooks/use-now';
+import { palette } from '@/theme';
 
 /**
  * Counts down the inventory hold.
@@ -51,13 +52,20 @@ export function HoldCountdown({
       accessibilityLiveRegion="polite"
       accessibilityRole="timer"
       accessibilityLabel={`Tickets held for ${minutes} minutes ${seconds} seconds`}
-      className={`flex-row items-center gap-2 rounded-md px-3 py-2.5 ${
-        urgent ? 'bg-status-error/12' : 'bg-status-warning/15'
+      className={`flex-row items-center gap-3 rounded-card px-4 py-3 ${
+        urgent ? 'bg-critical-tint' : 'bg-caution-tint'
       }`}
     >
-      <Ionicons name="time-outline" size={16} color={urgent ? '#DC2626' : '#D97706'} />
-      <Text variant="subhead" tone={urgent ? 'danger' : 'secondary'} className="flex-1">
-        Tickets held for {minutes}:{String(seconds).padStart(2, '0')}
+      <Ionicons
+        name="time-outline"
+        size={18}
+        color={urgent ? palette.critical : palette.goldText}
+      />
+      <Text variant="ui" tone={urgent ? 'danger' : 'primary'} className="flex-1">
+        Your tickets are held for
+      </Text>
+      <Text variant="figureSm" tone={urgent ? 'danger' : 'primary'}>
+        {minutes}:{String(seconds).padStart(2, '0')}
       </Text>
     </View>
   );

@@ -7,6 +7,8 @@ interface Env {
   webHost: string | null;
   sentryDsn: string | null;
   env: 'development' | 'staging' | 'production';
+  /** The build carries a push credential (Firebase config on Android). */
+  pushEnabled: boolean;
 }
 
 const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, unknown>;
@@ -46,6 +48,7 @@ export const env: Env = {
   webHost: stringOrNull(extra.webHost),
   sentryDsn: stringOrNull(extra.sentryDsn),
   env: resolvedEnv,
+  pushEnabled: extra.pushEnabled === true,
 };
 
 export const isProd = env.env === 'production';

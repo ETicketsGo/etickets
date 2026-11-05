@@ -1,16 +1,9 @@
 import type { MetadataRoute } from 'next';
+import { canonicalSiteUrl } from '@/lib/site-url';
+import { buildRobots } from '@/lib/robots-rules';
+import { isIndexable } from '@/lib/seo';
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://eticketsgo.com';
-
+/** robots.txt. The rules live in `lib/robots-rules.ts`, where the tests can reach them. */
 export default function robots(): MetadataRoute.Robots {
-  return {
-    rules: {
-      userAgent: '*',
-      allow: '/',
-      // Keep private/app surfaces out of the index.
-      disallow: ['/account', '/booking', '/login', '/register', '/api/', '/share'],
-    },
-    sitemap: `${SITE_URL}/sitemap.xml`,
-    host: SITE_URL,
-  };
+  return buildRobots({ indexable: isIndexable(), siteUrl: canonicalSiteUrl() });
 }

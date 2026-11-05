@@ -176,12 +176,22 @@ export function SiteChrome({
         bands the full width of the window (DESIGN-SYSTEM.md section 1), so it sets its own
         gutters inside. Every other page keeps the column it was laid out in.
       */}
+      {/*
+        At least a screen tall, so the footer always starts below the fold.
+
+        A page still loading is short - a heading and a skeleton - and the footer used to sit
+        in the middle of the screen until the content arrived and shoved it away. Measured on a
+        phone, that one movement was most of every page's layout shift (0.2-0.3 CLS on the seat
+        page, My bookings and Browse), and a dark footer band halfway up a blank page is what
+        made a load look like another page first. A short finished page now has paper under it
+        instead of a footer floating up into view.
+      */}
       <main
         id="main"
         className={
           pathname === '/'
-            ? 'w-full flex-1'
-            : 'mx-auto w-full max-w-shell flex-1 px-4 py-6 pb-24 sm:px-6 sm:py-10 lg:px-8 lg:pb-10'
+            ? 'min-h-[100svh] w-full flex-1'
+            : 'mx-auto min-h-[100svh] w-full max-w-shell flex-1 px-4 py-6 pb-24 sm:px-6 sm:py-10 lg:px-8 lg:pb-10'
         }
       >
         {children}

@@ -13,7 +13,13 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { AdminPermission, Role } from '@eticketsgo/shared-types';
-import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../../common/decorators';
+import {
+  RequiresAdmin,
+  RequiresRecentMfa,
+  CurrentUser,
+  Roles,
+  type RequestUser,
+} from '../../common/decorators';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import { AppException, ErrorCodes } from '../../common/errors';
 import { PAYMENT_ENVS, type PaymentEnvName } from '../configuration/payment-environment';
@@ -223,7 +229,13 @@ export class PaymentAdminController {
     return this.reconciliation.settlement(fromDate, toDate);
   }
 
+  /*
+    Step-up on every write that changes where or how money is taken: provider config (keys,
+    mode, enabled) and the routes that pick a provider and its failover. A console left open
+    must not be able to point live payments somewhere else.
+  */
   @Patch('config/:id')
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Update a payment provider config (admin).' })
   updateConfig(
     @CurrentUser() user: RequestUser,
@@ -247,6 +259,7 @@ export class PaymentAdminController {
   }
 
   @Post('routes')
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Create a payment route (admin).' })
   createRoute(
     @CurrentUser() user: RequestUser,
@@ -258,6 +271,7 @@ export class PaymentAdminController {
   }
 
   @Patch('routes/:id')
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Update a payment route (admin).' })
   updateRoute(
     @CurrentUser() user: RequestUser,
@@ -270,6 +284,7 @@ export class PaymentAdminController {
   }
 
   @Delete('routes/:id')
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Delete a payment route (admin).' })
   deleteRoute(
     @CurrentUser() user: RequestUser,

@@ -1,6 +1,7 @@
 # ADR-020: Notification Strategy
 
 - **Status:** Accepted (provider note superseded by ADR-045)
+- **Status (2026-11-01):** current, except the provider note, which ADR-045 supersedes.
 - **Date:** 2026-07-13
 - **Scope:** Notification Platform sprint (Prompt 3)
 

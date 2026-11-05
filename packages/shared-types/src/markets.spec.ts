@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { countryAliases } from './country';
-import { MARKETS, marketFor, marketSpellings, unambiguousZoneFor, venueZone } from './markets';
+import {
+  MARKETS,
+  marketFor,
+  marketSpellings,
+  postalCodeProblem,
+  unambiguousZoneFor,
+  venueZone,
+} from './markets';
 
 describe('the zone a venue runs in', () => {
   it('is the only zone a single-zone country has, in any stored spelling', () => {
@@ -56,5 +63,25 @@ describe('every spelling of a market', () => {
   it('is just the code itself for a code that is not a market', () => {
     expect(marketSpellings('ZZ')).toEqual(['zz']);
     expect(marketSpellings('  ')).toEqual([]);
+  });
+});
+
+describe('the postal code an address can carry', () => {
+  it('takes a US ZIP or ZIP+4 and an Indian PIN, in any stored spelling of the country', () => {
+    expect(postalCodeProblem('United States', '83642')).toBeNull();
+    expect(postalCodeProblem('USA', '83642-1234')).toBeNull();
+    expect(postalCodeProblem('IN', '520010')).toBeNull();
+  });
+
+  it("names the country's own term when the shape is wrong", () => {
+    expect(postalCodeProblem('United States', '8364')).toMatch(/ZIP code/);
+    expect(postalCodeProblem('India', '83642')).toMatch(/PIN code/);
+    expect(postalCodeProblem('India', '020010')).toMatch(/PIN code/);
+  });
+
+  it('checks nothing for a blank code, an unknown country, or one with no fixed shape', () => {
+    expect(postalCodeProblem('India', '')).toBeNull();
+    expect(postalCodeProblem('', 'anything')).toBeNull();
+    expect(postalCodeProblem('United Kingdom', 'SW1A 1AA')).toBeNull();
   });
 });

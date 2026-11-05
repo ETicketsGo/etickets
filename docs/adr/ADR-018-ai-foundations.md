@@ -1,6 +1,7 @@
 # ADR-018: AI Foundations
 
 - **Status:** Accepted (extension interfaces only)
+- **Status (2026-11-01):** current. The gateway can now call `openai` or `anthropic` (`AI_PROVIDER`, default `disabled`).
 - **Date:** 2026-07-13
 - **Relates to:** ADR-014 (Experience Discovery)
 - **Scope:** PR-4

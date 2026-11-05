@@ -16,6 +16,12 @@ export const ticketTypeSchema = z.object({
   maxPerOrder: z.number().int(),
   /** Remaining inventory. Authoritative at read time only — see the note in cart.ts. */
   available: z.number().int(),
+  /**
+   * ON_SALE, or why not: NOT_YET (with salesStartAt) or CLOSED. Only ON_SALE can be picked;
+   * the app used to offer a stepper for a tier the server would refuse at checkout.
+   */
+  saleState: z.string().nullish(),
+  salesStartAt: z.string().nullish(),
 });
 
 export const sessionSchema = z.object({
@@ -49,14 +55,29 @@ export const eventDetailSchema = z.object({
    * always comes from the API's own quote.
    */
   feeMode: z.string(),
+  /**
+   * DEMO or TEST on catalogue the platform seeded for QA. The website labels it "Sample
+   * event" / "Test event"; the app does the same, so nobody books a showcase by mistake.
+   */
+  contentLabel: z.string().nullish(),
+  /** The venue's IANA zone. Session times are printed in it. */
+  timeZone: z.string().nullish(),
   venue: z.object({
     id: z.string(),
     name: z.string(),
     city: z.string(),
-    country: z.string(),
+    // Venue.country is nullable in the API. Required here, one venue with no country
+    // failed the parse of the whole list or page.
+    country: z.string().nullish(),
     address: z.string().nullable(),
   }),
-  organizer: z.object({ id: z.string(), name: z.string() }),
+  organizer: z.object({ id: z.string(), name: z.string(), verified: z.boolean().nullish() }),
+  /** Free events skip payment entirely (declared by the organizer, not inferred). */
+  isFree: z.boolean().nullish(),
+  /** Minimum age, when the organizer set one. */
+  ageLimit: z.number().int().nullish(),
+  termsAndConditions: z.string().nullish(),
+  artists: z.array(z.object({ name: z.string() })).nullish(),
   sessions: z.array(sessionSchema),
   /** The event's picture, when it has one. See event-image.ts for why both are optional. */
   ...eventImageFields,
@@ -65,3 +86,8 @@ export const eventDetailSchema = z.object({
 export type TicketType = z.infer<typeof ticketTypeSchema>;
 export type EventSession = z.infer<typeof sessionSchema>;
 export type EventDetail = z.infer<typeof eventDetailSchema>;
+
+/** Whether a ticket type can be picked now. An older API without saleState means yes. */
+export function isOnSale(t: Pick<TicketType, 'saleState'>): boolean {
+  return !t.saleState || t.saleState.toUpperCase() === 'ON_SALE';
+}

@@ -1,6 +1,7 @@
 # ADR-021: Discovery Strategy
 
 - **Status:** Accepted · **Date:** 2026-07-13 · **Scope:** Discovery Platform (Prompt 4)
+- **Status (2026-11-01):** current.
 
 ## Context
 

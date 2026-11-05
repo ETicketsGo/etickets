@@ -34,7 +34,7 @@ function setup(channel: 'sms' | 'email', deliver: jest.Mock) {
     ),
     notification: {
       findMany: jest.fn().mockResolvedValue([row]),
-      update: jest.fn().mockResolvedValue({}),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
   };
   const templates = { render: jest.fn().mockReturnValue({ subject: 'S', body: 'B' }) };
@@ -117,7 +117,7 @@ describe('dispatch: after a provider fails', () => {
     expect(stored).not.toContain('14155550123');
     expect(stored).toContain('HTTP 400');
     const lastError = (
-      prisma.notification.update.mock.calls.at(-1)?.[0] as {
+      prisma.notification.updateMany.mock.calls.at(-1)?.[0] as {
         data: { lastError: string };
       }
     ).data.lastError;

@@ -1,6 +1,7 @@
 # ADR-043: Booking Compensation and Financial Recovery
 
 - **Status:** Accepted (P5.3A foundation shipped: planning + safe non-financial execution; broad money movement deferred to P5.3B)
+- **Status (2026-11-01):** current. P5 is closed: refund policy defaults to `MANUAL_ONLY`, and automatic refund, void and provider cancel stay off (`BOOKING_COMPENSATION_AUTO_*`).
 - **Date:** 2026-07-28
 - **Deciders:** Principal Architect
 - **Builds on:** ADR-041 (outbox), ADR-042 (booking orchestration)

@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+// EmailVerificationService: an invitation is accepted only once the invitee's email is proved.
+import { AuthModule } from '../auth/auth.module';
 import {
   AdminOrganizationsController,
   OrganizationsController,
@@ -10,6 +12,7 @@ import { OrganizationImagesService } from './organization-images.service';
 import { OrganizationLifecycleService } from './organization-lifecycle.service';
 
 @Module({
+  imports: [AuthModule],
   controllers: [
     OrganizationsController,
     AdminOrganizationsController,

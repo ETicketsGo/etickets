@@ -8,7 +8,8 @@
     ".": "./src/index.ts",
     "./fonts/inter": "./src/fonts/inter.ts",
     "./fonts/display": "./src/fonts/display.ts",
-    "./fonts/brand-display": "./src/fonts/brand-display.ts"
+    "./fonts/brand-display": "./src/fonts/brand-display.ts",
+    "./server": "./src/server.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

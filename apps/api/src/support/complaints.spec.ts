@@ -28,6 +28,8 @@ function makeService(over: Record<string, unknown> = {}) {
     booking: { findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn() },
     organization: { findMany: jest.fn().mockResolvedValue([]) },
     $executeRaw: jest.fn().mockResolvedValue(1),
+    // The support reference counter (etg_next_reference_value): next number 142.
+    $queryRaw: jest.fn().mockResolvedValue([{ value: 142 }]),
     // submit() runs in an interactive transaction (handed this same client); list() in a batch.
     $transaction: jest.fn((arg: unknown) =>
       typeof arg === 'function'

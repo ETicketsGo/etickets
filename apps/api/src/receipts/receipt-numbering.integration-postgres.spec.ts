@@ -286,6 +286,66 @@ describe('integration-real-postgres: receipt numbering', () => {
   );
 
   maybe(
+    'a US seller with an EIN gets receipts in the receipt series; India keeps its GST invoices',
+    async () => {
+      guard();
+      const year = new Date().getUTCFullYear();
+      const issued = await db!.receipt.findMany({
+        where: { organizationId: orgId },
+        select: { id: true, kind: true, number: true, documentJson: true },
+      });
+      const receiptsSoFar = issued.filter((r: { kind: string }) => r.kind === 'RECEIPT').length;
+      const invoicesSoFar = issued.filter((r: { kind: string }) => r.kind === 'TAX_INVOICE').length;
+      expect(invoicesSoFar).toBeGreaterThan(0);
+
+      // US, EIN on file: still a receipt, numbered on from the receipt series.
+      await db!.organization.update({
+        where: { id: orgId },
+        data: {
+          registeredCountry: 'United States',
+          taxRegistrationKind: 'EIN',
+          taxRegistrationNumber: '12-3456789',
+        },
+      });
+      const us = await makeBooking();
+      await db!.$transaction((tx: never) => receipts.issueForBooking(tx, us));
+      const usDoc = await db!.receipt.findUnique({ where: { saleForBookingId: us } });
+      expect(usDoc!.kind).toBe('RECEIPT');
+      expect(usDoc!.number).toBe(`RCT-${year}-${String(receiptsSoFar + 1).padStart(6, '0')}`);
+      const usJson = usDoc!.documentJson as {
+        seller: { taxRegistrationNumber: string };
+        notes: string[];
+      };
+      // The EIN is still printed; the document just does not claim to be a tax invoice.
+      expect(usJson.seller.taxRegistrationNumber).toBe('12-3456789');
+      expect(usJson.notes.join(' ')).not.toMatch(/tax invoice/i);
+
+      // India, GSTIN: a GST invoice again, continuing the invoice series.
+      await db!.organization.update({
+        where: { id: orgId },
+        data: {
+          registeredCountry: 'India',
+          taxRegistrationKind: 'GSTIN',
+          taxRegistrationNumber: '29AABCU9603R1ZM',
+        },
+      });
+      const india = await makeBooking();
+      await db!.$transaction((tx: never) => receipts.issueForBooking(tx, india));
+      const inDoc = await db!.receipt.findUnique({ where: { saleForBookingId: india } });
+      expect(inDoc!.kind).toBe('TAX_INVOICE');
+      expect(inDoc!.number).toBe(`INV-${year}-${String(invoicesSoFar + 1).padStart(6, '0')}`);
+
+      // Nothing issued before either change was rewritten.
+      for (const r of issued) {
+        const now = await db!.receipt.findUnique({ where: { id: r.id } });
+        expect([now!.kind, now!.number]).toEqual([r.kind, r.number]);
+        expect(JSON.stringify(now!.documentJson)).toBe(JSON.stringify(r.documentJson));
+      }
+    },
+    60_000,
+  );
+
+  maybe(
     'issues a negative credit note for a refund, once and only once',
     async () => {
       guard();

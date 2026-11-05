@@ -1,6 +1,7 @@
 # ADR-041: Transactional Outbox and Durable Domain-Event Delivery
 
 - **Status:** Accepted
+- **Status (2026-11-01):** current. The default delivery mode is still `in_process` (`DOMAIN_EVENT_DELIVERY_MODE`); outbox dispatch needs `DOMAIN_EVENT_OUTBOX_DISPATCH_ENABLED`.
 - **Date:** 2026-07-27
 - **Deciders:** Principal Architect
 - **Relates to / extends:** ADR-038 (Domain Event Bus). Relates to ADR-039, ADR-040.

@@ -1,7 +1,8 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Rocket } from 'lucide-react';
 import {
@@ -10,13 +11,19 @@ import {
   SectionTabs,
   api,
   brandButtonClasses,
+  setOrganizationSuspendedHandler,
+  useLogout,
   type ShellNotice,
 } from '@eticketsgo/web-kit';
+import { SuspendedOrganizationScreen } from '@/components/suspended-organization';
+import { consoleState, suspendedOrganizations } from '@/lib/suspension';
+import { storefrontOrigin } from '@/lib/storefront-url';
 import { navFor } from '@/components/organizer-nav';
 import { OrgProvider, OrgSwitcher } from '@/components/org-context';
 import { useOnboardingDismissed, useOnboardingProgress } from '@/lib/onboarding';
 import { WorkspaceTheme, useWorkspace } from '@/components/workspace-chrome';
 import { DeskNotificationsButton, DeskSchemeSwitch } from '@/components/desk-chrome';
+import { OrganizerLegalFooter } from '@/components/organizer-legal-footer';
 
 /**
  * A page that exists to become paper gets no shell.
@@ -132,13 +139,64 @@ function OrganizerChrome({ children }: { children: React.ReactNode }) {
         <div className="mb-4 flex justify-end empty:mb-0">
           <OrgSwitcher />
         </div>
-        {/* Finance's Payouts / Receipts / Refunds, Bookings' Counter, Settings' Premium. */}
+        {/* Finance's Payouts / Receipts / Refunds as tabs. */}
         <SectionTabs items={nav} pathname={pathname} />
         {children}
+        <OrganizerLegalFooter country={workspace.registeredCountry} />
       </OrgProvider>
     </AppShell>
   );
 }
+
+/**
+ * The organizer console, or - when every organization this person belongs to is SUSPENDED - the
+ * suspended screen and nothing else (owner decision, 2026-10-26).
+ *
+ * The API is the enforcement: every organizer route answers 403 ORGANIZATION_SUSPENDED for a
+ * suspended organization, whatever made the session. This decides what to DRAW. It reads the
+ * same organization list the console already loads (the API lists a suspended organization by
+ * name and status only), and when any request comes back ORGANIZATION_SUSPENDED - the suspension
+ * landed while the console was open - it re-reads the list, which then closes the console.
+ */
+function SuspensionGate({ children }: { children: React.ReactNode }) {
+  const qc = useQueryClient();
+  const logout = useLogout();
+  const { data } = useQuery({
+    queryKey: ['organizations', 'mine'],
+    queryFn: () => api.organizations.listMine(),
+  });
+  const [store, setStore] = useState<string | null>(null);
+  useEffect(() => setStore(storefrontOrigin(window.location)), []);
+  useEffect(() => {
+    setOrganizationSuspendedHandler(() => {
+      void qc.invalidateQueries({ queryKey: ['organizations', 'mine'] });
+    });
+    return () => setOrganizationSuspendedHandler(null);
+  }, [qc]);
+
+  if (consoleState(data) === 'suspended') {
+    return (
+      <SuspendedOrganizationScreen
+        organizations={suspendedOrganizations(data).map((o) => ({ id: o.id, name: o.name }))}
+        storefront={store}
+        onSignOut={() => void logout()}
+      />
+    );
+  }
+  return <>{children}</>;
+}
+
+/*
+  The console is RequireAuth's `frame`, not a child of it: drawn round the wait while the
+  session is confirmed, and the same element when the page replaces the spinner. A refresh
+  therefore shows the console from the first paint instead of an empty page with a spinner and
+  then the whole console appearing round it, and nothing in it is remounted at that moment.
+*/
+const organizerFrame = (content: React.ReactNode) => (
+  <SuspensionGate>
+    <OrganizerChrome>{content}</OrganizerChrome>
+  </SuspensionGate>
+);
 
 export default function OrganizerLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -149,7 +207,9 @@ export default function OrganizerLayout({ children }: { children: React.ReactNod
         roles={['ORGANIZER_OWNER', 'ORGANIZER_MANAGER', 'CHECKIN_STAFF', 'ADMIN', 'SUPER_ADMIN']}
         roleMismatchRedirect="/start"
       >
-        <OrgProvider>{children}</OrgProvider>
+        <SuspensionGate>
+          <OrgProvider>{children}</OrgProvider>
+        </SuspensionGate>
       </RequireAuth>
     );
   }
@@ -161,8 +221,9 @@ export default function OrganizerLayout({ children }: { children: React.ReactNod
       // has not created their organization yet — the step that grants the role. Sending them
       // there beats telling them their account cannot access the area that would fix it.
       roleMismatchRedirect="/start"
+      frame={organizerFrame}
     >
-      <OrganizerChrome>{children}</OrganizerChrome>
+      {children}
     </RequireAuth>
   );
 }

@@ -392,6 +392,12 @@ enum NotificationType {
   // Account security, addressed to the account holder about their own credentials.
   PASSWORD_RESET_REQUESTED
   PASSWORD_CHANGED
+  /// A code proving somebody receives mail at an address they are adding to their account.
+  EMAIL_VERIFICATION_CODE
+  /// A team (or back-office) invitation, sent to the invitee's own address. The ONLY way the
+  /// link leaves the platform: the inviter is never shown it. Sent straight through the email
+  /// channel, never stored as a Notification row, because the link is a credential.
+  TEAM_INVITATION
 
   /// A buyer with no account asking for their booking back. Its own type rather than a second
   /// BOOKING_CONFIRMED: this one answers an anonymous request, so it has to be rate-limited
@@ -417,6 +423,10 @@ enum NotificationType {
   /// form message was a row only the admin console could show, and nobody was told.
   SUPPORT_REQUEST_RECEIVED
   SUPPORT_REQUEST_ACKNOWLEDGED
+
+  /// The organization's plan payment failed (PAST_DUE), or its retries are over (GRACE), or
+  /// grace is about to end. To the owners, about what their organization pays the platform.
+  BILLING_PAYMENT_FAILED
 }
 
 // Assignment lifecycle of a ticket to an attendee (identity layer, ADR-031).
@@ -501,6 +511,12 @@ model User {
   /// having proved you hold it are different facts, and only the second may sign you in.
   phone           String?    @unique
   phoneVerifiedAt DateTime?
+  /// When the person PROVED they receive mail at `email` (a code sent there and typed back).
+  ///
+  /// Null for every account made before this existed and for every phone-only account. It is
+  /// set today only when a phone-only account adds an address for organizer messages; an email
+  /// sign-up has never been asked to prove its address, and this column does not pretend it did.
+  emailVerifiedAt DateTime?
   passwordHash    String
   fullName        String
   roles           Role[]     @default([CUSTOMER])
@@ -518,34 +534,62 @@ model User {
   /// and an unrecognised value falls back rather than failing.
   locale String?
 
+  /// Where this person says they live: ISO-3166 alpha-2, one of the platform's markets.
+  ///
+  /// Only ever set by the person choosing it (profile). Never inferred - not from the phone
+  /// calling code (+1 is the United States AND Canada), not from the network, not from where
+  /// they bought a ticket. Null means "not said", which is a real answer, not a gap to fill.
+  countryOfResidence    String?
+  /// The country the network placed this person in when the account was made (the edge
+  /// header the storefront's location resolver trusts, e.g. `cf-ipcountry`). A hint about
+  /// where they were on one day, not where they live; labelled with its source wherever shown.
+  detectedCountry       String?
+  /// How `detectedCountry` was obtained. 'network' is the only source today.
+  detectedCountrySource String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   refreshTokens              RefreshToken[]
   mfaCredential              AdminMfaCredential?
   mfaRecoveryCodes           AdminMfaRecoveryCode[]
-  invitationsSent            AccountInvitation[]         @relation("InvitationsSent")
-  invitationReceived         AccountInvitation?          @relation("InvitationsReceived")
+  invitationsSent            AccountInvitation[]               @relation("InvitationsSent")
+  invitationReceived         AccountInvitation?                @relation("InvitationsReceived")
   passwordResetTokens        PasswordResetToken[]
-  cashCollected              Booking[]                   @relation("CashCollected")
-  cashReturned               Booking[]                   @relation("CashReturned")
+  cashCollected              Booking[]                         @relation("CashCollected")
+  cashReturned               Booking[]                         @relation("CashReturned")
   memberships                OrganizationMember[]
   bookings                   Booking[]
-  assignedTickets            Ticket[]                    @relation("TicketAttendee")
+  assignedTickets            Ticket[]                          @relation("TicketAttendee")
   notifications              Notification[]
   notificationPreferences    NotificationPreference[]
   pushSubscriptions          PushSubscription[]
   devices                    UserDevice[]
   feedback                   Feedback[]
-  checkIns                   CheckIn[]                   @relation("CheckInActor")
+  checkIns                   CheckIn[]                         @relation("CheckInActor")
   auditLogs                  AuditLog[]
   payoutSettingUpdates       PayoutSetting[]
-  seatOverrides              ShowSeat[]                  @relation("SeatOverrideActor")
+  seatOverrides              ShowSeat[]                        @relation("SeatOverrideActor")
   reviews                    Review[]
   marketingConsents          MarketingConsent[]
   notificationCertifications NotificationCertification[]
-  adminGrants                AdminGrant[]                @relation("AdminGrantHolder")
-  adminGrantsIssued          AdminGrant[]                @relation("AdminGrantIssuer")
+  adminGrants                AdminGrant[]                      @relation("AdminGrantHolder")
+  adminGrantsIssued          AdminGrant[]                      @relation("AdminGrantIssuer")
+  /// Organizer acquisition (CRM). Staff only; a customer account never has any of these.
+  crmTeamMemberships         CrmTeamMember[]                   @relation("CrmTeamMemberUser")
+  crmLeadsAssigned           CrmLead[]                         @relation("CrmLeadAssignee")
+  crmLeadsCreated            CrmLead[]                         @relation("CrmLeadCreator")
+  crmActivities              CrmActivity[]                     @relation("CrmActivityResponsible")
+  crmFollowUps               CrmFollowUp[]                     @relation("CrmFollowUpOwner")
+  crmStageChanges            CrmLeadStageChange[]              @relation("CrmStageChangeActor")
+  /// One-time codes that carry a signed-in storefront session to the organizer console.
+  authHandoffs               AuthHandoff[]
+  /// Codes sent to an email address somebody is adding to their own account.
+  emailVerificationCodes     EmailVerificationCode[]
+  /// Organizers this person follows, and what they want to hear from each.
+  organizerFollows           OrganizerFollow[]
+  organizerPreferences       OrganizerNotificationPreference[]
+  communicationConsents      CommunicationConsent[]
 
   @@index([status])
 }
@@ -673,6 +717,9 @@ model AccountInvitation {
 
   expiresAt  DateTime
   acceptedAt DateTime?
+  /// Set when the invitation was withdrawn (the pending member was removed). The token hash is
+  /// rotated at the same moment, so the link is dead either way; this keeps the WHEN.
+  revokedAt  DateTime?
 
   /// Who sent it, so "who let this person in" has an answer during an investigation.
   invitedByUserId String
@@ -726,10 +773,19 @@ model PhoneOtp {
   /// Kept for abuse investigation only, never to identify anybody.
   requestedIp String?
 
+  /// Who carried the text and their id for it, so the provider's delivery report can be
+  /// matched back to this row. Never the code: that lives only in the message and `codeHash`.
+  provider          String?
+  providerMessageId String?
+  /// A DeliveryState name (ACCEPTED, DELIVERED, ...). Moves forward only; DELIVERED is final.
+  deliveryStatus    String?
+  deliveredAt       DateTime?
+
   createdAt DateTime @default(now())
 
   @@index([phone, createdAt])
   @@index([expiresAt])
+  @@index([provider, providerMessageId])
 }
 
 model PasswordResetToken {
@@ -751,17 +807,70 @@ model PasswordResetToken {
   @@index([userId])
 }
 
+/// A one-time code that carries a signed-in storefront session to the organizer console.
+///
+/// The storefront and the console are different origins, so a session in one is invisible to
+/// the other, and a phone-only customer who had just become an organizer was sent to a sign-in
+/// page that asked for an email and a password they never had. This is the bridge: the
+/// storefront asks for a code (authenticated, organizer members only), the browser carries it
+/// in the URL FRAGMENT (never sent to a server, removed from history at once), and the console
+/// exchanges it for an ordinary session of its own. Never a token in a URL.
+///
+/// Stored HASHED (SHA-256; the code is 32 random bytes, so a fast hash is enough), single-use
+/// (`consumedAt`), short-lived (60 seconds) and bound to one audience. Revoked by sign-out.
+model AuthHandoff {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash    String    @unique
+  /// Which console may redeem it. Only `organizer` today.
+  audience    String
+  expiresAt   DateTime
+  /// Set by the one exchange that wins. A second presentation is refused.
+  consumedAt  DateTime?
+  /// Set when a sign-out on the storefront ended the session that asked for it.
+  revokedAt   DateTime?
+  requestedIp String?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// A code sent to an email address somebody is adding to their own account.
+///
+/// Same rules as `PhoneOtp`: hashed at rest, guesses counted on the row, short-lived and
+/// single-use, and asking again kills the last one. Bound to the account that asked (the
+/// address is never taken over by whoever types the code) and to the address it was sent to.
+model EmailVerificationCode {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Lower-cased, as `User.email` is.
+  email       String
+  codeHash    String
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  attempts    Int       @default(0)
+  requestedIp String?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([email, createdAt])
+  @@index([expiresAt])
+}
+
 model RefreshToken {
-  id                String    @id @default(cuid())
+  id                String           @id @default(cuid())
   userId            String
-  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash         String    @unique
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash         String           @unique
   expiresAt         DateTime
   revokedAt         DateTime?
   replacedByTokenId String?
   userAgent         String?
   ip                String?
-  createdAt         DateTime  @default(now())
+  createdAt         DateTime         @default(now())
   /// Present only when this session proved a second factor (admin MFA). Absent = never did.
   mfa               RefreshTokenMfa?
 
@@ -870,7 +979,7 @@ model Organization {
 
   /// The registered legal entity, when it differs from the trading name customers see.
   /// An invoice names this one.
-  legalName             String?
+  legalName                  String?
   /// What the organizer registered AS: sole proprietorship, Pvt Ltd, LLC, charity.
   ///
   /// ── WHY THIS AND NOT ONLY A TAX NUMBER ─────────────────────────────────────────
@@ -882,13 +991,16 @@ model Organization {
   ///
   /// Options come from the country's own list in MARKETS, so nobody is asked to pick a form
   /// that does not exist where they registered.
-  legalEntityType       String?
+  legalEntityType            String?
   /// Tax registration: GSTIN in India, sales-tax permit or EIN in the US, GST/HST number
   /// in Canada. Deliberately ONE free-text field plus a kind, rather than a column per
   /// country — the format is a jurisdiction's business and hardcoding a regex here would
   /// mean shipping code every time a market is added.
-  taxRegistrationKind   String?
-  taxRegistrationNumber String?
+  taxRegistrationKind        String?
+  taxRegistrationNumber      String?
+  /// Registrations beyond the main one above: [{ kind, number }], e.g. a second state's sales tax ID
+  /// or a PAN beside a GSTIN. Recorded only; documents print the main registration.
+  additionalTaxRegistrations Json?
 
   /// Registered address, structured because an invoice needs the parts separately.
   registeredAddressLine1 String?
@@ -949,7 +1061,14 @@ model Organization {
   /// taking money the platform will never see, so it changes who is responsible for
   /// collecting it, what a settlement can promise, and what a receipt can honestly say.
   /// Somebody has to choose that deliberately.
-  cashPaymentsEnabled     Boolean                   @default(false)
+  cashPaymentsEnabled     Boolean                           @default(false)
+  /// The acquisition lead this organization was won from, if any. Set by the CRM linking an
+  /// EXISTING organization; nothing about the organization itself changes.
+  crmLead                 CrmLead?
+  /// Customers who follow this organizer, and their topic choices. Only aggregates reach
+  /// the organizer; see `engagement/audience-summary.service.ts`.
+  followers               OrganizerFollow[]
+  followerPreferences     OrganizerNotificationPreference[]
 
   @@index([status])
 }
@@ -1164,11 +1283,11 @@ model Screen {
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
 
-  sessions EventSession[] @relation("SessionScreen")
+  sessions         EventSession[] @relation("SessionScreen")
   /// General-admission sessions held in this space when it is a standing floor.
   standingSessions EventSession[] @relation("SessionStandingSpace")
   /// A screen has MANY layout versions over its life, not one. See SeatMap.
-  seatMaps SeatMap[]
+  seatMaps         SeatMap[]
 
   @@index([cinemaId])
   @@index([venueId])
@@ -1638,9 +1757,9 @@ model Review {
 }
 
 model EventSession {
-  id        String        @id @default(cuid())
-  eventId   String
-  event     Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  id              String        @id @default(cuid())
+  eventId         String
+  event           Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
   /// The room this session happens in, when it happens in one with a seat map.
   ///
   /// Named `screen` for historical reasons — it began as "the screen a film plays on" — but
@@ -1650,15 +1769,15 @@ model EventSession {
   /// Null means general admission. That is the difference the booking path cares about, and
   /// it is a property of the ROOM rather than of the kind of event: the same concert is
   /// reserved seating in a theatre and general admission in a standing arena.
-  screenId  String?
-  screen    Screen?       @relation("SessionScreen", fields: [screenId], references: [id])
+  screenId        String?
+  screen          Screen?       @relation("SessionScreen", fields: [screenId], references: [id])
   /// The seat layout VERSION this show was scheduled against, pinned at scheduling time.
   ///
   /// Recoverable from ShowSeat → Seat → seatMapId, but recording it explicitly is what lets
   /// the schedule answer "which layout will tomorrow's show use" before a single seat has
   /// moved, and makes a re-layout auditable rather than inferred.
-  seatMapId String?
-  seatMap   SeatMap?      @relation(fields: [seatMapId], references: [id])
+  seatMapId       String?
+  seatMap         SeatMap?      @relation(fields: [seatMapId], references: [id])
   /// The STANDING space a general-admission session is held in, when the organizer said so.
   ///
   /// Not `screenId`: a session with a screen is reserved seating everywhere the booking path
@@ -1667,12 +1786,12 @@ model EventSession {
   /// never read it. Null - every session before this column, and any general-admission
   /// session not tied to one space - means no space-level cap, exactly as before.
   standingSpaceId String?
-  standingSpace   Screen? @relation("SessionStandingSpace", fields: [standingSpaceId], references: [id], onDelete: SetNull)
-  startsAt  DateTime
-  endsAt    DateTime
-  status    SessionStatus @default(SCHEDULED)
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+  standingSpace   Screen?       @relation("SessionStandingSpace", fields: [standingSpaceId], references: [id], onDelete: SetNull)
+  startsAt        DateTime
+  endsAt          DateTime
+  status          SessionStatus @default(SCHEDULED)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   ticketTypes TicketType[]
   bookings    Booking[]
@@ -1916,6 +2035,26 @@ model Booking {
   /// since have been reclassified.
   pricingJurisdiction    Json?
   complianceStatus       PricingComplianceStatus @default(NOT_REGULATED)
+
+  /// ── Platform fee override, snapshotted (see PlatformFeePolicy) ────────────────────
+  /// Null on every booking priced by the ordinary fee schedule. The money columns above stay
+  /// the CHARGED amounts, so every reader downstream (receipts, refunds, settlement, payouts,
+  /// finance) is unchanged; these say why the booking fee is what it is.
+  feePolicyId          String?
+  feePolicy            PlatformFeePolicy?     @relation(fields: [feePolicyId], references: [id], onDelete: Restrict)
+  feePolicyKind        PlatformFeePolicyKind?
+  feePolicyVersion     Int?
+  /// The booking fee the platform schedule would have charged, before any cinema cap.
+  baseBookingFeeMinor  Int?
+  /// How much of that the policy took off, before any cinema cap. Never negative.
+  feeWaivedMinor       Int?
+  /// How a per-ticket platform fee (COMBINED, or FIXED_PER_TICKET) was worked out:
+  /// { type, percentBps, fixedPerTicketMinor, ticketCount, percentPartMinor, fixedPartMinor,
+  /// source }, plus { minFeeMinor, maxFeeMinor, limitApplied } when the terms had a limit.
+  /// Null for every other booking. Written so the fee can be explained after the
+  /// band or policy that set it is edited or deleted. `bookingFeeMinor` stays the charged
+  /// amount and is what every reader sums.
+  platformFeeBreakdown Json?
 
   totalMinor Int
 
@@ -2241,11 +2380,11 @@ model PaymentAttempt {
 }
 
 model Refund {
-  id                       String       @id @default(cuid())
+  id                       String                  @id @default(cuid())
   bookingId                String
-  booking                  Booking      @relation(fields: [bookingId], references: [id])
+  booking                  Booking                 @relation(fields: [bookingId], references: [id])
   organizationId           String
-  organization             Organization @relation(fields: [organizationId], references: [id])
+  organization             Organization            @relation(fields: [organizationId], references: [id])
   amountMinor              Int
   /// The portion of `amountMinor` that is tax being returned.
   ///
@@ -2253,7 +2392,7 @@ model Refund {
   /// and apportioning it back out of a total afterwards reintroduces rounding error into a
   /// figure a tax authority may read. Zero on every refund taken before tax existed, and on
   /// every refund where no tax was charged — which is the default.
-  taxMinor                 Int          @default(0)
+  taxMinor                 Int                     @default(0)
   /// The part of `taxMinor` that was ADDED to the price rather than already inside it.
   ///
   /// Whose money a refund returns depends on this. Tax inside the ticket price was the
@@ -2261,7 +2400,7 @@ model Refund {
   /// retained by the platform, and charging it back to the organizer takes money they never
   /// received. Zero for every refund of an inclusive-tax market (India), which is why the
   /// ledger's old "deduct the whole refund" was right there and wrong everywhere else.
-  taxAddedMinor            Int          @default(0)
+  taxAddedMinor            Int                     @default(0)
   /// The part of `amountMinor` that is PLATFORM money rather than the organizer's.
   ///
   /// Settlement charges a refund to the organizer as `amountMinor - taxAddedMinor`, because a
@@ -2279,10 +2418,10 @@ model Refund {
   ///
   /// Zero on every refund written before this existed and on every buyer-requested refund, so
   /// the settlement arithmetic for those is exactly what it was.
-  platformFeeRefundedMinor Int          @default(0)
-  status                   RefundStatus @default(REQUESTED)
+  platformFeeRefundedMinor Int                     @default(0)
+  status                   RefundStatus            @default(REQUESTED)
   reason                   String
-  ticketIds                String[]     @default([])
+  ticketIds                String[]                @default([])
   requestedByUserId        String?
   processedByUserId        String?
   providerRef              String?
@@ -2469,6 +2608,15 @@ model CheckInDevice {
   keyVersion          Int                 @default(1)
   expiresAt           DateTime?
   lastSeenAt          DateTime?
+  // When and why the device was revoked. Null on rows revoked before these were recorded; the
+  // status column alone says whether a device is revoked. Reasons in use: MANUAL, LOST,
+  // MEMBER_REMOVED, ORGANIZATION_SUSPENDED. A revoked device is never approved again.
+  revokedAt           DateTime?
+  revokeReason        String?
+  // Every revocation reason in order, the first included: "<ISO time> <REASON>". revokeReason
+  // keeps the FIRST; later revocations (a suspension of an already-lost phone, say) are
+  // appended here, never dropped (owner decision 2026-10-26).
+  revokeReasons       String[]            @default([])
   approvedByUserId    String?
   createdByUserId     String?
   createdAt           DateTime            @default(now())
@@ -3097,6 +3245,14 @@ model SuppressedDestination {
 
   /// HARD_BOUNCE | COMPLAINT | UNSUBSCRIBED | INVALID_DESTINATION | BLOCKED_BY_PROVIDER
   reason           String
+  /// ALL: the destination does not work, so NOTHING is sent to it (a hard bounce, an invalid
+  /// destination, a provider block, an SMS STOP).
+  /// MARKETING: the person said no to promotional mail (a spam complaint, "unsubscribe from all
+  /// marketing email"). Every organizer campaign and platform marketing message skips it;
+  /// essential transactional mail (tickets, receipts, sign-in codes, refunds) does NOT.
+  /// One row per scope, so a later hard bounce on an address that complained adds an ALL row
+  /// beside the MARKETING one and both reasons stay on record.
+  scope            String  @default("ALL")
   /// Which provider reported it, when one did.
   provider         String?
   /// The delivery attempt this came from, for tracing it back to the event.
@@ -3112,7 +3268,7 @@ model SuppressedDestination {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  @@unique([channel, destinationHash])
+  @@unique([channel, destinationHash, scope])
   @@index([reason, suppressedAt])
 }
 
@@ -3143,10 +3299,22 @@ enum FeedbackKind {
 }
 
 model Feedback {
-  id     String       @id @default(cuid())
-  kind   FeedbackKind
-  userId String?
-  user   User?        @relation(fields: [userId], references: [id])
+  id String @id @default(cuid())
+
+  /// The readable reference the sender is given: `ETG-SUP-<YEAR>-<SEQ>`, e.g. ETG-SUP-2026-000142.
+  ///
+  /// The id stays the primary key and every relation and API field is unchanged; this is the name
+  /// a person reads, says on the phone and searches for. The year is the UTC year of `createdAt`
+  /// and the sequence restarts each year, taken from `ReadableReferenceCounter` (scope
+  /// `SUP-<YEAR>`) in the same transaction as the insert. See docs/support/REFERENCES.md.
+  ///
+  /// Nullable ON PURPOSE, for a live rollout: an API older than this column inserts without it.
+  /// A BEFORE INSERT trigger (migration 20261025120000) fills it for any insert that omits it, and
+  /// the migration backfilled every existing row, so in practice no row is without one.
+  reference String?      @unique
+  kind      FeedbackKind
+  userId    String?
+  user      User?        @relation(fields: [userId], references: [id])
 
   /// Which organizer this is about, where it is about one.
   ///
@@ -3222,6 +3390,19 @@ model BookingReferenceCounter {
   updatedAt DateTime @updatedAt
 }
 
+/// Per-scope counter for readable references that are not booking references.
+///
+/// Scope `SUP-<YEAR>` numbers support requests (ETG-SUP-<YEAR>-<SEQ>). Kept apart from
+/// BookingReferenceCounter so nothing about bookings changes. Incremented only by
+/// `INSERT ... ON CONFLICT DO UPDATE ... RETURNING` (the SQL function `etg_next_reference_value`),
+/// inside the transaction that inserts the row the number is for: the row lock serialises
+/// concurrent requests, and a rolled-back insert gives its number back.
+model ReadableReferenceCounter {
+  scope     String   @id
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
 // Configurable, tiered platform fee rules. Admin-managed (section 13).
 /// How a booking-fee band charges.
 ///
@@ -3232,6 +3413,12 @@ model BookingReferenceCounter {
 enum FeeRuleType {
   FLAT
   PERCENT
+  /// A percentage of the order PLUS a fixed amount for each paid ticket: 3% + Rs 5 per ticket.
+  /// `feePercentBps` is the percentage and `feeMinor` the per-ticket amount.
+  COMBINED
+  /// A fixed amount for each paid ticket and nothing else: Rs 5 per ticket is Rs 15 for three.
+  /// Not FLAT, which charges `feeMinor` once per order whatever the ticket count.
+  FIXED_PER_TICKET
 }
 
 model FeeRule {
@@ -3239,18 +3426,20 @@ model FeeRule {
   label    String
   minMinor Int
   maxMinor Int?
-  /// FLAT: the fee, in minor units. PERCENT: not used, and kept at 0.
+  /// FLAT: the fee, in minor units. PERCENT: not used, and kept at 0. COMBINED: the fixed part,
+  /// charged once per paid ticket. FIXED_PER_TICKET: the fee for each paid ticket.
   feeMinor Int
   currency String @default("INR")
 
   /// FLAT for every band that existed before percentages, so nothing already configured
   /// changes what it charges.
   feeType       FeeRuleType @default(FLAT)
-  /// PERCENT only: the share of the order, in basis points. 500 is 5%, 250 is 2.5%.
+  /// PERCENT and COMBINED: the share of the order, in basis points. 500 is 5%, 250 is 2.5%.
   feePercentBps Int?
-  /// PERCENT only, optional: the least the band may charge, in minor units. Null is no floor.
+  /// PERCENT, COMBINED and FIXED_PER_TICKET, optional: the least the band may charge for the
+  /// whole order, in minor units. Null is no floor.
   minFeeMinor   Int?
-  /// PERCENT only, optional: the most the band may charge, in minor units. Null is no ceiling.
+  /// The same, the most the band may charge for the whole order. Null is no ceiling.
   maxFeeMinor   Int?
 
   /// Where this band applies — '*' for anywhere.
@@ -3273,7 +3462,59 @@ model FeeRule {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Set when an admin deletes the band. Deletion is SOFT: the row stays (switched off), so the
+  /// audit trail keeps pointing at something real. Bookings never referenced a band - they
+  /// snapshot the fee amounts - so nothing already sold changes.
+  deletedAt       DateTime?
+  /// The admin who deleted it. A plain id, like the other actor columns on config rows.
+  deletedByUserId String?
+
   @@index([active, country, region])
+}
+
+/// Where a draft booking-fee schedule is in its life.
+enum FeeScheduleDraftStatus {
+  /// Being edited. Prices nothing.
+  OPEN
+  /// Written to the live bands in one transaction. Never changed again: it is the history.
+  PUBLISHED
+  /// Thrown away without publishing.
+  DISCARDED
+}
+
+/// A copy of one currency's booking-fee schedule that an admin edits before it goes live.
+///
+/// ── WHY A DRAFT ──────────────────────────────────────────────────────────────────
+/// Bands were edited one at a time, and every single edit had to leave the live schedule
+/// whole (no gap, no overlap). So no reorganisation was possible: turning "$100 and above" into
+/// "$1,000 and above" opened a gap until the next band existed, and adding that band first was
+/// an overlap. A draft may be broken while it is edited; it is checked as a whole and written to
+/// the live `FeeRule` rows in one transaction, and only when it is whole.
+///
+/// The live bands are untouched until a publish succeeds. `baseFingerprint` is the live
+/// schedule this draft was copied from: a publish is refused when it changed since, so one
+/// admin's publish cannot silently overwrite another's.
+model FeeScheduleDraft {
+  id                String                 @id @default(cuid())
+  currency          String
+  status            FeeScheduleDraftStatus @default(OPEN)
+  /// `scheduleFingerprint` of the live (not deleted) bands of the currency when copied.
+  baseFingerprint   String
+  /// The draft bands: [{ key, sourceId, minMinor, maxMinor, feeType, feeMinor, feePercentBps,
+  /// minFeeMinor, maxFeeMinor, country, region, active }]. `sourceId` names the live band a row
+  /// was copied from (null for a new one), so a publish updates, adds and deletes exactly.
+  bands             Json
+  /// Set on publish: the schedule version for this currency, 1, 2, 3...
+  version           Int?
+  createdByUserId   String
+  updatedByUserId   String?
+  publishedByUserId String?
+  publishedAt       DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  @@unique([currency, version])
+  @@index([currency, status])
 }
 
 /// What a tax rule is levied on.
@@ -3533,6 +3774,13 @@ enum TaxBase {
   /// charge is taxed at the admission rate — or taxed at all. Whether it is, and at what
   /// rate, stays a TaxRule an owner writes on advice. This only makes it addressable.
   MAINTENANCE
+  /// The platform's own service to an ORGANIZER: a plan subscription or an email credit pack.
+  ///
+  /// Its own base so the owner can rate it apart from the booking fee a ticket buyer pays.
+  /// Ticket pricing never reads it (no ticket, fee or maintenance amount is a platform
+  /// service), and organizer billing reads ONLY it. Place of supply is the organizer's billing
+  /// state against PLATFORM_TAX_REGION, as for any service.
+  PLATFORM_SERVICES
 }
 
 /// One tax a customer may be charged, entirely configuration.
@@ -4524,10 +4772,10 @@ model Receipt {
   /// one receipt per booking" becomes a DATABASE constraint rather than a hope: a nullable
   /// unique column ignores the nulls, so any number of credit notes can coexist with exactly
   /// one sale document. Two concurrent confirmations cannot both issue.
-  saleForBookingId String?   @unique
+  saleForBookingId         String?   @unique
   /// Set on a credit note, and unique, so a retried refund cannot issue a second one.
-  refundId         String?   @unique
-  refund           Refund?   @relation(fields: [refundId], references: [id])
+  refundId                 String?   @unique
+  refund                   Refund?   @relation(fields: [refundId], references: [id])
   /// Set on a credit note that reverses the WHOLE sale of a booking cancelled with no refund:
   /// a cash sale at the counter whose show was then cancelled. The cash goes back across the
   /// counter, not through a provider, so there is no `Refund` row to hang the credit note on;
@@ -4536,9 +4784,9 @@ model Receipt {
   /// (a CHECK constraint holds that), and null on every other document.
   cancellationForBookingId String?   @unique
   /// The sale document a credit note reverses.
-  reversesId       String?
-  reverses         Receipt?  @relation("ReceiptReversal", fields: [reversesId], references: [id])
-  reversedBy       Receipt[] @relation("ReceiptReversal")
+  reversesId               String?
+  reverses                 Receipt?  @relation("ReceiptReversal", fields: [reversesId], references: [id])
+  reversedBy               Receipt[] @relation("ReceiptReversal")
 
   issuedAt DateTime @default(now())
   currency String
@@ -5273,4 +5521,1060 @@ model ShowZone {
   @@unique([eventSessionId, zoneId])
   @@index([eventSessionId])
   @@index([zoneId])
+}
+
+// ─────────────────────────── Organizer acquisition (CRM) ───────────────────────────
+//
+// Prospects the platform would like to sell for, and the outreach to them. ADDITIVE ONLY:
+// nothing here writes to an organization, a booking, a payment or a customer. A lead is linked
+// to an Organization that already exists (the organizer signed up and was verified by the
+// ordinary flow); the link is the only column that points outside these tables, and the
+// activation metrics are DERIVED from the organization's own status and events, never typed.
+//
+// Access is the AdminPermission catalogue (CRM_AGENT / CRM_MANAGER) narrowed by team
+// membership below; see apps/api/src/crm/crm-scope.service.ts.
+
+enum CrmLeadStage {
+  IDENTIFIED
+  CONTACTED
+  RESPONDED_INTERESTED
+  DEMO_SCHEDULED
+  DEMO_COMPLETED
+  NEGOTIATION
+  ONBOARDING
+  ACTIVATED
+  LOST
+}
+
+enum CrmLeadPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+/// Outreach a person LOGGED. The platform never sends any of these.
+enum CrmActivityType {
+  EMAIL
+  CALL
+  LINKEDIN
+  MEETING
+  VISIT
+}
+
+enum CrmActivityOutcome {
+  NO_RESPONSE
+  LEFT_MESSAGE
+  CONNECTED
+  INTERESTED
+  NOT_INTERESTED
+  DEMO_BOOKED
+  FOLLOW_UP_NEEDED
+  OTHER
+}
+
+enum CrmFollowUpStatus {
+  OPEN
+  DONE
+  CANCELLED
+}
+
+enum CrmTeamRole {
+  AGENT
+  MANAGER
+}
+
+/// An acquisition team, scoped to one country. India and USA exist from the migration; a new
+/// team (another market, or a second team in one) is a row, not a code change.
+model CrmTeam {
+  id        String   @id @default(cuid())
+  /// Short stable handle, e.g. "IN", "US".
+  key       String   @unique
+  name      String
+  /// ISO-3166 alpha-2. Every lead in the team is in this country.
+  country   String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members CrmTeamMember[]
+  leads   CrmLead[]
+
+  @@index([country])
+}
+
+/// Who works in a team, and as what. Scope, not power: the power is the AdminGrant
+/// (CRM_AGENT / CRM_MANAGER); a MANAGER row without CRM_MANAGER manages nothing.
+model CrmTeamMember {
+  id            String      @id @default(cuid())
+  teamId        String
+  team          CrmTeam     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User        @relation("CrmTeamMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  role          CrmTeamRole @default(AGENT)
+  /// Who added them. An id only: the audit row carries the history.
+  addedByUserId String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([teamId, userId])
+  @@index([userId])
+}
+
+model CrmLead {
+  id      String  @id @default(cuid())
+  teamId  String
+  team    CrmTeam @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  /// ISO-3166 alpha-2, always the team's country.
+  country String
+
+  organizationName String
+  category         String?
+  website          String?
+  city             String?
+  state            String?
+  timezone         String?
+
+  contactName  String?
+  contactTitle String?
+  email        String?
+  phone        String?
+  /// Profile links (LinkedIn, Instagram...). Short list, read and written whole.
+  socialLinks  String[] @default([])
+
+  /// One of CRM_LEAD_SOURCES in shared-types. Text so a new source needs no migration.
+  source   String
+  priority CrmLeadPriority @default(MEDIUM)
+  notes    String?
+  tags     String[]        @default([])
+
+  /// Normalized keys for duplicate detection. Derived on every write, never shown.
+  nameKey   String?
+  domainKey String?
+  emailKey  String?
+  phoneKey  String?
+
+  /// The stage a PERSON set. Activation as the platform sees it is derived, never this.
+  stage          CrmLeadStage @default(IDENTIFIED)
+  stageChangedAt DateTime     @default(now())
+  lostReason     String?
+
+  assignedToUserId String?
+  assignedTo       User?   @relation("CrmLeadAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  createdByUserId  String?
+  createdBy        User?   @relation("CrmLeadCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  /// The EXISTING organization this prospect became. One organization, at most one lead.
+  organizationId String?       @unique
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  linkedAt       DateTime?
+  linkedByUserId String?
+
+  /// Earliest OPEN follow-up, kept in step in the same transaction as every follow-up write.
+  nextFollowUpAt DateTime?
+  lastActivityAt DateTime?
+
+  archivedAt DateTime?
+  /// Optimistic concurrency: every edit names the version it read; a stale one is refused.
+  version    Int       @default(1)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  stageChanges CrmLeadStageChange[]
+  activities   CrmActivity[]
+  followUps    CrmFollowUp[]
+
+  @@index([teamId, stage])
+  @@index([assignedToUserId, stage])
+  @@index([country, stage])
+  @@index([nameKey])
+  @@index([domainKey])
+  @@index([emailKey])
+  @@index([phoneKey])
+  @@index([nextFollowUpAt])
+  @@index([createdAt])
+  @@index([source])
+}
+
+/// Every stage a lead has been in, including the one it was created in (fromStage null).
+model CrmLeadStageChange {
+  id              String        @id @default(cuid())
+  leadId          String
+  lead            CrmLead       @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  fromStage       CrmLeadStage?
+  toStage         CrmLeadStage
+  changedByUserId String?
+  changedBy       User?         @relation("CrmStageChangeActor", fields: [changedByUserId], references: [id], onDelete: SetNull)
+  note            String?
+  createdAt       DateTime      @default(now())
+
+  @@index([leadId, createdAt])
+  @@index([toStage, createdAt])
+}
+
+/// Outreach somebody did and logged. Not a message the platform sent.
+model CrmActivity {
+  id                String              @id @default(cuid())
+  leadId            String
+  lead              CrmLead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  type              CrmActivityType
+  occurredAt        DateTime
+  outcome           CrmActivityOutcome?
+  notes             String?
+  responsibleUserId String
+  responsible       User                @relation("CrmActivityResponsible", fields: [responsibleUserId], references: [id], onDelete: Restrict)
+  createdByUserId   String?
+  createdAt         DateTime            @default(now())
+
+  @@index([leadId, occurredAt])
+  @@index([responsibleUserId, occurredAt])
+  @@index([occurredAt])
+}
+
+model CrmFollowUp {
+  id          String            @id @default(cuid())
+  leadId      String
+  lead        CrmLead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  ownerUserId String
+  owner       User              @relation("CrmFollowUpOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  dueAt       DateTime
+  title       String
+  notes       String?
+  status      CrmFollowUpStatus @default(OPEN)
+  /// "<leadId>:<ownerUserId>:<YYYY-MM-DD>" while OPEN, null otherwise. Unique, so two open
+  /// follow-ups for the same lead, owner and day cannot both exist, even under a race.
+  openKey     String?           @unique
+  /// The activity that scheduled it, when it was set while logging one.
+  activityId  String?
+
+  createdByUserId   String?
+  completedAt       DateTime?
+  completedByUserId String?
+  completionNote    String?
+  version           Int       @default(1)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([ownerUserId, status, dueAt])
+  @@index([leadId, status])
+  @@index([status, dueAt])
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════
+// Organizer billing and entitlements (feat/entitlements-billing-core)
+//
+// ONE contiguous block on purpose. These tables record the PLATFORM charging ORGANIZERS for a
+// plan (Free, Pro, Premium) and what each organization may use. They share nothing with ticket
+// money: no PaymentRoute (tickets route by currency, billing by the organizer's country), no
+// Receipt (that is per organizer and needs a booking), no WebhookEvent row.
+//
+// `organizationId` and `...UserId` columns are plain ids, not relations, so this block changes
+// no existing model. The services check the organization exists before they write.
+// ════════════════════════════════════════════════════════════════════════════════════════
+
+enum BillingPlanCode {
+  FREE
+  PRO
+  PREMIUM
+}
+
+enum BillingInterval {
+  MONTH
+  YEAR
+}
+
+/// Who collects the money for a billing account. Separate names from ticket providers, so a
+/// billing event can never be mistaken for a ticket payment event.
+enum BillingProviderName {
+  NONE
+  MOCK
+  STRIPE_BILLING
+  RAZORPAY_BILLING
+}
+
+enum OrganizerSubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  GRACE
+  CANCELLED
+  EXPIRED
+  COMPLIMENTARY
+}
+
+enum OrganizerSubscriptionSource {
+  PROVIDER
+  ADMIN_COMPLIMENTARY
+  TRIAL
+}
+
+enum OrganizerInvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  VOID
+  REFUNDED
+}
+
+enum BillingPaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum BillingAdjustmentKind {
+  CREDIT_NOTE
+  REFUND
+  DISCOUNT
+}
+
+enum BillingWebhookStatus {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
+enum UsageLedgerReason {
+  CONSUMPTION
+  CREDIT_GRANT
+  CREDIT_REVERSAL
+  ADJUSTMENT
+}
+
+model BillingPlan {
+  id          String          @id @default(cuid())
+  code        BillingPlanCode @unique
+  name        String
+  description String?
+  active      Boolean         @default(true)
+  sortOrder   Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  prices                 BillingPrice[]
+  entitlements           PlanEntitlement[]
+  subscriptions          OrganizerSubscription[] @relation("OrganizerSubscriptionPlan")
+  scheduledSubscriptions OrganizerSubscription[] @relation("OrganizerSubscriptionScheduledPlan")
+}
+
+/// A plan's price in one country and currency, per month or per year. Minor units.
+model BillingPrice {
+  id                   String          @id @default(cuid())
+  planId               String
+  plan                 BillingPlan     @relation(fields: [planId], references: [id], onDelete: Restrict)
+  /// ISO 3166-1 alpha-2: the ORGANIZER's country decides the price, never the visitor's.
+  country              String
+  currency             String
+  interval             BillingInterval
+  amountMinor          Int
+  trialDays            Int?
+  providerPriceRefTest String?
+  providerPriceRefLive String?
+  active               Boolean         @default(true)
+  /// "<planId>:<country>:<interval>" while active, null otherwise. Unique, so one plan cannot
+  /// have two live prices for the same country and interval, even under a race.
+  activeKey            String?         @unique
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  subscriptions OrganizerSubscription[]
+
+  @@index([planId, country, interval])
+  @@index([country, active])
+}
+
+model PlanEntitlement {
+  id        String      @id @default(cuid())
+  planId    String
+  plan      BillingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  /// An EntitlementKey from @eticketsgo/shared-types.
+  key       String
+  boolValue Boolean?
+  intValue  Int?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([planId, key])
+}
+
+model OrganizerBillingAccount {
+  id                  String              @id @default(cuid())
+  organizationId      String              @unique
+  country             String
+  currency            String
+  provider            BillingProviderName @default(NONE)
+  providerCustomerRef String?
+  taxId               String?
+  billingEmail        String?
+  /// Set when the provider reports a dispute (chargeback) on one of this account's payments.
+  /// A flag for staff, with an audit row; it changes no entitlement by itself.
+  disputedAt          DateTime?
+  disputeRef          String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  subscriptions OrganizerSubscription[]
+  invoices      OrganizerInvoice[]
+  payments      BillingPayment[]
+  adjustments   BillingAdjustment[]
+
+  /// One provider customer belongs to one account: events are routed to an account by it.
+  @@unique([provider, providerCustomerRef])
+  @@index([country])
+}
+
+model OrganizerSubscription {
+  id                      String                      @id @default(cuid())
+  accountId               String
+  account                 OrganizerBillingAccount     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  planId                  String
+  plan                    BillingPlan                 @relation("OrganizerSubscriptionPlan", fields: [planId], references: [id], onDelete: Restrict)
+  priceId                 String?
+  price                   BillingPrice?               @relation(fields: [priceId], references: [id], onDelete: Restrict)
+  status                  OrganizerSubscriptionStatus
+  source                  OrganizerSubscriptionSource
+  currentPeriodStart      DateTime
+  /// Null only for an open-ended complimentary plan.
+  currentPeriodEnd        DateTime?
+  cancelAtPeriodEnd       Boolean                     @default(false)
+  trialEndsAt             DateTime?
+  graceEndsAt             DateTime?
+  scheduledPlanId         String?
+  scheduledPlan           BillingPlan?                @relation("OrganizerSubscriptionScheduledPlan", fields: [scheduledPlanId], references: [id], onDelete: Restrict)
+  providerSubscriptionRef String?                     @unique
+  /// The account id while this subscription is the account's current one (any status that is
+  /// not CANCELLED or EXPIRED), null after. Unique: one current subscription per account.
+  currentKey              String?                     @unique
+  cancelledAt             DateTime?
+  endedAt                 DateTime?
+  grantedByUserId         String?
+  note                    String?
+  /// The provider time of the newest provider event applied. An older status-only event is
+  /// stale and is ignored, so a late delivery can never move the subscription backwards.
+  providerStateAt         DateTime?
+  version                 Int                         @default(1)
+  createdAt               DateTime                    @default(now())
+  updatedAt               DateTime                    @updatedAt
+
+  invoices    OrganizerInvoice[]
+  adjustments BillingAdjustment[]
+
+  @@index([accountId, createdAt])
+  @@index([status, currentPeriodEnd])
+}
+
+/// A platform invoice to an organizer. Numbered ETG-BIL-<YEAR>-<SEQ> when issued, never before,
+/// so the series has no gaps: a draft that is never issued takes no number.
+model OrganizerInvoice {
+  id                 String                  @id @default(cuid())
+  number             String?                 @unique
+  accountId          String
+  account            OrganizerBillingAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  subscriptionId     String?
+  subscription       OrganizerSubscription?  @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  status             OrganizerInvoiceStatus  @default(DRAFT)
+  subtotalMinor      Int
+  taxMinor           Int                     @default(0)
+  totalMinor         Int
+  currency           String
+  lines              Json
+  periodStart        DateTime?
+  periodEnd          DateTime?
+  issuedAt           DateTime?
+  documentJson       Json?
+  /// The provider document this invoice records (Stripe invoice, Razorpay invoice, or the
+  /// payment itself for a credit pack). Unique per provider: a replayed event issues nothing new.
+  provider           BillingProviderName?
+  providerInvoiceRef String?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  payments    BillingPayment[]
+  adjustments BillingAdjustment[]
+
+  @@unique([provider, providerInvoiceRef])
+  @@index([accountId, createdAt])
+  @@index([status])
+}
+
+model BillingPayment {
+  id                 String                  @id @default(cuid())
+  accountId          String
+  account            OrganizerBillingAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  invoiceId          String?
+  invoice            OrganizerInvoice?       @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  provider           BillingProviderName
+  providerPaymentRef String?
+  amountMinor        Int
+  currency           String
+  status             BillingPaymentStatus
+  /// SUBSCRIPTION (a plan period) or CREDIT_PACK (a one-time purchase of credits).
+  purpose            String                  @default("SUBSCRIPTION")
+  /// Tax the provider added on top of `amountMinor`. 0 while tax is not applied.
+  taxMinor           Int                     @default(0)
+  /// Set only when the provider's own record of the payment was verified (signature + amount).
+  verifiedAt         DateTime?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  @@unique([provider, providerPaymentRef])
+  @@index([accountId, createdAt])
+}
+
+/// Credit notes, refunds and discounts. A DISCOUNT on an account is a commercial offer: a share
+/// off (basis points) or an amount off, for a window. Never a platform ticket-fee waiver.
+model BillingAdjustment {
+  id              String                  @id @default(cuid())
+  accountId       String
+  account         OrganizerBillingAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  kind            BillingAdjustmentKind
+  invoiceId       String?
+  invoice         OrganizerInvoice?       @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  subscriptionId  String?
+  subscription    OrganizerSubscription?  @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  amountMinor     Int?
+  percentOffBps   Int?
+  currency        String?
+  startsAt        DateTime                @default(now())
+  endsAt          DateTime?
+  reason          String
+  createdByUserId String
+  revokedAt       DateTime?
+  revokedByUserId String?
+  createdAt       DateTime                @default(now())
+
+  @@index([accountId, createdAt])
+}
+
+/// Provider events for BILLING, kept apart from WebhookEvent (ticket payments) so a billing
+/// event can never be picked up by the ticket reconciliation, and the reverse.
+model BillingWebhookEvent {
+  id                String               @id @default(cuid())
+  provider          BillingProviderName
+  providerEventId   String
+  eventType         String
+  signatureVerified Boolean              @default(false)
+  payload           Json
+  status            BillingWebhookStatus @default(RECEIVED)
+  accountId         String?
+  error             String?
+  /// Processing attempts. An event whose processing failed for a TRANSIENT reason (provider
+  /// unreachable) stays RECEIVED and is retried by the worker's billing sweep.
+  attempts          Int                  @default(0)
+  /// When the provider says the event happened.
+  occurredAt        DateTime?
+  receivedAt        DateTime             @default(now())
+  processedAt       DateTime?
+
+  @@unique([provider, providerEventId])
+  @@index([status, receivedAt])
+}
+
+/// One entitlement for one organization, outside its plan. Time-bounded and revocable; for a key
+/// the latest live override wins over the plan.
+model EntitlementOverride {
+  id              String    @id @default(cuid())
+  organizationId  String
+  key             String
+  boolValue       Boolean?
+  intValue        Int?
+  startsAt        DateTime  @default(now())
+  endsAt          DateTime?
+  reason          String
+  grantedByUserId String
+  revokedAt       DateTime?
+  revokedByUserId String?
+  revokeReason    String?
+  createdAt       DateTime  @default(now())
+
+  @@index([organizationId, key])
+}
+
+/// Append-only usage and credit ledger. A negative delta spends, a positive one grants. Balances
+/// are derived from it; nothing is stored that could drift from it. UPDATE and DELETE are refused
+/// by a trigger.
+model UsageLedger {
+  id             String            @id @default(cuid())
+  organizationId String
+  key            String
+  delta          Int
+  reason         UsageLedgerReason
+  refType        String?
+  refId          String?
+  /// "2026-10" for a monthly quota; "-" for a balance that never resets (credits).
+  periodKey      String
+  idempotencyKey String            @unique
+  actorUserId    String?
+  note           String?
+  createdAt      DateTime          @default(now())
+
+  @@index([organizationId, key, periodKey])
+}
+
+// ─── Organizer follows and communication consent (workstream 1) ───────────────────────
+//
+// One contiguous block, kept at the end of the file so parallel branches merge cleanly.
+//
+// ── FOLLOWING IS NOT CONSENT ──────────────────────────────────────────────────────────
+// A follow says "show me this organizer". It does NOT say "this organizer may email me
+// offers". Promotional email needs its own, explicit, recorded consent row below. A follow
+// on its own puts nobody on a mailing list.
+
+enum OrganizerUpdateCadence {
+  INSTANT
+  WEEKLY_DIGEST
+}
+
+/// A customer follows an organizer. Personal data: deleted with the account.
+model OrganizerFollow {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// Where the follow came from: ORGANIZER_PAGE | BOOKING_CONFIRMATION | LOCAL_MIGRATION.
+  source         String
+  createdAt      DateTime     @default(now())
+
+  /// One follow per person per organizer, even under a race (two taps, two tabs).
+  @@unique([userId, organizationId])
+  @@index([organizationId, createdAt])
+  @@index([userId, createdAt])
+}
+
+/// What a follower wants to hear about from one organizer.
+///
+/// These are topics and timing, not permission to email. `newEvents` defaults ON because the
+/// person asked for it by following, and it is shown in their account only. Email from the
+/// organizer needs a granted `CommunicationConsent` row as well. `earlyAccess` and `offers`
+/// are promotional, so they default OFF.
+model OrganizerNotificationPreference {
+  id             String                 @id @default(cuid())
+  userId         String
+  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  newEvents      Boolean                @default(true)
+  earlyAccess    Boolean                @default(false)
+  offers         Boolean                @default(false)
+  cadence        OrganizerUpdateCadence @default(INSTANT)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  @@unique([userId, organizationId])
+}
+
+/// A consent decision with a scope. Append-only: a withdrawal is a new row, never an edit.
+/// The newest row per (subject, purpose, organization, channel) is the current state, and
+/// no row means NO consent.
+///
+/// Platform-wide marketing EMAIL is NOT stored here. It stays in `MarketingConsent`
+/// (channel `email`), which the notification service already reads. This table holds the
+/// purposes that need a scope (one organizer). See `engagement/consent-purpose.ts`.
+model CommunicationConsent {
+  id             String   @id @default(cuid())
+  /// Set null when the account is deleted. The row stays as evidence, keyed by the hash.
+  userId         String?
+  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  /// SHA-256 of the normalized email, the same hash `SuppressedDestination` uses. Never the
+  /// address itself, so the evidence can outlive the account without holding contact data.
+  subjectHash    String
+  /// Null = platform-wide. A plain column, not a foreign key, so the evidence survives an
+  /// organization being deleted.
+  organizationId String?
+  /// ORGANIZER_UPDATES | EARLY_ACCESS | OFFERS
+  purpose        String
+  /// email | push | sms | whatsapp
+  channel        String   @default("email")
+  granted        Boolean
+  /// How it was obtained. Set by the server, never by the client.
+  source         String
+  /// The disclosure shown, as `TYPE/JURISDICTION/vN` (see `policyVersionLabel`).
+  policyVersion  String?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  @@index([subjectHash, purpose, organizationId, createdAt])
+  @@index([userId, purpose, organizationId, createdAt])
+  @@index([organizationId, purpose, createdAt])
+}
+
+/// A destination that one organizer must not send marketing to again.
+///
+/// Separate from the global `SuppressedDestination`, which also stops TRANSACTIONAL mail.
+/// Unsubscribing from one organizer's news must never stop somebody's tickets.
+model OrganizerSuppression {
+  id              String    @id @default(cuid())
+  /// A plain column, like `CommunicationConsent.organizationId`, so it survives the org.
+  organizationId  String
+  /// email | sms | whatsapp | push
+  channel         String
+  /// SHA-256 of the normalized destination (`SuppressionService.hash`).
+  destinationHash String
+  /// UNSUBSCRIBED | COMPLAINT
+  reason          String
+  /// Set when the person opts in again from their own account. Never deleted.
+  liftedAt        DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([organizationId, channel, destinationHash])
+}
+
+// ── Platform fee overrides and waivers ──────────────────────────────────────────────
+// An admin-managed exception to the platform fee schedule (FeeRule) for one organizer or one
+// event: waive the booking fee, charge a fixed amount, or charge a percentage, for a time
+// window and optionally for a limited number of orders.
+//
+// Precedence: an EVENT policy, then an ORGANIZATION policy, then the schedule. A policy only
+// ever replaces the booking (platform) fee: the payment processing line and tax are never
+// waived by it. A FREE event stays at zero whatever applies.
+//
+// Terms are immutable once created. To change one, deactivate it and create another, so a
+// booking's snapshot (Booking.feePolicyId + feePolicyVersion) always names terms that still
+// exist exactly as they were. `version` moves on every status change (optimistic locking).
+//
+// At most one ACTIVE or EXHAUSTED policy per scope target whose windows overlap (and whose
+// currencies could both apply): enforced by PlatformFeePoliciesService under a transaction-
+// scoped advisory lock on the target, because an exclusion constraint cannot be expressed in
+// this schema without drifting from it.
+
+enum PlatformFeePolicyScope {
+  EVENT
+  ORGANIZATION
+}
+
+enum PlatformFeePolicyKind {
+  /// No booking fee at all.
+  WAIVE
+  /// A fixed booking fee in minor units of `currency`.
+  FIXED
+  /// A share of the order in basis points, optionally held between a floor and a ceiling.
+  PERCENT
+  /// A share of the order in basis points (`percentBps`) PLUS a fixed amount per paid ticket
+  /// (`feeMinor`, in minor units of `currency`).
+  COMBINED
+  /// A fixed amount per paid ticket (`feeMinor`, in minor units of `currency`), no percentage.
+  FIXED_PER_TICKET
+}
+
+enum PlatformFeePolicyStatus {
+  ACTIVE
+  /// Switched off by an admin. Final.
+  INACTIVE
+  /// Reserved for a past window. Expiry is derived from `endsAt` at read time; nothing needs
+  /// to write this for pricing to fall back.
+  EXPIRED
+  /// Every order in `maxOrders` is taken. Goes back to ACTIVE if an unpaid hold is released.
+  EXHAUSTED
+}
+
+model PlatformFeePolicy {
+  id                  String                  @id @default(cuid())
+  scope               PlatformFeePolicyScope
+  /// Set when scope is EVENT. No foreign key on purpose: a policy is a finance record and
+  /// must outlive an event or organization that is later deleted.
+  eventId             String?
+  /// Always set: the event's organization for an EVENT policy, the target for ORGANIZATION.
+  organizationId      String
+  kind                PlatformFeePolicyKind
+  /// FIXED: the booking fee. COMBINED: the fixed part, charged once per paid ticket.
+  /// FIXED_PER_TICKET: the fee for each paid ticket.
+  feeMinor            Int?
+  /// PERCENT: basis points (500 = 5%).
+  percentBps          Int?
+  minFeeMinor         Int?
+  maxFeeMinor         Int?
+  /// Required when an amount is stated (FIXED, or a PERCENT floor/ceiling). Null applies to
+  /// any currency.
+  currency            String?
+  startsAt            DateTime
+  /// Exclusive. Null means open-ended.
+  endsAt              DateTime?
+  /// Null means unlimited. Counted when a hold is taken, released if it is not paid.
+  maxOrders           Int?
+  usedOrders          Int                     @default(0)
+  status              PlatformFeePolicyStatus @default(ACTIVE)
+  reason              String
+  approvalReference   String?
+  createdByUserId     String
+  deactivatedAt       DateTime?
+  deactivatedByUserId String?
+  deactivationReason  String?
+  version             Int                     @default(1)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  bookings Booking[]
+  events   PlatformFeePolicyEvent[]
+
+  @@index([scope, eventId, status])
+  @@index([scope, organizationId, status])
+  @@index([status, createdAt])
+}
+
+/// Append-only history of a policy: created, deactivated, exhausted, reopened.
+model PlatformFeePolicyEvent {
+  id          String            @id @default(cuid())
+  policyId    String
+  policy      PlatformFeePolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  /// CREATED | DEACTIVATED | EXHAUSTED | REOPENED
+  action      String
+  actorUserId String?
+  reason      String?
+  /// The policy row as it was after this change.
+  snapshot    Json
+  createdAt   DateTime          @default(now())
+
+  @@index([policyId, createdAt])
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════
+// Organizer email campaigns (feat/organizer-campaigns)
+//
+// ONE contiguous block at the end of the file, so parallel branches merge cleanly. Like the
+// billing block above, `organizationId`, `campaignId` and `...UserId` columns are plain ids,
+// not relations, so this block changes no existing model.
+//
+// ── WHAT A CAMPAIGN MAY HOLD ──────────────────────────────────────────────────────────
+// Structured blocks (`content`), never HTML. The renderer escapes every value and routes every
+// link through the click tracker, which only redirects to hosts this platform owns.
+//
+// ── WHO IS ON THE LIST ────────────────────────────────────────────────────────────────
+// Nobody is "on a list". The audience is a DEFINITION (followers, repeat buyers, ...), and
+// every person it matches is checked against their CURRENT organizer consent and both
+// suppression lists - once when the recipients are materialised and again right before each
+// send. A ticket purchase alone is never consent.
+//
+// ── ATTRIBUTION IS COMPUTED, NOT STORED ───────────────────────────────────────────────
+// "Attributed orders" are read at query time: a confirmed booking with the same organizer by
+// the same person (account, or the same email hash) within the window after their click. No
+// booking code changes, the window can be changed after the fact, and a refunded booking
+// stops counting at once. See campaigns/campaign-analytics.service.ts.
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  PENDING_APPROVAL
+  QUEUED
+  SENDING
+  PAUSED
+  COMPLETED
+  PARTIALLY_FAILED
+  FAILED
+  CANCELLED
+}
+
+enum CampaignRecipientStatus {
+  PENDING
+  SKIPPED_CONSENT
+  SKIPPED_SUPPRESSED
+  QUEUED
+  ACCEPTED
+  DELIVERED
+  DEFERRED
+  BOUNCED
+  COMPLAINED
+  FAILED
+  UNSUBSCRIBED
+}
+
+/// One email campaign by one organizer.
+model Campaign {
+  id                String         @id @default(cuid())
+  organizationId    String
+  name              String
+  subject           String
+  previewText       String?
+  senderName        String
+  replyTo           String?
+  /// The consent it needs: ORGANIZER_UPDATES | EARLY_ACCESS | OFFERS.
+  purpose           String
+  /// EVENT_ANNOUNCEMENT | EARLY_BIRD | UPCOMING_SHOWS | OFFER | THANK_YOU
+  templateKey       String
+  /// Structured blocks (campaign-content.ts). Never HTML.
+  content           Json
+  eventId           String?
+  /// The audience definition (campaign-audience.ts). Never a list of people.
+  audience          Json
+  status            CampaignStatus @default(DRAFT)
+  scheduledAt       DateTime?
+  /// IANA zone the schedule and the quiet hours are read in.
+  timezone          String         @default("UTC")
+  /// { start: "21:00", end: "08:00" } in `timezone`, or null for no quiet hours.
+  quietHours        Json?
+  /// The language the email chrome (footer, unsubscribe) is written in.
+  locale            String         @default("en")
+  createdByUserId   String
+  updatedByUserId   String?
+  /// Optimistic lock: every edit names the version it read.
+  version           Int            @default(1)
+  /// Recipient counts by status, refreshed by the worker. Derived; the recipients are the truth.
+  counters          Json?
+  pausedReason      String?
+  failureReason     String?
+  /// Set when the organizer confirmed the send on the review step.
+  confirmedAt       DateTime?
+  confirmedByUserId String?
+  queuedAt          DateTime?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([organizationId, status, createdAt])
+  @@index([status, scheduledAt])
+}
+
+/// One person a campaign is addressed to. Unique per campaign and email hash: nobody gets the
+/// same campaign twice, whatever retries or reruns happen.
+model CampaignRecipient {
+  id                String                  @id @default(cuid())
+  campaignId        String
+  organizationId    String
+  userId            String?
+  /// SHA-256 of the normalized email (`SuppressionService.hash('email', ...)`).
+  emailHash         String
+  /// The address, kept only while the message still has to be sent. Cleared once it is final.
+  destination       String?
+  /// Enough to recognise in a support conversation, never enough to use.
+  destinationMask   String
+  status            CampaignRecipientStatus @default(PENDING)
+  provider          String?
+  providerMessageId String?
+  attempts          Int                     @default(0)
+  lastError         String?
+  queuedAt          DateTime?
+  acceptedAt        DateTime?
+  deliveredAt       DateTime?
+  failedAt          DateTime?
+  finalAt           DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  @@unique([campaignId, emailHash])
+  @@index([campaignId, status])
+  @@index([providerMessageId])
+  @@index([organizationId, emailHash])
+}
+
+/// Append-only history of a campaign: status changes, delivery events, clicks, unsubscribes.
+/// Idempotent on the provider's event id, so a replayed SES notification is one row.
+model CampaignEvent {
+  id              String   @id @default(cuid())
+  campaignId      String
+  recipientId     String?
+  /// STATUS_CHANGED | TEST_SENT | ACCEPTED | DELIVERED | DEFERRED | BOUNCED | COMPLAINED |
+  /// REJECTED | FAILED | SKIPPED | CLICKED | UNSUBSCRIBED
+  type            String
+  providerEventId String?  @unique
+  actorUserId     String?
+  /// Never an address or message content.
+  detail          Json?
+  occurredAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@index([campaignId, type, occurredAt])
+  @@index([recipientId])
+}
+
+/// A link in a campaign. The email carries a signed reference to it, never the target itself.
+model CampaignLink {
+  id         String   @id @default(cuid())
+  campaignId String
+  targetUrl  String
+  createdAt  DateTime @default(now())
+
+  @@unique([campaignId, targetUrl])
+}
+
+/// Who clicked which link, once per person per link. Unique clicks are counted from here.
+model CampaignClick {
+  id             String   @id @default(cuid())
+  campaignId     String
+  linkId         String
+  recipientId    String
+  clicks         Int      @default(1)
+  firstClickedAt DateTime @default(now())
+  lastClickedAt  DateTime @default(now())
+
+  @@unique([linkId, recipientId])
+  @@index([campaignId, recipientId, firstClickedAt])
+}
+
+/// A named audience definition an organizer can reuse. A definition, never a list of people.
+model SavedSegment {
+  id              String   @id @default(cuid())
+  organizationId  String
+  name            String
+  definition      Json
+  createdByUserId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([organizationId, name])
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════
+// Email credit pack prices and purchases (feat/growth-owner-decisions)
+//
+// The pack SIZES are code (billing/credit-packs.ts: 1,000 / 5,000 / 10,000 credits). What a
+// pack COSTS is staff configuration per country, UNPUBLISHED until somebody with
+// BILLING_MANAGE sets a price and publishes it (recent second factor, audited). No row, or an
+// unpublished row, means the pack is not on sale there: the organizer page does not show it
+// and a checkout for it is refused.
+// ════════════════════════════════════════════════════════════════════════════════════════
+
+model CreditPackPrice {
+  id              String    @id @default(cuid())
+  /// A CreditPack code (EMAIL_1K, EMAIL_5K, EMAIL_10K).
+  packCode        String
+  /// ISO 3166-1 alpha-2: the ORGANIZER's billing country.
+  country         String
+  currency        String
+  /// Before tax. Tax is worked out at checkout from the PLATFORM_SERVICES tax rules.
+  amountMinor     Int
+  published       Boolean   @default(false)
+  publishedAt     DateTime?
+  /// Moves on every change, so the console can refuse a write made against a stale view.
+  version         Int       @default(1)
+  updatedByUserId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([packCode, country])
+}
+
+/// One credit pack checkout, with the amounts and tax quoted when it started. The payment is
+/// checked against THIS row, so a price changed by staff after the checkout cannot make a paid
+/// pack look like a mismatch, and a paid amount that differs from what was quoted is refused.
+model CreditPackPurchase {
+  id                 String              @id @default(cuid())
+  /// Our id for the attempt, written into the provider's metadata/notes and read back from it.
+  purchaseRef        String              @unique
+  organizationId     String
+  accountId          String
+  packCode           String
+  credits            Int
+  country            String
+  currency           String
+  netMinor           Int
+  taxMinor           Int
+  totalMinor         Int
+  /// The tax lines as quoted (label, rate, base, amount).
+  taxLines           Json
+  /// MANUAL (our TaxRule rows) or PROVIDER_AUTOMATIC (Stripe Tax computes it at checkout).
+  taxMode            String
+  provider           BillingProviderName
+  providerSessionRef String?
+  /// PENDING until the provider's verified record of the payment is applied, then PAID.
+  status             String              @default("PENDING")
+  paidAt             DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@index([organizationId, createdAt])
 }

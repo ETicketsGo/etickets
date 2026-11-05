@@ -83,7 +83,8 @@ test('a live event takes several images without pausing, and buyers can look thr
     expect(stale.status()).toBe(409);
 
     // On the event page, the strip puts any image in the hero.
-    await page.goto(`${CUSTOMER}/events/${live!.slug}`);
+    // The strip is in the server's HTML now; it answers a click once the page has hydrated.
+    await page.goto(`${CUSTOMER}/events/${live!.slug}`, { waitUntil: 'networkidle' });
     const total = ids.length;
     const last = page.getByRole('button', { name: `Show image ${total} of ${total}` });
     await expect(last).toBeVisible({ timeout: 20_000 });

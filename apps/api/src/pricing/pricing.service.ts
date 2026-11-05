@@ -1,17 +1,24 @@
-import { HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
+import { scheduleFingerprint } from './fee-schedule-fingerprint';
 import {
-  applicableTiers,
-  calculateFees,
   DEFAULT_FEE_TIERS,
-  feeTierFromRule,
+  scheduleTiers,
   type FeeCalcResult,
   type FeePlace,
   type FeeTier,
 } from './fee-calculator';
 import { TaxClassificationError, type TaxPlace } from './tax-calculator';
+import {
+  appliedFeePolicy,
+  calculateFeesWithPolicy,
+  type AppliedFeePolicy,
+  type FeePolicyContext,
+  type FeePolicyRow,
+} from './fee-policy';
+import { FeePolicyResolver } from './fee-policy-resolver.service';
 import {
   TAX_PROVIDER,
   type TaxProvider,
@@ -22,12 +29,56 @@ import { AppException, ErrorCodes } from '../common/errors';
 import { BUYER_SALE_NOT_OPEN, SALE_NOT_OPEN_REASON } from './cinema-policy/sale-eligibility';
 import type { PolicyEffect } from './cinema-policy/apply-policy';
 
+/** How `quote` may consult platform fee policies. See `PricingService.resolveFeeTiers`. */
+export type FeePolicySelection = { context: FeePolicyContext } | { pinned: FeePolicyRow | null };
+
+/** A quote, plus the platform fee policy that priced it when one did. */
+export type PricedFees = FeeCalcResult & {
+  /** Internal: which policy, for the booking snapshot. Strip before showing a buyer. */
+  appliedFeePolicy?: AppliedFeePolicy;
+  /** The schedule's booking fee for this order, before any cinema cap. */
+  baseBookingFeeMinor?: number | null;
+  /** How much of it the policy took off, before any cinema cap. */
+  feeWaivedMinor?: number | null;
+  /**
+   * Fingerprint of the fee schedule that priced this (`scheduleFingerprint`). A quote hands it
+   * to the buyer's client and the booking compares it, so a schedule published between the two
+   * is refused rather than charged silently. Internal: stripped from the buyer's fee object.
+   */
+  feeScheduleVersion?: string;
+};
+
+/**
+ * The quote as a buyer may see it: the policy's KIND and the amount it took off, never its id,
+ * version or order limit - those describe a commercial arrangement with the organizer.
+ */
+export function buyerFees(fees: PricedFees): FeeCalcResult & {
+  feePolicyKind?: string;
+  feeWaivedMinor?: number | null;
+} {
+  const {
+    appliedFeePolicy: applied,
+    baseBookingFeeMinor: _base,
+    feeScheduleVersion: _version,
+    ...rest
+  } = fees;
+  void _base;
+  void _version;
+  return applied ? { ...rest, feePolicyKind: applied.kind } : rest;
+}
+
 @Injectable()
 export class PricingService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(TAX_PROVIDER) private readonly tax: TaxProvider,
     private readonly config: ConfigService,
+    /*
+      ON THE END and optional, so every hand-built PricingService in a test keeps working and
+      prices exactly as before (no policy). PricingModule always provides it, which the
+      module-graph test pins.
+    */
+    @Optional() private readonly feePolicies?: FeePolicyResolver,
   ) {}
 
   /**
@@ -56,16 +107,42 @@ export class PricingService {
    * Ordering (and the reason it changed) lives in `applicableTiers`, so live pricing and the
    * advertised "from" price cannot drift apart: both call it.
    */
-  private async loadTiers(currency: string, place: FeePlace = {}): Promise<FeeTier[]> {
+  private async loadTiers(
+    currency: string,
+    place: FeePlace = {},
+  ): Promise<{ tiers: FeeTier[]; feeScheduleVersion: string }> {
     const rules = await this.prisma.feeRule.findMany({
       where: { active: true, currency },
       orderBy: { minMinor: 'asc' },
     });
-    if (rules.length === 0) return DEFAULT_FEE_TIERS;
+    // The fingerprint of every active band in the currency, not only the ones that applied
+    // here: cheap, and any published change to the schedule changes it.
+    const feeScheduleVersion = scheduleFingerprint(rules);
+    if (rules.length === 0) return { tiers: DEFAULT_FEE_TIERS, feeScheduleVersion };
+    return { tiers: scheduleTiers(rules, place), feeScheduleVersion };
+  }
 
-    const applicable = applicableTiers(rules, place);
-    if (applicable.length === 0) return DEFAULT_FEE_TIERS;
-    return applicable.map(feeTierFromRule);
+  /**
+   * The bands that price this sale, and the platform fee policy (if any) that overrides them.
+   *
+   * Precedence: an EVENT policy, then an ORGANIZATION policy, then the schedule (`loadTiers`).
+   * `pinned` re-prices an existing booking under the policy it was snapshotted with - or under
+   * none, when it had none - and never looks for a new one: a booking does not gain or lose a
+   * waiver because somebody changed the policies after it was priced.
+   */
+  async resolveFeeTiers(
+    currency: string,
+    place: FeePlace,
+    feePolicy?: FeePolicySelection,
+  ): Promise<{ tiers: FeeTier[]; policy: FeePolicyRow | null; feeScheduleVersion: string }> {
+    const { tiers, feeScheduleVersion } = await this.loadTiers(currency, place);
+    if (!feePolicy || !this.feePolicies) return { tiers, policy: null, feeScheduleVersion };
+    if ('pinned' in feePolicy) return { tiers, policy: feePolicy.pinned, feeScheduleVersion };
+    return {
+      tiers,
+      policy: await this.feePolicies.resolve(currency, feePolicy.context),
+      feeScheduleVersion,
+    };
   }
 
   /**
@@ -129,16 +206,38 @@ export class PricingService {
      * for every non-cinema order, nothing below changes at all.
      */
     policy?: PolicyEffect,
-  ): Promise<FeeCalcResult> {
+    /**
+     * Which platform fee policy may override the schedule: resolve one for this event and
+     * organization now (`context`), or re-price under the one a booking already carries
+     * (`pinned`). Omitted, no policy is consulted and the result is exactly as before.
+     */
+    feePolicy?: FeePolicySelection,
+  ): Promise<PricedFees> {
     // The venue's location decides the fee schedule, for the same reason it decides the
     // admission's place of supply: a cap applies to the sale that happens there.
-    const tiers = await this.loadTiers(currency, {
-      country: taxPlace.country,
-      region: taxPlace.region,
-    });
+    const {
+      tiers,
+      policy: feePolicyRow,
+      feeScheduleVersion,
+    } = await this.resolveFeeTiers(
+      currency,
+      { country: taxPlace.country, region: taxPlace.region },
+      feePolicy,
+    );
     // Fees first, with no tax, because tax is levied on what the customer is actually
-    // charged — the discounted ticket price plus their share of the fees.
-    const uncapped = calculateFees({ subtotalMinor, feeMode, discountMinor, tiers, currency });
+    // charged — the discounted ticket price plus their share of the fees. A fee policy
+    // replaces the BOOKING fee only; the payment fee and tax below are computed from it.
+    const override = calculateFeesWithPolicy({
+      subtotalMinor,
+      feeMode,
+      discountMinor,
+      currency,
+      // Only a per-ticket band or policy (COMBINED, FIXED_PER_TICKET) reads this.
+      ticketCount: paidTicketCount(admissionLines),
+      baseTiers: tiers,
+      policy: feePolicyRow ? { ...feePolicyRow, applied: appliedFeePolicy(feePolicyRow) } : null,
+    });
+    const uncapped = override.fees;
 
     /*
       ── A JURISDICTION MAY LIMIT OR FORBID THE PLATFORM'S FEE ────────────────────────
@@ -152,11 +251,14 @@ export class PricingService {
       this reduces the charge, it does not move it.
     */
     const cap = policy?.maxOnlineFeeMinor ?? null;
+    // A capped fee is no longer what its per-ticket terms say, so its breakdown is not carried.
+    const { platformFeeBreakdown: _breakdown, ...uncappedPlain } = uncapped;
+    void _breakdown;
     const fees =
       cap === null || uncapped.customerFeeMinor <= cap
         ? uncapped
         : {
-            ...uncapped,
+            ...uncappedPlain,
             customerFeeMinor: cap,
             // Kept proportional so the itemisation still explains the total it belongs to.
             bookingFeeMinor: Math.min(uncapped.bookingFeeMinor, cap),
@@ -242,6 +344,14 @@ export class PricingService {
 
     return {
       ...fees,
+      // Only when a policy priced this, so every order priced by the schedule is unchanged.
+      ...(override.policy
+        ? {
+            appliedFeePolicy: override.policy,
+            baseBookingFeeMinor: override.baseBookingFeeMinor,
+            feeWaivedMinor: override.feeWaivedMinor,
+          }
+        : {}),
       taxLines,
       taxMinor,
       /**
@@ -266,6 +376,23 @@ export class PricingService {
       */
       totalMinor:
         fees.netSubtotalMinor + fees.customerFeeMinor + maintenanceAddedMinor + taxAddedMinor,
+      feeScheduleVersion,
     };
   }
+}
+
+/**
+ * Paid tickets in an order: the quantity on every line whose unit price is above zero.
+ *
+ * Read from the same admission lines the tax engine rates, which `create`, `quote` and the
+ * coupon re-price all build from the cart (or from the booking's own stored items), so the
+ * three cannot count differently. A free ticket in a mixed cart is not counted. With no lines
+ * (a caller that does not know the cart), the order is one ticket - the answer every fee type
+ * but COMBINED and FIXED_PER_TICKET ignore anyway.
+ */
+export function paidTicketCount(
+  lines?: readonly { unitPriceMinor: number; quantity: number }[],
+): number {
+  if (!lines) return 1;
+  return lines.reduce((n, l) => n + (l.unitPriceMinor > 0 ? Math.max(0, l.quantity) : 0), 0);
 }

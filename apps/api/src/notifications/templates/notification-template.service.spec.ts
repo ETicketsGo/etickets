@@ -346,3 +346,37 @@ describe('SHOW_CANCELLED: cash buyers are told where their cash comes back', () 
     expect(en.subject).toBe('Show cancelled: cash to give back');
   });
 });
+
+describe('REFUND_COMPLETED follows the stage the refund is really in', () => {
+  const svc = new NotificationTemplateService();
+  const base = {
+    bookingId: 'bk-1',
+    reference: 'ETG-IND-2026-000024',
+    currency: 'INR',
+    amountMinor: 60000,
+  };
+
+  it('says the money was sent to the bank, not that it arrived, while processing', () => {
+    for (const locale of ['en', 'fr-CA']) {
+      const out = svc.render(NotificationType.REFUND_COMPLETED, locale, {
+        ...base,
+        stage: 'processing',
+      });
+      expect(out.subject).not.toMatch(/complete|effectu/i);
+      expect(out.body).toContain('ETG-IND-2026-000024');
+    }
+    const en = svc.render(NotificationType.REFUND_COMPLETED, 'en', {
+      ...base,
+      stage: 'processing',
+    });
+    expect(en.subject).toBe('Your refund has been sent to your bank');
+  });
+
+  it('keeps the completed wording when the provider completed it, and for older payloads', () => {
+    for (const payload of [{ ...base, stage: 'completed' }, base]) {
+      expect(svc.render(NotificationType.REFUND_COMPLETED, 'en', payload).subject).toBe(
+        'Your refund is complete',
+      );
+    }
+  });
+});

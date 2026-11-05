@@ -1,8 +1,11 @@
 import { PhoneOtpService } from './phone-otp.service';
+import { withTransactions } from './test-support/otp-sms-memory-store';
 
 describe('phone sign-in when SMS is declared off', () => {
   it('refuses with SMS_UNAVAILABLE before writing any code or calling the channel', async () => {
-    const prisma = { phoneOtp: { count: jest.fn(), create: jest.fn(), updateMany: jest.fn() } };
+    const prisma = withTransactions({
+      phoneOtp: { count: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
+    });
     const sms = { deliver: jest.fn() };
     const config = { get: (k: string) => (k === 'SMS_ENABLED' ? 'false' : undefined) };
     const service = new PhoneOtpService(prisma as never, sms as never, config as never);

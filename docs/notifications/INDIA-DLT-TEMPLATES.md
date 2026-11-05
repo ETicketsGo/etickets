@@ -17,25 +17,103 @@ Nothing on this page is a secret. No template id appears in the repository, and 
 
 ## 1. Registration facts (public, supplied by the owner)
 
-| Item                  | Value                                        | Status                                         |
-| --------------------- | -------------------------------------------- | ---------------------------------------------- |
-| Principal Entity (PE) | DeepTrics Software Solutions Private Limited | registered                                     |
-| PE registration ID    | 1701179092181018311                          | registered                                     |
-| Sender header         | **DPTRCS** (header ID 1705179188054799869)   | **APPROVED**                                   |
-| Earlier header ETKTGO | ETKTGO                                       | **REJECTED - never configure it**              |
-| Content templates     | the five below                               | **none submitted or approved yet; no ids yet** |
+**Owner statement, 2026-10-25 (authoritative):** "ETicketsGo's India MSG91 PE-TM chain, ETKTGO
+header and eight templates are already approved. Do not classify those approvals as pending."
+This replaces the earlier record (2026-10-14) that the portal had rejected ETKTGO.
 
-A header approval does not approve any template. Until a template is approved and both of its
-ids are set, the platform refuses to send that kind of SMS (section 4).
+| Item                  | Value                                        | Status                                             |
+| --------------------- | -------------------------------------------- | -------------------------------------------------- |
+| Principal Entity (PE) | DeepTrics Software Solutions Private Limited | registered                                         |
+| PE registration ID    | 1701179092181018311                          | registered                                         |
+| PE-TM chain (MSG91)   | PE linked to MSG91 as telemarketer           | **APPROVED** (owner, 2026-10-25)                   |
+| Sender header         | **ETKTGO** (header ID 1705179235688275119)   | **APPROVED** (owner, 2026-10-25)                   |
+| Sender header         | **DPTRCS** (header ID 1705179188054799869)   | **APPROVED** (earlier; still accepted by the code) |
+| Content templates     | eight (section 1.1)                          | **APPROVED** (owner, 2026-10-28 ids in 1.1)        |
+
+A header approval does not approve any template, and a template is approved under ONE header.
+Configure the header the eight templates are linked to. Until a kind has both of its ids set,
+the platform refuses to send that kind of SMS and never calls MSG91 (section 4).
 
 The API refuses to boot, when MSG91 carries SMS, if `DLT_SENDER_HEADER` or `MSG91_SENDER_ID` is
-`ETKTGO` or is not six letters, or if any DLT id below is not 19 digits.
+not six letters, if the two differ, if either is a header in `REJECTED_SENDER_HEADERS` (empty
+today; kept so a future rejection is one line in `dlt-sms-templates.ts`), or if any DLT id below
+is not 19 digits. ETKTGO and DPTRCS are both accepted.
+
+### 1.1 The eight approved templates (owner, 2026-10-28)
+
+The DLT ids are pinned in `dlt-sms-templates.ts` (`approved.dltTemplateId`) as a CHECK only:
+the value sent is still read from `DLT_TEMPLATE_ID_<KIND>`, and a configured id that differs
+from the approved one is refused. MSG91's own template ids (24 hex, the flow API's
+`template_id`) are a different thing and are never replaced by a DLT id. MSG91 has no read-only
+API that lists them, so copy each one from the MSG91 dashboard (SMS > Templates) into
+`MSG91_SMS_TEMPLATE_<KIND>`. The MSG91 auth key used is named "ETGProdSMS" in MSG91.
+
+| Approved template    | DLT id              | Kind in code               | DLT id key                          | MSG91 id key                           | Text verified | Trigger                                |
+| -------------------- | ------------------- | -------------------------- | ----------------------------------- | -------------------------------------- | ------------- | -------------------------------------- |
+| Login OTP            | 1777179239436687127 | `ACCOUNT_SECURITY`         | `DLT_TEMPLATE_ID_OTP`               | `MSG91_SMS_TEMPLATE_OTP`               | **yes**       | phone sign-in (live in PROD)           |
+| Password Reset       | 1777179240353412789 | `PASSWORD_RESET_REQUESTED` | `DLT_TEMPLATE_ID_PASSWORD_RESET`    | `MSG91_SMS_TEMPLATE_PASSWORD_RESET`    | **yes**       | exists; SMS deferred (email only)      |
+| Password Change      | 1777179240360916280 | `PASSWORD_CHANGED`         | `DLT_TEMPLATE_ID_PASSWORD_CHANGE`   | `MSG91_SMS_TEMPLATE_PASSWORD_CHANGE`   | **yes**       | live in PROD                           |
+| Password Update      | 1777179239457786914 | `PASSWORD_UPDATE`          | `DLT_TEMPLATE_ID_PASSWORD_UPDATE`   | `MSG91_SMS_TEMPLATE_PASSWORD_UPDATE`   | **yes**       | not sent (one SMS per change)          |
+| Booking Confirmation | 1777179239474119451 | `BOOKING_CONFIRMED`        | `DLT_TEMPLATE_ID_BOOKING_CONFIRMED` | `MSG91_SMS_TEMPLATE_BOOKING_CONFIRMED` | **yes**       | live in PROD                           |
+| Booking Cancellation | 1777179239566169492 | `BOOKING_CANCELLED`        | `DLT_TEMPLATE_ID_BOOKING_CANCELLED` | `MSG91_SMS_TEMPLATE_BOOKING_CANCELLED` | **yes**       | live in PROD (free and paid)           |
+| Payment Pending      | 1777179239515564360 | `PAYMENT_PENDING`          | `DLT_TEMPLATE_ID_PAYMENT_PENDING`   | `MSG91_SMS_TEMPLATE_PAYMENT_PENDING`   | **yes**       | not implemented (no notification type) |
+| Event Reminder       | 1777179240387088578 | `EVENT_REMINDER`           | `DLT_TEMPLATE_ID_EVENT_REMINDER`    | `MSG91_SMS_TEMPLATE_EVENT_REMINDER`    | **yes**       | enabled type; reminders job off        |
+
+### Registered in MSG91 (read back 2026-10-29)
+
+Each row was read from MSG91 (`getTemplateVersions`): DLT-verified, sender ETKTGO, DLT id
+matching the table above. The MSG91 template id is not a secret; it is set as
+`MSG91_SMS_TEMPLATE_<KIND>`. Password Update was added in MSG91 on 2026-10-30
+(same wording as Password Change, its own DLT id).
+
+| Template             | MSG91 template id        | Registered wording (MSG91 variables)                                                                                        |
+| -------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| Login OTP            | 6ae2c05f95642b7a550d6c32 | Your ETicketsGo verification code is ##num##. Valid for 5 minutes. Do not share this code.                                  |
+| Password Reset       | 6ae2c1b46655943701016402 | Your ETicketsGo password reset code is ##num##. Valid for 5 minutes. Do not share this code.                                |
+| Password Change      | 6ae2c2246b90591b2a0196e2 | Your ETicketsGo password was changed successfully. If this was not you, contact our support team immediately.               |
+| Booking Confirmation | 6ae2c2af9aa037348c0f8612 | ETicketsGo: Your booking ##alp1## for ##alp2## on ##alp3## is confirmed. View your ticket in your account.                  |
+| Booking Cancellation | 6ae2c278b17dc355cf032122 | ETicketsGo: Your booking ##alp1## for ##alp2## has been cancelled. Check your account for refund details, if applicable.    |
+| Payment Pending      | 6ae2c4bceee4c4ebcf0cb723 | ETicketsGo: Your booking ##alp## is awaiting payment confirmation. Check your booking status before making another payment. |
+| Event Reminder       | 6ae2c31a5da0579e850ca872 | ETicketsGo: Reminder! Your event ##alp1## is scheduled for ##alp2##. Please carry your ticket QR code for entry.            |
+| Password Update      | 6ae405ec20928db86e0dab93 | Your ETicketsGo password was changed successfully. If this was not you, contact our support team immediately.               |
+
+DLT form (each `{#var#}` is one variable) of the templates not shown in section 2:
+
+```text
+Your ETicketsGo password reset code is {#var#}. Valid for 5 minutes. Do not share this code.
+Your ETicketsGo password was changed successfully. If this was not you, contact our support team immediately.
+ETicketsGo: Your booking {#var#} is awaiting payment confirmation. Check your booking status before making another payment.
+ETicketsGo: Reminder! Your event {#var#} is scheduled for {#var#}. Please carry your ticket QR code for entry.
+```
+
+The sign-in text says "Valid for 5 minutes", and a code is accepted for exactly that long
+(`OTP_TTL_MINUTES` = 5 in `auth/phone-otp.service.ts`, owner decision 2026-10-29). A test
+fails if the two ever differ.
+
+**Text verified = no** means the registered wording and its variables could not be read back
+from MSG91, so the kind is refused (never sent) until somebody copies the exact registered text
+and variable names, in order, into `dlt-sms-templates.ts` and sets `textVerified: true`. The
+wording in section 2 is what the code expected to register; it is not proof of what was.
+
+Kinds with **no** approved template are never sent by MSG91, whatever ids are set; their
+readers get email only: `SHOW_CANCELLED` (`DLT_TEMPLATE_ID_SHOW_CANCELLED`,
+`MSG91_SMS_TEMPLATE_SHOW_CANCELLED`), `SHOW_CANCELLED_ONLINE`
+(`DLT_TEMPLATE_ID_SHOW_CANCELLED_ONLINE`, `MSG91_SMS_TEMPLATE_SHOW_CANCELLED_ONLINE`),
+`SHOW_CANCELLED_CASH` (`DLT_TEMPLATE_ID_SHOW_CANCELLED_CASH`,
+`MSG91_SMS_TEMPLATE_SHOW_CANCELLED_CASH`) and `REFUND_COMPLETED`
+(`DLT_TEMPLATE_ID_REFUND_COMPLETED`, `MSG91_SMS_TEMPLATE_REFUND_COMPLETED`). ("pack A/B" are in
+[INDIA-DLT-SHOW-CANCELLED-REPLACEMENT.md](INDIA-DLT-SHOW-CANCELLED-REPLACEMENT.md).)
+
+Set `DLT_SENDER_HEADER` and `MSG91_SENDER_ID` to `ETKTGO`, and `DLT_PRINCIPAL_ENTITY_ID` to the
+PE ID above.
 
 ---
 
-## 2. Templates to register
+## 2. Template wording (what the code sends)
 
-Register each one under header **DPTRCS**, content category **Service Implicit**, type
+The owner reports eight templates approved (section 1.1). The wording below is what the code
+sends for each kind; it must match the approved text exactly. Each is under the configured header
+(**ETKTGO**, per the owner's 2026-10-25 statement; DPTRCS is also accepted), content category **Service Implicit**, type
 **Transactional (service)**. None is promotional. Every `{#var#}` is one DLT variable (at most
 30 characters; the platform shortens long event titles with "..." and refuses anything else that
 would not fit). Copy each text exactly: one changed character, space or full stop and the
@@ -56,11 +134,11 @@ configuration change.
 ### 2.1 Sign-in code (OTP)
 
 ```text
-{#var#} is your ETicketsGo sign-in code. It expires in {#var#} minutes. Never share it with anyone.
+Your ETicketsGo verification code is {#var#}. Valid for 5 minutes. Do not share this code.
 ```
 
 - Variables, in order: `otp` (6 digits), `minutes` (10).
-- MSG91 template content: `##otp## is your ETicketsGo sign-in code. It expires in ##minutes## minutes. Never share it with anyone.`
+- MSG91 template content: `Your ETicketsGo verification code is ##num##. Valid for 5 minutes. Do not share this code.`
 - Env: `MSG91_SMS_TEMPLATE_OTP`, `DLT_TEMPLATE_ID_OTP`
 - Leave `OTP_SMS_TEMPLATE` **unset**. Its default is this exact text; a different value makes
   the API refuse to boot when MSG91 carries SMS.
@@ -82,7 +160,7 @@ ETicketsGo: {#var#} on {#var#} is cancelled. Booking {#var#}. Check your email f
 ### 2.3 Booking confirmed
 
 ```text
-ETicketsGo: Booking {#var#} for {#var#} on {#var#} is confirmed. Your tickets are in your email and in your account. - DeepTrics
+ETicketsGo: Your booking {#var#} for {#var#} on {#var#} is confirmed. View your ticket in your account.
 ```
 
 - Variables, in order: `reference`, `event`, `when`.
@@ -91,7 +169,7 @@ ETicketsGo: Booking {#var#} for {#var#} on {#var#} is confirmed. Your tickets ar
 ### 2.4 Booking cancelled
 
 ```text
-ETicketsGo: Booking {#var#} is cancelled. Check your email for refund details. - DeepTrics
+ETicketsGo: Your booking {#var#} for {#var#} has been cancelled. Check your account for refund details, if applicable.
 ```
 
 - Variables: `reference`.
@@ -113,11 +191,12 @@ alphabet and in one or two segments.
 
 ## 3. In MSG91
 
-1. Link MSG91 to the PE as its telemarketer on the DLT portal (PE-TM chain).
-2. Add header DPTRCS to the MSG91 account.
+1. Link MSG91 to the PE as its telemarketer on the DLT portal (PE-TM chain). Approved per the
+   owner, 2026-10-25.
+2. Add header ETKTGO to the MSG91 account (the header the templates are linked to).
 3. For each approved template: SMS > Templates > add, paste the DLT text with each `{#var#}`
    written as `##name##` using the variable names above, enter the DLT template ID, choose
-   sender DPTRCS. MSG91 then shows its own template id.
+   sender ETKTGO. MSG91 then shows its own template id.
 4. Delivery reports: set the DLR webhook to
    `https://<api host>/api/notifications/webhooks/msg91/<MSG91_WEBHOOK_SECRET>`.
 
@@ -128,29 +207,30 @@ parameter; the route is the template's (transactional/service).
 
 ## 4. Configuration (names only - set values out of band)
 
-| Env var                                    | What it holds                                                 |
-| ------------------------------------------ | ------------------------------------------------------------- |
-| `SMS_PROVIDER_BY_MARKET`                   | `IN=msg91` (keep `NOTIFICATION_MARKETS` consistent)           |
-| `SMS_ENABLED`                              | `true` only when the steps on this page are done              |
-| `MSG91_AUTH_KEY`                           | secret; sent as a header, never logged                        |
-| `DLT_SENDER_HEADER`                        | `DPTRCS`                                                      |
-| `MSG91_SENDER_ID`                          | `DPTRCS` (must equal `DLT_SENDER_HEADER`, or boot is refused) |
-| `DLT_PRINCIPAL_ENTITY_ID`                  | the 19-digit PE ID                                            |
-| `MSG91_WEBHOOK_SECRET`                     | secret, 32+ random characters, in the DLR URL                 |
-| `MSG91_SMS_TEMPLATE_OTP`                   | MSG91 template id for 2.1                                     |
-| `DLT_TEMPLATE_ID_OTP`                      | 19-digit DLT template ID for 2.1                              |
-| `MSG91_SMS_TEMPLATE_SHOW_CANCELLED`        | MSG91 template id for 2.2                                     |
-| `DLT_TEMPLATE_ID_SHOW_CANCELLED`           | 19-digit DLT template ID for 2.2                              |
-| `MSG91_SMS_TEMPLATE_SHOW_CANCELLED_ONLINE` | MSG91 id, show cancelled for online buyers (replacement pack) |
-| `DLT_TEMPLATE_ID_SHOW_CANCELLED_ONLINE`    | 19-digit DLT id for the same; turns that wording on           |
-| `MSG91_SMS_TEMPLATE_SHOW_CANCELLED_CASH`   | MSG91 id, show cancelled for cash buyers (replacement pack)   |
-| `DLT_TEMPLATE_ID_SHOW_CANCELLED_CASH`      | 19-digit DLT id for the same; turns that wording on           |
-| `MSG91_SMS_TEMPLATE_BOOKING_CONFIRMED`     | MSG91 template id for 2.3 (optional)                          |
-| `DLT_TEMPLATE_ID_BOOKING_CONFIRMED`        | 19-digit DLT template ID for 2.3 (optional)                   |
-| `MSG91_SMS_TEMPLATE_BOOKING_CANCELLED`     | MSG91 template id for 2.4 (optional)                          |
-| `DLT_TEMPLATE_ID_BOOKING_CANCELLED`        | 19-digit DLT template ID for 2.4 (optional)                   |
-| `MSG91_SMS_TEMPLATE_REFUND_COMPLETED`      | MSG91 template id for 2.5 (optional)                          |
-| `DLT_TEMPLATE_ID_REFUND_COMPLETED`         | 19-digit DLT template ID for 2.5 (optional)                   |
+| Env var                                    | What it holds                                                   |
+| ------------------------------------------ | --------------------------------------------------------------- |
+| `SMS_PROVIDER_BY_MARKET`                   | `IN=msg91` (keep `NOTIFICATION_MARKETS` consistent)             |
+| `SMS_ENABLED`                              | `true` only when the steps on this page are done                |
+| `MSG91_AUTH_KEY`                           | secret; sent as a header, never logged                          |
+| `DLT_SENDER_HEADER`                        | `ETKTGO` (or `DPTRCS`: the header the templates are linked to)  |
+| `MSG91_SENDER_ID`                          | same value (must equal `DLT_SENDER_HEADER`, or boot is refused) |
+| `DLT_PRINCIPAL_ENTITY_ID`                  | the 19-digit PE ID                                              |
+| `MSG91_WEBHOOK_SECRET`                     | secret, 32+ random characters, in the DLR URL                   |
+| `SMS_TEST_RECIPIENT_ALLOWLIST`             | non-PRODUCTION only: E.164 numbers MSG91 may text; empty = none |
+| `MSG91_SMS_TEMPLATE_OTP`                   | MSG91 template id for 2.1                                       |
+| `DLT_TEMPLATE_ID_OTP`                      | 19-digit DLT template ID for 2.1                                |
+| `MSG91_SMS_TEMPLATE_SHOW_CANCELLED`        | MSG91 template id for 2.2                                       |
+| `DLT_TEMPLATE_ID_SHOW_CANCELLED`           | 19-digit DLT template ID for 2.2                                |
+| `MSG91_SMS_TEMPLATE_SHOW_CANCELLED_ONLINE` | MSG91 id, show cancelled for online buyers (replacement pack)   |
+| `DLT_TEMPLATE_ID_SHOW_CANCELLED_ONLINE`    | 19-digit DLT id for the same; turns that wording on             |
+| `MSG91_SMS_TEMPLATE_SHOW_CANCELLED_CASH`   | MSG91 id, show cancelled for cash buyers (replacement pack)     |
+| `DLT_TEMPLATE_ID_SHOW_CANCELLED_CASH`      | 19-digit DLT id for the same; turns that wording on             |
+| `MSG91_SMS_TEMPLATE_BOOKING_CONFIRMED`     | MSG91 template id for 2.3 (optional)                            |
+| `DLT_TEMPLATE_ID_BOOKING_CONFIRMED`        | 19-digit DLT template ID for 2.3 (optional)                     |
+| `MSG91_SMS_TEMPLATE_BOOKING_CANCELLED`     | MSG91 template id for 2.4 (optional)                            |
+| `DLT_TEMPLATE_ID_BOOKING_CANCELLED`        | 19-digit DLT template ID for 2.4 (optional)                     |
+| `MSG91_SMS_TEMPLATE_REFUND_COMPLETED`      | MSG91 template id for 2.5 (optional)                            |
+| `DLT_TEMPLATE_ID_REFUND_COMPLETED`         | 19-digit DLT template ID for 2.5 (optional)                     |
 
 Leave unset: `OTP_SMS_TEMPLATE`. **Removed** (boot is refused if set while MSG91 carries SMS):
 `MSG91_SMS_TEMPLATE_ID` (one id for every type) and `MSG91_SMS_BODY_VAR` (the whole message as
@@ -172,6 +252,12 @@ DLT id is required either way.
 - **Logs and records.** No log line or notification row holds a sign-in code outside
   LOCAL/DEV. Phone numbers are masked (`+91***10`); MSG91 refusal text is redacted before
   it is stored. The MSG91 request id is logged on acceptance.
+- **Non-production guard.** Outside `APP_ENV=PRODUCTION`, MSG91 texts only the numbers in
+  `SMS_TEST_RECIPIENT_ALLOWLIST`; every other number is handled as log mode (MSG91 is not
+  called). Empty or unset means MSG91 texts nobody on QA/UAT. The guard runs after the
+  template checks, so QA still proves every id mapping.
+- **India mobiles only.** MSG91 is called only for `+91` then ten digits starting 6-9; any
+  other number fails permanently (`INVALID_DESTINATION`, no retries).
 - **Delivery status.** For notifications, the MSG91 DLR updates the `NotificationDelivery` row
   (delivered, failed, DND-blocked, and so on) and suppresses a DND or blocked number. A
   sign-in code has no notification row by design, so its DLR is held unmatched; match it by
@@ -181,8 +267,9 @@ DLT id is required either way.
 
 ## 5. Switch-on checklist
 
-1. Templates 2.1 and 2.2 approved on the DLT portal (3-5 optional).
-2. Each added in MSG91 under DPTRCS with the variable names above.
+1. Templates approved on the DLT portal (owner, 2026-10-25: eight approved). Confirm which is
+   2.1 and 2.2 (required) and that each text matches section 2 exactly (section 1.1).
+2. Each added in MSG91 under ETKTGO with the variable names above.
 3. Set the section 4 keys on the environment. Do not set `OTP_SMS_TEMPLATE`.
 4. Readiness for IN shows SMS with no `BLOCKED_DLT` gap.
 5. Add an SMS rate row so messages are costed.

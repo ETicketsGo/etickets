@@ -242,7 +242,8 @@ describe('integration-real-postgres: Twilio STOP/START/HELP over HTTP', () => {
   const row = (p: string) =>
     db!.suppressedDestination.findUnique({
       where: {
-        channel_destinationHash: {
+        channel_destinationHash_scope: {
+          scope: 'ALL',
           channel: 'sms',
           destinationHash: SuppressionService.hash('sms', p),
         },

@@ -97,6 +97,18 @@ export function heroCandidates<T extends Listing & { slug: string }>(list: reado
     .map((e) => e.slug);
 }
 
+/**
+ * The listings the home page reads in full before drawing them: the hero candidates, then the
+ * first nine of the section under the chips. The server reads the same ones for the first paint
+ * (`app/[locale]/page.tsx`), so the hero is decided before the page is sent rather than after.
+ */
+export function homeDetailSlugs<T extends Listing & { slug: string }>(
+  list: readonly T[],
+): string[] {
+  const all = photosFirst(list);
+  return [...new Set([...heroCandidates(all), ...all.slice(0, 9).map((e) => e.slug)])];
+}
+
 /** What a card shows where the price would be. */
 export type PriceSlot = 'price' | 'soldOut' | 'notYet' | 'closed' | 'none';
 

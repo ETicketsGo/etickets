@@ -1,34 +1,46 @@
-import { useColorScheme } from 'react-native';
-import { radius, typeScale } from '@eticketsgo/design-tokens';
-
 /**
- * Imperative theme for non-className styling (StatusBar, ActivityIndicator, gradients).
- * Values mirror packages/design-tokens/src/tokens.css (single source); className-based
- * styling uses the NativeWind tokens directly. Scales are reused from design-tokens.
+ * Imperative colours for what className cannot reach: icons (@expo/vector-icons takes a
+ * `color` prop), StatusBar, ActivityIndicator, the tab bar. The same values as
+ * tailwind.config.js, from packages/design-tokens/src/brand.css.
+ *
+ * Light only, like the storefront. `useTheme` keeps its shape so callers need not change;
+ * `stage` is the dark band's palette for the screens that draw one.
  */
-const light = {
-  canvas: '#FAFAFB',
+export const palette = {
+  canvas: '#F6F2EA',
   surface: '#FFFFFF',
-  text: '#0F172A',
-  textMuted: '#838A97',
-  primary: '#2563EB',
-  border: '#E5E8EE',
-};
+  sunken: '#F0EBE1',
+  text: '#16130F',
+  textSecondary: '#3D3830',
+  textMuted: '#6A6359',
+  primary: '#16130F',
+  onPrimary: '#F6F2EA',
+  border: '#DDD5C7',
+  borderStrong: '#C9BFAE',
+  field: '#877F78',
+  gold: '#B8955A',
+  goldText: '#84652F',
+  goldOnInk: '#E3CFA5',
+  positive: '#2F5E45',
+  critical: '#B51D29',
+  imageFallback: '#2A221A',
+} as const;
 
-const dark = {
-  canvas: '#0B0E15',
-  surface: '#12151D',
-  text: '#F8FAFC',
-  textMuted: '#8A93A3',
-  primary: '#2563EB',
-  border: '#2A3140',
-};
+export const stage = {
+  canvas: '#16130F',
+  surface: '#221E19',
+  sunken: '#2E2922',
+  text: '#F6F2EA',
+  textSecondary: '#CFC7BA',
+  textMuted: '#ADA497',
+  line: '#3A342C',
+  lineStrong: '#4D463C',
+  action: '#E3CFA5',
+  onAction: '#16130F',
+} as const;
 
-export type ThemePalette = typeof light;
+export type ThemePalette = typeof palette;
 
-export function useTheme(): { scheme: 'light' | 'dark'; colors: ThemePalette } {
-  const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
-  return { scheme, colors: scheme === 'dark' ? dark : light };
+export function useTheme(): { scheme: 'light'; colors: ThemePalette } {
+  return { scheme: 'light', colors: palette };
 }
-
-export { radius, typeScale };

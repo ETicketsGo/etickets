@@ -33,6 +33,16 @@ export interface RenderedNotification {
    * place. Absent means replies go to the From address, which is every other message.
    */
   replyTo?: string | null;
+  /**
+   * RFC 2369 / RFC 8058 unsubscribe headers, for email only.
+   *
+   * A narrow, typed field rather than a free `headers` map: these two are the only custom
+   * headers any message may carry, and a general map filled from a payload would let any
+   * producer set any header under our name. Built by `buildUnsubscribeLinks`
+   * (engagement/unsubscribe-token.ts) and set only for marketing mail. No producer sets it
+   * today; transactional mail must never carry it.
+   */
+  listUnsubscribe?: { 'List-Unsubscribe': string; 'List-Unsubscribe-Post'?: string } | null;
   payload: Record<string, unknown>;
   /**
    * The resolved E.164 destination for SMS/WhatsApp, put here by the channel from the

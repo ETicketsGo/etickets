@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata } from '@/lib/seo';
 import { sectionTitle } from '@/lib/page-title';
 
 /*
@@ -13,10 +13,10 @@ import { sectionTitle } from '@/lib/page-title';
   A layout rather than the page, because these pages are client components and `metadata` is a
   server export. It renders its children and nothing else.
 */
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/events', {
   title: sectionTitle('Browse events'),
   description: 'Find concerts, comedy, theatre and more near you.',
-};
+});
 
 export default function SectionLayout({ children }: { children: React.ReactNode }) {
   return <>{children}</>;

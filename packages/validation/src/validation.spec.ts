@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  updateOrganizationProfileSchema,
   registerSchema,
   loginSchema,
   createBookingSchema,
@@ -108,5 +109,28 @@ describe('ticket type schema', () => {
 
   it('defaults maxPerOrder to 10', () => {
     expect(createTicketTypeSchema.parse(minimal).maxPerOrder).toBe(10);
+  });
+});
+
+describe('updateOrganizationProfileSchema picture fields', () => {
+  it('accepts the path an upload writes, so a profile save after an upload is not refused', () => {
+    const r = updateOrganizationProfileSchema.safeParse({
+      logoUrl: '/public/organizers/cmabc123/logo?v=0123456789abcdef',
+      coverImageUrl: '/public/organizers/cmabc123/cover',
+      website: 'https://example.org',
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('still refuses any other relative path and a non-http link', () => {
+    expect(updateOrganizationProfileSchema.safeParse({ logoUrl: '/etc/passwd' }).success).toBe(
+      false,
+    );
+    expect(
+      updateOrganizationProfileSchema.safeParse({ coverImageUrl: 'javascript:alert(1)' }).success,
+    ).toBe(false);
+    expect(
+      updateOrganizationProfileSchema.safeParse({ website: '/public/organizers/x/logo' }).success,
+    ).toBe(false);
   });
 });

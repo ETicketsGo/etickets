@@ -211,6 +211,12 @@ jobs:
           # Registering organizations is limited to a handful an hour per IP. The suite is one IP
           # standing in for many organizers, for the same reason as the auth limit above.
           ORG_REGISTRATION_THROTTLE_LIMIT: '1000'
+          # Open checkouts per client IP, account and guest email. The suite is one IP and a few
+          # reused fixture accounts standing in for many buyers, and leaves holds open on purpose;
+          # 0 switches each cap off for this run only. The order-size and pay-at-venue caps stay on.
+          BOOKING_MAX_ACTIVE_HOLDS_PER_IP: '0'
+          BOOKING_MAX_ACTIVE_HOLDS_PER_USER: '0'
+          BOOKING_MAX_ACTIVE_HOLDS_PER_EMAIL: '0'
         run: |
           node apps/api/dist/main.js & echo $! > /tmp/api.pid
           npx --workspace @eticketsgo/customer-web next start -p 3000 & echo $! > /tmp/cust.pid

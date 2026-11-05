@@ -41,7 +41,9 @@
   },
   "REFUND_COMPLETED": {
     "subject": "Votre remboursement est effectué",
-    "body": "Un remboursement de {amount} pour la réservation {reference} a été effectué. Il parvient habituellement à votre compte en quelques jours ouvrables."
+    "body": "Un remboursement de {amount} pour la réservation {reference} a été effectué. Il parvient habituellement à votre compte en quelques jours ouvrables.",
+    "subjectProcessing": "Votre remboursement a été envoyé à votre banque",
+    "bodyProcessing": "Nous avons envoyé un remboursement de {amount} pour la réservation {reference}. Votre banque le traite maintenant. Il parvient habituellement à votre compte en 5 à 7 jours ouvrables."
   },
   "REFUND_REQUESTED": {
     "subject": "Un remboursement a été demandé pour votre réservation",
@@ -117,9 +119,24 @@
     "subject": "« {event} » est de nouveau en vente",
     "body": "ETicketsGo a levé la suspension de « {event} ». Les billets sont de nouveau en vente."
   },
+  "BILLING_PAYMENT_FAILED": {
+    "yourPlan": "payant",
+    "PAST_DUE": {
+      "subject": "Le paiement de votre forfait {plan} n'a pas abouti",
+      "body": "Nous n'avons pas pu prélever le paiement de votre forfait {plan}. Votre forfait reste actif pendant que le paiement est tenté de nouveau. Pour le conserver, vérifiez votre moyen de paiement dans Facturation et forfaits de votre console d'organisateur."
+    },
+    "GRACE": {
+      "subject": "Action requise : votre forfait {plan} prend fin le {deadline}",
+      "body": "Nous n'avons pas pu prélever le paiement de votre forfait {plan} après plusieurs tentatives. Votre forfait reste actif jusqu'au {deadline}. Après cette date, votre organisation passe au forfait Gratuit. Pour conserver votre forfait, mettez à jour votre moyen de paiement dans Facturation et forfaits de votre console d'organisateur."
+    },
+    "GRACE_ENDING": {
+      "subject": "Rappel : votre forfait {plan} prend fin le {deadline}",
+      "body": "Le paiement de votre forfait {plan} n'est toujours pas réglé. Votre forfait reste actif jusqu'au {deadline}. Après cette date, votre organisation passe au forfait Gratuit. Pour conserver votre forfait, mettez à jour votre moyen de paiement dans Facturation et forfaits de votre console d'organisateur."
+    }
+  },
   "SUPPORT_REQUEST_RECEIVED": {
-    "subject": "Nouveau message ({kind}) : {topic}",
-    "subjectNoTopic": "Nouveau message ({kind}) de {sender}",
+    "subject": "Nouveau message ({kind}) [{reference}] : {topic}",
+    "subjectNoTopic": "Nouveau message ({kind}) [{reference}] de {sender}",
     "intro": "Nouveau message ({kind}) de {sender}.",
     "lead": "Un message est arrivé par un formulaire de soutien.",
     "replyHint": "Répondez à ce courriel pour répondre à l'expéditeur. Votre réponse ira à {email}.",
@@ -146,7 +163,7 @@
     }
   },
   "SUPPORT_REQUEST_ACKNOWLEDGED": {
-    "subject": "Nous avons bien reçu votre message",
+    "subject": "Nous avons bien reçu votre message [{reference}]",
     "body": "Merci d'avoir écrit à ETicketsGo. Nous avons bien reçu votre message et nous répondrons à {email}. Votre référence est {reference}. Si vous nous écrivez de nouveau à ce sujet, indiquez cette référence."
   },
   "PAYOUT_ACCOUNT_AWAITING_VERIFICATION": {
@@ -210,6 +227,15 @@
     "subject": "Réinitialisez votre mot de passe ETicketsGo",
     "body": "Ouvrez ce lien pour choisir un nouveau mot de passe : {link}. Il ne fonctionne qu'une fois et expire dans {minutes} minutes. Si vous n'avez rien demandé, ignorez ce message - votre mot de passe n'a pas changé."
   },
+  "EMAIL_VERIFICATION_CODE": {
+    "subject": "Votre code courriel ETicketsGo",
+    "body": "Votre code est {code}. Saisissez-le sur ETicketsGo pour ajouter cette adresse courriel à votre compte. Il expire dans {minutes} minutes. Si vous n'avez rien demandé, ignorez ce message - rien n'a changé.",
+    "confirmBody": "Votre code est {code}. Saisissez-le sur ETicketsGo pour confirmer que cette adresse courriel est la vôtre. Il expire dans {minutes} minutes. Si vous n'avez rien demandé, ignorez ce message - rien n'a changé."
+  },
+  "TEAM_INVITATION": {
+    "subject": "Invitation à rejoindre {organizationName} sur ETicketsGo",
+    "body": "{inviterName} vous invite à rejoindre {organizationName} sur ETicketsGo comme {role}. Pour accepter, ouvrez ce lien et connectez-vous avec cette adresse courriel : {link}. Le lien ne fonctionne qu'une fois et expire dans {days} jours. Vous seul pouvez l'accepter. Si vous ne vous y attendiez pas, ignorez ce message - rien ne change."
+  },
   "PASSWORD_CHANGED": {
     "subject": "Votre mot de passe ETicketsGo a été modifié",
     "body": "Votre mot de passe vient d'être modifié et vous avez été déconnecté partout. Si ce n'était pas vous, réinitialisez-le immédiatement et contactez le soutien."
@@ -246,5 +272,23 @@
   "leads": {
     "BOOKING_CONFIRMED": "Votre réservation est confirmée. Voici les détails.",
     "EVENT_REMINDER": "Votre représentation approche."
+  },
+  "campaign": {
+    "why": "Vous recevez ce courriel parce que vous avez accepté de recevoir des nouvelles de {organizer} au sujet de {topic}.",
+    "topic": {
+      "ORGANIZER_UPDATES": "ses événements",
+      "EARLY_ACCESS": "l'accès anticipé et des préventes",
+      "OFFERS": "ses offres"
+    },
+    "unsubscribe": "Se désabonner de {organizer}",
+    "unsubscribePrompt": "Vous ne voulez plus recevoir ces courriels ?",
+    "unsubscribeAll": "Se désabonner de tous les courriels de marketing",
+    "sentBy": "Envoyé par {organizer} avec ETicketsGo.",
+    "operator": "ETicketsGo est exploité par {legalName}.",
+    "book": "Réserver des billets",
+    "when": "Quand",
+    "where": "Où",
+    "code": "Votre code",
+    "testBanner": "Ceci est un courriel d'essai. Il n'a pas été envoyé à votre public."
   }
 }

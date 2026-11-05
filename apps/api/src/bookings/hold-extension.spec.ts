@@ -46,16 +46,41 @@ function setup(
         paymentMethod: over.paymentMethod ?? 'ONLINE',
       };
 
-  const update = jest.fn().mockImplementation(async ({ data }) => ({
-    holdExpiresAt: data.holdExpiresAt,
-    holdExtensions: (booking?.holdExtensions ?? 0) + 1,
+  /*
+    The row as the DATABASE holds it, separate from the snapshot `findUnique` returns. The
+    service reads the snapshot first and then writes conditionally, so concurrent requests all
+    see the same stale snapshot - exactly the race the conditional write exists to close.
+  */
+  const row = booking ? { ...booking } : null;
+  const update = jest.fn().mockImplementation(async ({ where, data }) => {
+    // Yield first so parallel callers interleave; the check-and-write below is then atomic, as a
+    // single conditional UPDATE is in the database.
+    await Promise.resolve();
+    const ok =
+      row !== null &&
+      where.id === row.id &&
+      row.status === where.status &&
+      row.paymentMethod === where.paymentMethod &&
+      row.holdExpiresAt > where.holdExpiresAt.gt &&
+      row.holdExtensions < where.holdExtensions.lt;
+    if (!ok) return { count: 0 };
+    row.holdExpiresAt = data.holdExpiresAt;
+    row.holdExtensions += data.holdExtensions.increment;
+    return { count: 1 };
+  });
+  const findUniqueOrThrow = jest.fn().mockImplementation(async () => ({
+    holdExpiresAt: row!.holdExpiresAt,
+    holdExtensions: row!.holdExtensions,
   }));
   const showSeatUpdateMany = jest.fn().mockResolvedValue({ count: 2 });
 
   const prisma = {
-    booking: { findUnique: jest.fn().mockResolvedValue(booking), update },
+    booking: { findUnique: jest.fn().mockResolvedValue(booking) },
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
-      fn({ booking: { update }, showSeat: { updateMany: showSeatUpdateMany } }),
+      fn({
+        booking: { updateMany: update, findUniqueOrThrow },
+        showSeat: { updateMany: showSeatUpdateMany },
+      }),
   };
   const config = {
     get: (key: string) =>
@@ -79,7 +104,7 @@ function setup(
     stub, // bookingShadow
     config as never,
   );
-  return { service, prisma, update, showSeatUpdateMany };
+  return { service, prisma, update, showSeatUpdateMany, row };
 }
 
 describe('extending a booking hold', () => {
@@ -159,11 +184,53 @@ describe('extending a booking hold', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  it('lets a guest extend the booking they hold by its id', async () => {
-    // A guest booking has no owner and is reached by an unguessable id — the same rule the
-    // payment path already applies, so checkout works the same way with or without an account.
+  it('lets a guest extend the booking once its checkout session is verified', async () => {
+    // The router verifies the x-anon-session against the hash on the booking and says so.
     const { service } = setup({ userId: null });
-    await expect(service.extendHold(null, 'bk-1')).resolves.toMatchObject({ holdExtensions: 1 });
+    await expect(
+      service.extendHold(null, 'bk-1', { guestSessionVerified: true }),
+    ).resolves.toMatchObject({ holdExtensions: 1 });
+  });
+
+  it("will not let anybody - signed in or not - extend a guest's hold by its id alone", async () => {
+    /*
+      A booking id is not a credential: it is in URLs, screenshots and support threads. This was
+      allowed for any caller when the booking had no account, so any signed-in user could keep
+      a stranger's seats off sale for as long as the extensions lasted.
+    */
+    const { service, update } = setup({ userId: null });
+    await expect(service.extendHold(OTHER, 'bk-1')).rejects.toThrow(/not started in this browser/i);
+    await expect(service.extendHold(null, 'bk-1')).rejects.toThrow(/not started in this browser/i);
+    await expect(
+      service.extendHold(OTHER, 'bk-1', { guestSessionVerified: false }),
+    ).rejects.toThrow(/not started in this browser/i);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("refuses a caller with no account on an account's booking", async () => {
+    const { service, update } = setup();
+    await expect(service.extendHold(null, 'bk-1', { guestSessionVerified: true })).rejects.toThrow(
+      /cannot change this booking/i,
+    );
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('stops parallel extensions at the cap', async () => {
+    /*
+      The count used to be checked outside any transaction, so requests sent together all read
+      the same "nothing used yet" and all extended. Fifteen at once against a cap of ten: the
+      conditional write lets exactly ten through, and the other five are told why.
+    */
+    const { service, row } = setup({ holdExtensions: 0 });
+    const results = await Promise.allSettled(
+      Array.from({ length: 15 }, () => service.extendHold(OWNER, 'bk-1')),
+    );
+    const ok = results.filter((r) => r.status === 'fulfilled');
+    const refused = results.filter((r) => r.status === 'rejected');
+    expect(ok).toHaveLength(10);
+    expect(refused).toHaveLength(5);
+    expect(String((refused[0] as PromiseRejectedResult).reason)).toMatch(/extended 10 times/i);
+    expect(row!.holdExtensions).toBe(10);
   });
 
   it("moves the held seats' deadline with the booking's", async () => {

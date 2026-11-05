@@ -1,5 +1,17 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
+import type { Response } from 'express';
+import { ApiBearerAuth, ApiGoneResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { AdminPermission, MovieStatus, Role } from '@eticketsgo/shared-types';
 import { paginationSchema } from '@eticketsgo/validation';
@@ -18,73 +30,39 @@ import {
 import { TaxRulesService } from './tax-rules.service';
 import { CinemaPricingPoliciesService, type PolicyInput } from './cinema-pricing-policies.service';
 import { MoviesService } from '../movies/movies.service';
-import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../common/decorators';
+import {
+  RequiresAdmin,
+  RequiresRecentMfa,
+  CurrentUser,
+  Roles,
+  type RequestUser,
+} from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { AppException, ErrorCodes } from '../common/errors';
+
+/** When the single-band fee routes were deprecated (RFC 9745 `@` + Unix seconds). */
+export const SINGLE_BAND_FEE_DEPRECATED_AT = '@1793318400'; // 2026-10-30T00:00:00Z
+/** When they may be removed (RFC 8594 HTTP-date). */
+export const SINGLE_BAND_FEE_SUNSET = 'Thu, 31 Dec 2026 00:00:00 GMT';
+export const FEE_SCHEDULES_PATH = '/api/admin/fee-schedules';
 
 /**
- * Editable fields of a fee rule. `currency` is intentionally absent: the amounts are integer
- * minor units, so moving a rule between currencies would silently reinterpret ₹5 as $5.
- * `maxMinor` accepts null to mean "and above" for the top band, so `.nullable()` is required
- * and is distinct from omitting the key (which leaves the value unchanged).
+ * The refusal every single-band fee write gets. Sets the deprecation headers first (the
+ * response object is shared with the exception filter, so they survive the throw), then throws
+ * 410 with a stable code. Nothing is read or written.
  */
-/*
-  How a band charges. FLAT is a fixed amount (`feeMinor`); PERCENT is a share of the order in
-  BASIS POINTS - 500 is 5%, not 500% - optionally held between a floor and a ceiling in minor
-  units. Whether the combination makes sense (a percentage on a PERCENT band, a floor not above
-  the ceiling) is checked on the RESULT in AdminService, because a patch only carries the fields
-  that changed.
-*/
-const feeChargeFields = {
-  feeType: z.enum(['FLAT', 'PERCENT']).optional(),
-  feePercentBps: z
-    .number()
-    .int()
-    .min(1, 'A percentage fee must be above 0%.')
-    .max(10_000, 'Basis points: 500 is 5%. A booking fee cannot exceed 100% (10000).')
-    .nullable()
-    .optional(),
-  minFeeMinor: z.number().int().min(0).nullable().optional(),
-  maxFeeMinor: z.number().int().min(0).nullable().optional(),
-};
-
-const feeRulePatchSchema = z
-  .object({
-    label: z.string().trim().min(1).max(60).optional(),
-    minMinor: z.number().int().min(0).optional(),
-    maxMinor: z.number().int().min(0).nullable().optional(),
-    feeMinor: z.number().int().min(0).optional(),
-    ...feeChargeFields,
-    // Where the band applies. '*' is anywhere; a named region beats a named country.
-    country: z.string().trim().max(60).optional(),
-    region: z.string().trim().max(60).optional(),
-    active: z.boolean().optional(),
-  })
-  .refine((v) => Object.keys(v).length > 0, { message: 'Provide at least one field to update.' });
-
-type FeeRulePatch = z.infer<typeof feeRulePatchSchema>;
-
-/**
- * A new band. `currency` IS required here (unlike the patch, where it is immutable) — a band
- * only means anything relative to the other bands in its currency, and the amounts are minor
- * units, so the currency has to be stated rather than guessed.
- */
-const feeRuleCreateSchema = z.object({
-  currency: z
-    .string()
-    .trim()
-    .regex(/^[A-Z]{3}$/, 'Use a 3-letter ISO currency code, e.g. INR or USD.'),
-  label: z.string().trim().min(1).max(60),
-  minMinor: z.number().int().min(0),
-  maxMinor: z.number().int().min(0).nullable(),
-  // Required for a FLAT band, ignored on a PERCENT one - AdminService decides which.
-  feeMinor: z.number().int().min(0).optional(),
-  ...feeChargeFields,
-  country: z.string().trim().max(60).optional(),
-  region: z.string().trim().max(60).optional(),
-  active: z.boolean().optional(),
-});
-
-type FeeRuleCreate = z.infer<typeof feeRuleCreateSchema>;
+export function refuseSingleBandFeeWrite(res: Pick<Response, 'setHeader'>): never {
+  res.setHeader('Deprecation', SINGLE_BAND_FEE_DEPRECATED_AT);
+  res.setHeader('Sunset', SINGLE_BAND_FEE_SUNSET);
+  res.setHeader('Link', `<${FEE_SCHEDULES_PATH}>; rel="successor-version"`);
+  throw new AppException(
+    ErrorCodes.FEE_RULE_ENDPOINT_GONE,
+    'Fee bands are no longer changed one at a time. Start a draft of the whole schedule at ' +
+      '/admin/fee-schedules, check it, then publish it.',
+    HttpStatus.GONE,
+    { replacement: FEE_SCHEDULES_PATH },
+  );
+}
 
 /*
   A tax rule as an administrator types it.
@@ -96,7 +74,8 @@ type FeeRuleCreate = z.infer<typeof feeRuleCreateSchema>;
 const taxRuleBodySchema = z.object({
   label: z.string().trim().min(1).max(40),
   rateBasisPoints: z.number().int().min(0).max(10_000, 'Basis points: 1800 = 18%. Max 10000.'),
-  appliesTo: z.enum(['TICKETS', 'FEES', 'TICKETS_AND_FEES']),
+  // PLATFORM_SERVICES: tax on organizer plans and credit packs (never on a ticket order).
+  appliesTo: z.enum(['TICKETS', 'FEES', 'TICKETS_AND_FEES', 'PLATFORM_SERVICES']),
   /** Rules sharing a group are alternatives; one wins. Empty means it always applies. */
   taxGroup: z.string().trim().max(40).optional(),
   country: z.string().trim().max(60).optional(),
@@ -313,29 +292,62 @@ export class AdminController {
   @Get('fee-rules')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG_READ)
   @ApiOperation({ summary: 'List platform fee rules (admin).' })
-  feeRules() {
-    return this.admin.feeRules();
+  feeRules(@Query('includeDeleted') includeDeleted?: string) {
+    // Deleted bands price nothing and are hidden unless asked for (history, audits).
+    return this.admin.feeRules({ includeDeleted: includeDeleted === 'true' });
   }
 
+  /*
+    Every PLATFORM_CONFIG write below also needs a fresh second-factor check (@RequiresRecentMfa):
+    a fee, tax or regulated-price rule changes what every buyer pays from the next sale on, so
+    a console left open on an unlocked machine must not be able to change one.
+  */
+  /*
+    ── DEPRECATED: SINGLE-BAND FEE WRITES ──────────────────────────────────────────────
+    Fee bands are now changed only through /admin/fee-schedules: a whole-currency draft,
+    checked, then published under the per-currency publish lock, with a version bump that a
+    quote taken before the change is held to, and an audit row. These three routes used to
+    edit one band in place, which skipped all of that, so they now REFUSE (410 Gone) and
+    change nothing. No console, script or app still calls them (checked 2026-10-30).
+
+    They keep the permission and fresh second-factor check a publish needs, so a caller that
+    could not publish learns nothing new here, and the handler names stay for the step-up
+    list. Remove the routes once the sunset date has passed.
+  */
   @Post('fee-rules')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
-  @ApiOperation({ summary: 'Create a platform fee-rule band (admin).' })
-  createFeeRule(
-    @CurrentUser() user: { id: string },
-    @Body(new ZodValidationPipe(feeRuleCreateSchema)) body: FeeRuleCreate,
-  ) {
-    return this.admin.createFeeRule(user.id, body);
+  @RequiresRecentMfa()
+  @ApiOperation({
+    summary: 'Gone: create fee bands through /admin/fee-schedules (draft, check, publish).',
+    deprecated: true,
+  })
+  @ApiGoneResponse({ description: 'Always. Use /admin/fee-schedules.' })
+  createFeeRule(@Res({ passthrough: true }) res: Response): never {
+    return refuseSingleBandFeeWrite(res);
   }
 
   @Patch('fee-rules/:id')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
-  @ApiOperation({ summary: 'Update a platform fee rule (admin).' })
-  updateFeeRule(
-    @CurrentUser() user: { id: string },
-    @Param('id') id: string,
-    @Body(new ZodValidationPipe(feeRulePatchSchema)) body: FeeRulePatch,
-  ) {
-    return this.admin.updateFeeRule(user.id, id, body);
+  @RequiresRecentMfa()
+  @ApiOperation({
+    summary: 'Gone: change fee bands through /admin/fee-schedules (draft, check, publish).',
+    deprecated: true,
+  })
+  @ApiGoneResponse({ description: 'Always. Use /admin/fee-schedules.' })
+  updateFeeRule(@Res({ passthrough: true }) res: Response): never {
+    return refuseSingleBandFeeWrite(res);
+  }
+
+  @Delete('fee-rules/:id')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
+  @ApiOperation({
+    summary: 'Gone: remove fee bands through /admin/fee-schedules (draft, check, publish).',
+    deprecated: true,
+  })
+  @ApiGoneResponse({ description: 'Always. Use /admin/fee-schedules.' })
+  deleteFeeRule(@Res({ passthrough: true }) res: Response): never {
+    return refuseSingleBandFeeWrite(res);
   }
 
   /*
@@ -385,6 +397,7 @@ export class AdminController {
 
   @Post('cinema-pricing-policies')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Create a DRAFT cinema pricing policy (admin).' })
   createCinemaPricingPolicy(@CurrentUser() admin: RequestUser, @Body() body: PolicyInput) {
     return this.cinemaPolicies.create(admin.id, this.coercePolicyDates(body));
@@ -392,6 +405,7 @@ export class AdminController {
 
   @Patch('cinema-pricing-policies/:id')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Edit a DRAFT policy. Refused once it is ACTIVE (admin).' })
   updateCinemaPricingPolicy(
     @CurrentUser() admin: RequestUser,
@@ -412,6 +426,7 @@ export class AdminController {
 
   @Post('cinema-pricing-policies/:id/activate')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'DRAFT to ACTIVE, refusing an ambiguous scope (admin).' })
   activateCinemaPricingPolicy(@CurrentUser() admin: RequestUser, @Param('id') id: string) {
     return this.cinemaPolicies.activate(admin.id, id);
@@ -419,6 +434,7 @@ export class AdminController {
 
   @Post('cinema-pricing-policies/:id/supersede')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Replace an ACTIVE policy with a new version (admin).' })
   supersedeCinemaPricingPolicy(
     @CurrentUser() admin: RequestUser,
@@ -430,6 +446,7 @@ export class AdminController {
 
   @Post('cinema-pricing-policies/:id/disable')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Withdraw a policy. Its scope then fails closed (admin).' })
   disableCinemaPricingPolicy(@CurrentUser() admin: RequestUser, @Param('id') id: string) {
     return this.cinemaPolicies.disable(admin.id, id);
@@ -455,6 +472,7 @@ export class AdminController {
 
   @Post('tax-rules')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Create a tax rule. Inactive unless explicitly activated (admin).' })
   createTaxRule(
     @CurrentUser() user: { id: string },
@@ -465,6 +483,7 @@ export class AdminController {
 
   @Patch('tax-rules/:id')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({
     summary: 'Update a draft tax rule, or switch one on/off. A live rate must be superseded.',
   })
@@ -478,6 +497,7 @@ export class AdminController {
 
   @Post('tax-rules/:id/supersede')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Close a rule at a date and open its successor at a new rate.' })
   supersedeTaxRule(
     @CurrentUser() user: { id: string },
@@ -489,6 +509,7 @@ export class AdminController {
 
   @Delete('tax-rules/:id')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Delete a tax rule that is switched off (admin).' })
   deleteTaxRule(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     return this.taxRules_.remove(user.id, id);

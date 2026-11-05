@@ -5,6 +5,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { KeyRound, Lock, Mail } from 'lucide-react';
 import type { AuthTokens } from '@eticketsgo/shared-types';
 import { api, errorMessage, takeSignedOutNotice, tokenStore } from './api';
+import { PhoneCodeSignIn } from './phone-sign-in';
 import { Button, Card, Input } from './components';
 import { nextFromSearch } from './safe-next';
 import { Wordmark } from './wordmark';
@@ -30,6 +31,9 @@ export function LoginForm({
   backOfficePath,
   footer,
   product,
+  phoneSignIn = false,
+  initialChallenge = null,
+  alternate,
 }: {
   title?: string;
   defaultEmail?: string;
@@ -73,6 +77,19 @@ export function LoginForm({
   footer?: ReactNode;
   /** The console's name, set beside the wordmark above the card: "Organizer", "Admin". */
   product?: string;
+  /**
+   * Offer "Mobile" beside "Email": sign in with a phone number and a code. The organizer console
+   * turns it on, because a phone-only account (the commonest kind) has no email or password to
+   * type here. Hidden when the deployment cannot text anybody (GET /capabilities).
+   */
+  phoneSignIn?: boolean;
+  /**
+   * Open on the second-factor step with this challenge. The console handoff page passes it when
+   * the exchange answered a back-office account with a challenge instead of tokens.
+   */
+  initialChallenge?: string | null;
+  /** Another way in, shown inside the card under the form ("Continue with your account"). */
+  alternate?: ReactNode;
 }) {
   const router = useRouter();
   const [email, setEmail] = useState(defaultEmail ?? '');
@@ -81,7 +98,32 @@ export function LoginForm({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   // Set when the password was right and the account has a second factor to prove.
-  const [challenge, setChallenge] = useState<string | null>(null);
+  const [challenge, setChallenge] = useState<string | null>(initialChallenge);
+  const [mode, setMode] = useState<'email' | 'phone'>('email');
+  /*
+    Whether a code can reach anybody here. Undefined (not asked, or the call failed) keeps the
+    tab: a slow capabilities call must never lock phone sign-in away from a platform that has it.
+  */
+  const [sms, setSms] = useState<{ off: boolean; countries?: string[] }>({ off: false });
+  useEffect(() => {
+    if (!phoneSignIn) return;
+    let live = true;
+    api
+      .capabilities()
+      .then((c) => {
+        if (!live) return;
+        const countries = Array.isArray(c.phoneSignInCountries)
+          ? c.phoneSignInCountries
+          : undefined;
+        setSms({ off: c.phoneSignIn === false || countries?.length === 0, countries });
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [phoneSignIn]);
+  const showTabs = phoneSignIn && !sms.off;
+  const activeMode = showTabs ? mode : 'email';
   const [useRecovery, setUseRecovery] = useState(false);
   const [mfaCode, setMfaCode] = useState('');
 
@@ -267,36 +309,81 @@ export function LoginForm({
               </div>
             </form>
           ) : (
-            <form className="space-y-4" onSubmit={submit}>
-              <Input
-                id="email"
-                label="Email"
-                type="email"
-                icon={Mail}
-                autoComplete="username"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-              <Input
-                id="password"
-                label="Password"
-                type="password"
-                icon={Lock}
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-              {error && (
-                <p role="alert" className="text-caption text-status-error">
-                  {error}
-                </p>
+            <>
+              {showTabs && (
+                <div
+                  role="tablist"
+                  aria-label="How to sign in"
+                  className="grid grid-cols-2 gap-1 rounded-lg bg-background-subtle p-1"
+                >
+                  {(
+                    [
+                      ['email', 'Email'],
+                      ['phone', 'Mobile'],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeMode === key}
+                      data-testid={`sign-in-tab-${key}`}
+                      onClick={() => {
+                        setMode(key);
+                        setError(null);
+                      }}
+                      className={`min-h-11 rounded-md text-[0.9375rem] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                        activeMode === key
+                          ? 'bg-background-surface text-text-primary shadow-sm'
+                          : 'text-text-muted hover:text-text-primary'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               )}
-              <Button type="submit" className="w-full" loading={loading}>
-                Sign in
-              </Button>
-            </form>
+              {activeMode === 'phone' ? (
+                <PhoneCodeSignIn
+                  smsCountries={sms.countries}
+                  onUseEmail={() => setMode('email')}
+                  onChallenge={(c) => setChallenge(c.challengeToken)}
+                  onTokens={(tokens) => finish(tokens)}
+                />
+              ) : (
+                <form className="space-y-4" onSubmit={submit}>
+                  <Input
+                    id="email"
+                    label="Email"
+                    type="email"
+                    icon={Mail}
+                    autoComplete="username"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
+                  <Input
+                    id="password"
+                    label="Password"
+                    type="password"
+                    icon={Lock}
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                  {error && (
+                    <p role="alert" className="text-caption text-status-error">
+                      {error}
+                    </p>
+                  )}
+                  <Button type="submit" className="w-full" loading={loading}>
+                    Sign in
+                  </Button>
+                </form>
+              )}
+              {alternate}
+            </>
           )}
         </Card>
         {footer ? <div className="mt-5 space-y-2 text-center text-caption">{footer}</div> : null}

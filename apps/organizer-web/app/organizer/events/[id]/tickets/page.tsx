@@ -29,6 +29,7 @@ import {
   type TicketType,
 } from '@eticketsgo/web-kit';
 import { venueInputZone } from '@/lib/zoned-time';
+import { ticketTypeDeleteErrorMessage } from '@/lib/ticket-type-delete-errors';
 import {
   addFormState,
   firstInvalidField,
@@ -240,7 +241,7 @@ export default function TicketsTab() {
       setDeleting(null);
       invalidate();
     },
-    onError: (e) => toast.push(errorMessage(e), 'error'),
+    onError: (e) => toast.push(ticketTypeDeleteErrorMessage(e), 'error'),
   });
 
   const openEdit = (t: TicketType) => {

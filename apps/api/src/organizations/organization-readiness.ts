@@ -18,6 +18,8 @@
  * statement: none of these block an organizer from selling today, and pretending otherwise
  * to force completion would be a lie the product tells.
  */
+import { issuesTaxInvoices, taxRegistrationType } from '@eticketsgo/shared-types';
+
 export type ReadinessSeverity = 'BLOCKING' | 'IMPORTANT' | 'SUGGESTED';
 
 export interface ReadinessItem {
@@ -40,6 +42,7 @@ export interface ReadinessInput {
   registeredAddressLine1?: string | null;
   registeredCity?: string | null;
   taxRegistrationNumber?: string | null;
+  taxRegistrationKind?: string | null;
   financeContactEmail?: string | null;
   grievanceOfficerName?: string | null;
   grievanceOfficerEmail?: string | null;
@@ -162,13 +165,19 @@ export function organizationReadiness(org: ReadinessInput): ReadinessItem[] {
     ── SUGGESTED: it makes them look like a business somebody buys from ─────────────
     Never dressed up as a requirement. An organizer with no logo sells tickets perfectly well.
   */
-  if (blank(org.taxRegistrationNumber)) {
+  // An organizer who has said they are not registered has answered; asking again is nagging.
+  const saidNotRegistered = Boolean(
+    taxRegistrationType(org.registeredCountry, org.taxRegistrationKind)?.notRegistered,
+  );
+  if (blank(org.taxRegistrationNumber) && !saidNotRegistered) {
     items.push({
       key: 'tax-registration',
       severity: 'SUGGESTED',
       title: 'Add your tax registration, if you have one',
-      consequence:
-        'With one on file your buyers get tax invoices. Without it they get valid receipts, which is fine if you are not registered.',
+      // Only where a registration makes a tax invoice: in the US the number is printed on a receipt.
+      consequence: issuesTaxInvoices(org.registeredCountry)
+        ? 'With one on file your buyers get tax invoices. Without it they get valid receipts, which is fine if you are not registered.'
+        : 'With one on file it is printed on the receipts your buyers get. Without it they get the same valid receipts.',
       fixPath: SETTINGS_LEGAL,
     });
   }

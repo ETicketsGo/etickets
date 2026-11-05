@@ -1,5 +1,10 @@
-import { FailureClass, phoneOnlyEmail } from '@eticketsgo/shared-types';
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import {
+  DeliveryState,
+  FailureClass,
+  parseEnabledMarkets,
+  phoneOnlyEmail,
+} from '@eticketsgo/shared-types';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { randomInt } from 'node:crypto';
@@ -8,7 +13,10 @@ import { AppException, ErrorCodes } from '../common/errors';
 import { SmsChannel } from '../notifications/channels/sms.channel';
 import { TransportError } from '../notifications/channels/transports/transport-http';
 import { messageContentLoggable } from '../notifications/channels/transports/content-logging';
+import { MetricsService } from '../metrics/metrics.service';
 import { maskPhone, normalisePhone } from './phone';
+import { otpDestination } from './otp-destination';
+import { OtpSmsGuard, type OtpSendRefusal } from './otp-sms-guard';
 
 /**
  * Signing in with a mobile number and a one-time code.
@@ -38,7 +46,7 @@ import { maskPhone, normalisePhone } from './phone';
  */
 
 /** Long enough to arrive and be typed, short enough that a stolen code is usually dead. */
-const OTP_TTL_MINUTES = 10;
+const OTP_TTL_MINUTES = 5;
 
 /**
  * How many wrong guesses one code survives.
@@ -48,8 +56,11 @@ const OTP_TTL_MINUTES = 10;
  */
 const MAX_ATTEMPTS = 5;
 
-/** Codes requested per number per window, so this cannot be used to bill somebody's SMS. */
-const MAX_SENDS_PER_HOUR = 5;
+/*
+  How many codes one number (and the whole platform) may be sent lives in `otp-sms-guard.ts`,
+  configurable: a 60-second resend cooldown, 5 an hour and 10 a day per number, and a daily
+  budget in total and per market.
+*/
 
 @Injectable()
 export class PhoneOtpService {
@@ -68,7 +79,18 @@ export class PhoneOtpService {
     */
     private readonly sms: SmsChannel,
     private readonly config: ConfigService,
-  ) {}
+    /*
+      Optional only so a test can build this service by hand. Without one, the guard is built
+      with no Redis and every send is decided by its Postgres fallback - still atomic, still
+      limited - never by no rule at all.
+    */
+    @Optional() guard?: OtpSmsGuard,
+    @Optional() private readonly metrics?: MetricsService,
+  ) {
+    this.guard = guard ?? new OtpSmsGuard(config);
+  }
+
+  private readonly guard: OtpSmsGuard;
 
   /**
    * Send a code to a number.
@@ -91,43 +113,89 @@ export class PhoneOtpService {
     }
     const phone = normalisePhone(rawPhone);
 
-    const anHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    const recent = await this.prisma.phoneOtp.count({
-      where: { phone, createdAt: { gte: anHourAgo } },
-    });
-    if (recent >= MAX_SENDS_PER_HOUR) {
-      /*
-        Refused loudly rather than silently dropped.
+    /*
+      ── WHERE A CODE MAY GO, BEFORE ANYTHING ELSE ──────────────────────────────────────
+      Checked before any limit, any database read and any account lookup, so a refused number
+      costs nothing and reveals nothing: the answer depends only on the digits typed, never on
+      whether somebody has an account. See `otp-destination.ts` for the rule and why.
 
-        This limit protects a person from being SMS-bombed and protects us from paying for
-        it, and both are worth telling the caller about — a silent success here would have
-        somebody waiting for a message that is never coming.
-      */
+      The answer is the one already given for a number a provider refuses, because to the
+      person it is the same fact - this number cannot be texted - and the way forward is the
+      same: email.
+    */
+    const destination = otpDestination(
+      phone,
+      parseEnabledMarkets(this.config.get<string>('NOTIFICATION_MARKETS')),
+    );
+    if (!destination.ok) {
+      this.metrics?.recordOtpSms(destination.market ?? 'other', 'refused_destination');
+      this.logger.warn(
+        `sign-in code refused for ${maskPhone(phone)}: destination not allowed ` +
+          `[${destination.reason}]`,
+      );
       throw new AppException(
-        ErrorCodes.RATE_LIMITED,
-        'Too many codes requested for this number. Try again in an hour.',
-        HttpStatus.TOO_MANY_REQUESTS,
+        ErrorCodes.SMS_UNDELIVERABLE,
+        "We can't send a text message to this number. Check it, or sign in with your email address.",
+        HttpStatus.UNPROCESSABLE_ENTITY,
       );
     }
-
-    // A new code invalidates the old one: two live codes double an attacker's odds for no
-    // benefit to anybody who simply pressed the button twice.
-    await this.prisma.phoneOtp.updateMany({
-      where: { phone, consumedAt: null },
-      data: { consumedAt: new Date() },
-    });
+    const market = destination.market;
 
     // `randomInt` is CSPRNG-backed. `Math.random()` is not, and a predictable OTP is not an
     // OTP.
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
-    await this.prisma.phoneOtp.create({
-      data: {
-        phone,
-        codeHash: await bcrypt.hash(code, 10),
-        expiresAt: new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000),
-        requestedIp: ip ?? null,
-      },
+    const row = (codeHash: string) => ({
+      phone,
+      codeHash,
+      expiresAt: new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000),
+      requestedIp: ip ?? null,
     });
+
+    /*
+      ── COUNTED BEFORE IT IS SENT, ATOMICALLY ──────────────────────────────────────────
+      Per-number cooldown, hourly and daily caps, and the platform's daily budget, all in one
+      atomic step (see `otp-sms-guard.ts`). This used to be a COUNT followed by a separate
+      INSERT, so twenty requests fired at once all read "none sent yet" and all twenty were
+      texted.
+    */
+    const reservation = await this.guard.reserve(phone, market);
+    if (reservation.status === 'refused') throw this.refusal(market, reservation);
+
+    // The row this send is for, so the provider's message id can be kept on it afterwards.
+    let otpId: string | undefined;
+    if (reservation.status === 'allowed') {
+      // A new code invalidates the old one: two live codes double an attacker's odds for no
+      // benefit to anybody who simply pressed the button twice.
+      await this.prisma.phoneOtp.updateMany({
+        where: { phone, consumedAt: null },
+        data: { consumedAt: new Date() },
+      });
+      const created = await this.prisma.phoneOtp.create({
+        data: row(await bcrypt.hash(code, 10)),
+        select: { id: true },
+      });
+      otpId = created?.id;
+    } else {
+      /*
+        Redis could not be asked. The same limits are decided in Postgres instead, and the
+        decision and the new row are ONE transaction under an advisory lock, so the fallback is
+        as atomic as the script it stands in for. Hashed first, so the lock is held for three
+        quick queries rather than for a bcrypt round.
+      */
+      const data = row(await bcrypt.hash(code, 10));
+      const fallback = await this.prisma.$transaction(async (tx) => {
+        const decided = await this.guard.reserveInTransaction(tx, phone);
+        if (decided.status !== 'allowed') return decided;
+        await tx.phoneOtp.updateMany({
+          where: { phone, consumedAt: null },
+          data: { consumedAt: new Date() },
+        });
+        const created = await tx.phoneOtp.create({ data, select: { id: true } });
+        otpId = created?.id;
+        return decided;
+      });
+      if (fallback.status === 'refused') throw this.refusal(market, fallback);
+    }
 
     /*
       The body comes from configuration, because in India it is not ours to write.
@@ -138,7 +206,7 @@ export class PhoneOtpService {
     */
     const template =
       this.config.get<string>('OTP_SMS_TEMPLATE') ??
-      '{code} is your ETicketsGo sign-in code. It expires in {minutes} minutes. Never share it with anyone.';
+      'Your ETicketsGo verification code is {code}. Valid for 5 minutes. Do not share this code.';
     const body = template.replace('{code}', code).replace('{minutes}', String(OTP_TTL_MINUTES));
     let outcome;
     try {
@@ -156,6 +224,7 @@ export class PhoneOtpService {
       await this.prisma.phoneOtp
         .updateMany({ where: { phone, consumedAt: null }, data: { consumedAt: new Date() } })
         .catch(() => undefined);
+      this.metrics?.recordOtpSms(market, 'provider_failed');
       throw this.sendFailure(phone, err);
     }
 
@@ -182,6 +251,7 @@ export class PhoneOtpService {
     const provider = outcome?.provider;
     const undelivered = !provider || outcome?.skipped === true || provider === 'log';
     if (undelivered && !messageContentLoggable(this.config)) {
+      this.metrics?.recordOtpSms(market, 'provider_failed');
       await this.prisma.phoneOtp
         .updateMany({ where: { phone, consumedAt: null }, data: { consumedAt: new Date() } })
         .catch(() => undefined);
@@ -207,7 +277,59 @@ export class PhoneOtpService {
       this.logger.debug(`[dev only] OTP for ${phone} is ${code}`);
     }
 
+    /*
+      Kept so the provider's delivery report can be matched to this code (see
+      `phone-otp-delivery.sink.ts`); without it MSG91's report sits AWAITING_CORRELATION. Only
+      for a real send: a log-mode send has no report to wait for. Best effort - the code is
+      already on its way, so failing to note its id must not fail the sign-in.
+    */
+    const providerMessageId = outcome?.providerMessageId;
+    if (otpId && !undelivered && providerMessageId) {
+      await this.prisma.phoneOtp
+        .updateMany({
+          where: { id: otpId },
+          data: { provider, providerMessageId, deliveryStatus: DeliveryState.ACCEPTED },
+        })
+        .catch(() => this.logger.warn('could not record the sign-in code SMS message id'));
+    }
+
+    this.metrics?.recordOtpSms(market, 'sent');
     return { sent: true, expiresInMinutes: OTP_TTL_MINUTES };
+  }
+
+  /**
+   * What the caller is told when a limit refuses a send.
+   *
+   * Refused loudly rather than silently dropped. A per-number limit protects a person from
+   * being SMS-bombed and protects us from paying for it, and both are worth telling the caller
+   * about - a silent success would have somebody waiting for a message that is never coming.
+   *
+   * A spent BUDGET is answered exactly as "text messages are off" is answered, because that is
+   * what it is for the person: phone sign-in is unavailable, email works. It must not say
+   * "budget" or "limit": the caller is quite possibly the attacker, and the less this tells
+   * them about where the line is, the better.
+   */
+  private refusal(
+    market: string,
+    reservation: { refusal: OtpSendRefusal; retryAfterSeconds: number },
+  ): AppException {
+    const budget =
+      reservation.refusal === 'budget_total' || reservation.refusal === 'budget_market';
+    this.metrics?.recordOtpSms(market, budget ? 'budget_tripped' : 'rate_limited');
+    if (budget) {
+      return new AppException(
+        ErrorCodes.SMS_UNAVAILABLE,
+        "We can't send sign-in codes by text message right now. Please sign in with your email address instead.",
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+    const message =
+      reservation.refusal === 'daily'
+        ? 'Too many codes requested for this number today. Try again tomorrow, or sign in with your email address.'
+        : reservation.refusal === 'hourly'
+          ? 'Too many codes requested for this number. Try again in an hour.'
+          : `A code was sent a moment ago. Wait ${reservation.retryAfterSeconds} seconds before asking for another one.`;
+    return new AppException(ErrorCodes.RATE_LIMITED, message, HttpStatus.TOO_MANY_REQUESTS);
   }
 
   /**
@@ -381,7 +503,15 @@ export class PhoneOtpService {
     return { phone };
   }
 
-  async verifyCode(rawPhone: string, code: string): Promise<{ id: string; isNewAccount: boolean }> {
+  async verifyCode(
+    rawPhone: string,
+    code: string,
+    /**
+     * What the request knew about where it came from. Written only onto an account this call
+     * CREATES (never onto an existing one), labelled with its source.
+     */
+    signup: { detectedCountry?: string | null } = {},
+  ): Promise<{ id: string; isNewAccount: boolean }> {
     const phone = await this.consumeCode(rawPhone, code);
 
     const existing = await this.prisma.user.findUnique({ where: { phone } });
@@ -412,6 +542,9 @@ export class PhoneOtpService {
           passwordHash: `phone-only$${await bcrypt.hash(`${phone}:${Date.now()}`, 10)}`,
           fullName: '',
           roles: ['CUSTOMER'],
+          ...(signup.detectedCountry
+            ? { detectedCountry: signup.detectedCountry, detectedCountrySource: 'network' }
+            : {}),
         },
         select: { id: true },
       });

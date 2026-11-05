@@ -13,7 +13,7 @@
 export const DUTY_WORDS: Record<string, { label: string; what: string }> = {
   BOOKING_READ: {
     label: 'See bookings',
-    what: 'Any booking, its tickets and its payment, and the audit log. The floor for support.',
+    what: 'Any booking, its tickets and its payment. The floor for support.',
   },
   ORGANIZER_READ: {
     label: 'See organizers',
@@ -26,6 +26,10 @@ export const DUTY_WORDS: Record<string, { label: string; what: string }> = {
   OPS_READ: {
     label: 'See operations',
     what: 'Job queues, outbox, sync health and other system internals.',
+  },
+  AUDIT_READ: {
+    label: 'See the audit log',
+    what: 'Search the record of who did what, and the history on a booking or refund.',
   },
   OPS_EXECUTE: {
     label: 'Re-run background work',
@@ -85,7 +89,35 @@ export const DUTY_WORDS: Record<string, { label: string; what: string }> = {
   },
   ADMIN_MANAGE: {
     label: 'Manage staff',
-    what: 'Grants everything in practice: this person could give themselves any other duty.',
+    what: 'Add staff and give them any duty, so it is the most powerful one. Cannot change your own duties.',
+  },
+  USER_SUSPEND: {
+    label: 'Suspend accounts',
+    what: 'Suspend or reinstate any account, and sign it out on every device.',
+  },
+  CRM_AGENT: {
+    label: 'Acquisition agent',
+    what: 'Organizer Acquisition only: add prospects, work the leads assigned to you in your team, log outreach and keep follow-ups. Opens nothing else.',
+  },
+  CRM_MANAGER: {
+    label: 'Acquisition manager',
+    what: 'With Acquisition agent: every lead in the teams you manage, assign work, link prospects to organizer accounts, import, export and reports. Opens nothing else.',
+  },
+  BILLING_READ: {
+    label: 'See organizer billing',
+    what: 'Organizer plans, prices, subscriptions, platform invoices, usage and billing figures. Changes nothing.',
+  },
+  BILLING_MANAGE: {
+    label: 'Manage plans and prices',
+    what: 'Create, change and switch off organizer plans and prices.',
+  },
+  BILLING_ADJUST: {
+    label: 'Give organizer offers',
+    what: 'Give or end a trial or a free plan, give marketing credits and record a discount.',
+  },
+  ENTITLEMENT_GRANT: {
+    label: 'Give single features',
+    what: 'Turn one feature on or off for one organization, outside its plan.',
   },
 };
 

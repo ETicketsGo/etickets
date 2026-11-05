@@ -32,6 +32,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react';
+import { pushToast } from './toast-queue';
 import { BRAND_FOCUS } from './brand';
 import { titleCase } from './format';
 import { tileClasses, type TileTone } from './primitives';
@@ -1121,6 +1122,8 @@ export function Dialog({
   footer,
   size = 'md',
   brand = false,
+  sheetOnMobile = false,
+  returnFocusRef,
 }: {
   open: boolean;
   onClose: () => void;
@@ -1147,16 +1150,45 @@ export function Dialog({
    * scrolling to read at all.
    */
   size?: 'md' | 'lg';
+  /**
+   * On a phone (below `sm`), draw the panel as a bottom sheet: full width, pinned to the
+   * bottom edge, top corners rounded, and padded clear of the gesture bar. From `sm` up it is
+   * the centred dialog as usual. Opt-in: every other caller keeps the centred panel.
+   */
+  sheetOnMobile?: boolean;
+  /**
+   * Where focus goes when the dialog closes. Optional: by default it goes back to whatever had
+   * focus when the dialog opened. Pass the opener when that is not it - a dialog opened after
+   * an async action, while its button was disabled, would otherwise send focus to <body>.
+   */
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const descriptionId = useId();
-  const onPanelKeyDown = useModalFocus(open, onClose, panelRef);
+  const onPanelKeyDown = useModalFocus(open, onClose, panelRef, false, returnFocusRef);
+  // Whole class names only: Tailwind finds classes by reading the source, not by running it.
+  const width = sheetOnMobile
+    ? size === 'lg'
+      ? 'sm:max-w-2xl'
+      : 'sm:max-w-md'
+    : size === 'lg'
+      ? 'max-w-2xl'
+      : 'max-w-md';
+  const frame = brand
+    ? `border border-brand-line bg-brand-surface font-brand-text text-brand-ink shadow-brand-overlay ${
+        sheetOnMobile ? 'rounded-t-brand-card sm:rounded-brand-card' : 'rounded-brand-card'
+      }`
+    : `border border-border bg-background-elevated shadow-lg ${
+        sheetOnMobile ? 'rounded-t-2xl sm:rounded-2xl' : 'rounded-2xl'
+      }`;
 
   return (
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+          className={`fixed inset-0 z-50 flex justify-center bg-black/40 backdrop-blur-sm ${
+            sheetOnMobile ? 'items-end sm:items-center sm:p-4' : 'items-center p-4'
+          }`}
           onClick={onClose}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -1172,11 +1204,10 @@ export function Dialog({
             tabIndex={-1}
             onKeyDown={onPanelKeyDown}
             data-brand={brand ? 'customer' : undefined}
-            className={`flex max-h-[90vh] w-full flex-col p-6 focus:outline-none ${
-              brand
-                ? 'rounded-brand-card border border-brand-line bg-brand-surface font-brand-text text-brand-ink shadow-brand-overlay'
-                : 'rounded-2xl border border-border bg-background-elevated shadow-lg'
-            } ${size === 'lg' ? 'max-w-2xl' : 'max-w-md'}`}
+            data-sheet={sheetOnMobile ? 'mobile' : undefined}
+            className={`flex max-h-[90vh] w-full flex-col p-6 focus:outline-none ${frame} ${width} ${
+              sheetOnMobile ? 'pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:pb-6' : ''
+            }`}
             onClick={(e) => e.stopPropagation()}
             initial={{ opacity: 0, scale: 0.96, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -1242,6 +1273,7 @@ function useModalFocus(
   onClose: () => void,
   panelRef: React.RefObject<HTMLElement | null>,
   defer = false,
+  returnFocusRef?: React.RefObject<HTMLElement | null>,
 ) {
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
@@ -1267,10 +1299,10 @@ function useModalFocus(
       const panel = panelRef.current;
       const active = document.activeElement;
       if (!defer || !active || active === document.body || (panel && panel.contains(active))) {
-        previouslyFocused.current?.focus?.();
+        (returnFocusRef?.current ?? previouslyFocused.current)?.focus?.();
       }
     };
-  }, [open, panelRef]);
+  }, [open, panelRef, returnFocusRef]);
 
   return (e: ReactKeyboardEvent<HTMLElement>) => {
     if (e.key !== 'Tab') return;
@@ -1451,10 +1483,26 @@ const ToastContext = createContext<{ push: (message: string, tone?: BadgeTone) =
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
+  /*
+    The same message with the same tone is shown once (`pushToast`): pushing it again while it
+    is on screen restarts its timer instead of stacking a copy.
+  */
   const push = useCallback((message: string, tone: BadgeTone = 'info') => {
-    const id = Date.now() + Math.random();
-    setToasts((t) => [...t, { id, message, tone }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
+    const candidate = { id: Date.now() + Math.random(), message, tone };
+    setToasts((t) => {
+      const next = pushToast(t, candidate);
+      const previous = timers.current.get(next.id);
+      if (previous) clearTimeout(previous);
+      timers.current.set(
+        next.id,
+        setTimeout(() => {
+          timers.current.delete(next.id);
+          setToasts((x) => x.filter((y) => y.id !== next.id));
+        }, 4000),
+      );
+      return next.duplicate ? t : next.list;
+    });
   }, []);
 
   return (

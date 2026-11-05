@@ -1,6 +1,7 @@
 # ADR-038: Domain Event Bus and Transaction-Aware Event Publication
 
 - **Status:** Accepted
+- **Status (2026-11-01):** current.
 - **Date:** 2026-07-26
 - **Deciders:** Principal Architect
 - **Relates to:** ADR-009 (Experience Platform), ADR-010 (Inventory Strategy), ADR-037 (Inventory Sourcing Providers)

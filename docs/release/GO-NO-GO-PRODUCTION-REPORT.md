@@ -1,5 +1,7 @@
 # ETicketsGo — Go / No-Go Production Report
 
+> **Status note (2026-10-30):** historical record, superseded for the current state; see [PRODUCT-CURRENT-STATE.md](../PRODUCT-CURRENT-STATE.md).
+
 The final launch-decision document for the commercial (public) launch. Each area carries a status:
 **GO** (ready), **CONDITIONAL** (ready once an operator action is done — credentials, sign-off,
 provisioning), or **NO-GO** (blocker). This report certifies the _software_; the CONDITIONAL items are

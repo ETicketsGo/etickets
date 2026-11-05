@@ -66,10 +66,10 @@ test.describe('organizer: tax identity, receipts and refunds', () => {
 
     // The state that matters: it does not pretend to be fine, and it says what is missing.
     await expect(page.getByText(/Incomplete\./)).toBeVisible();
-    await expect(page.getByText(/still get a/)).toBeVisible();
+    await expect(page.getByTestId('legal-document-status')).toContainText(/get a receipt/);
 
     // And it is explicit that the number is not format-checked, so nobody assumes it was.
-    await expect(page.getByText(/We do not validate its format/)).toBeVisible();
+    await expect(page.getByText(/We do not check it with the tax/)).toBeVisible();
   });
 
   test('4-6: saving a tax registration flips the page to "can issue a tax invoice"', async ({
@@ -90,12 +90,12 @@ test.describe('organizer: tax identity, receipts and refunds', () => {
       same reason - a state box whose hint reads "pick a country first" is a box somebody
       fills in twice.
     */
-    await page.getByLabel('Country').selectOption({ label: 'India' });
+    await page.getByLabel('Country', { exact: true }).selectOption({ label: 'India' });
     await page.getByLabel(/Registered as/i).selectOption('Private limited company');
-    await page.getByLabel(/Tax registration type/i).fill('GSTIN');
+    await page.locator('#legal-taxRegistrationKind').selectOption('GSTIN');
     // A fixture identifier. The platform records it verbatim and asserts nothing about it.
     // The label follows the country, so an Indian organizer is asked for a GSTIN.
-    await page.getByLabel(/^GSTIN/).fill('29AABCU9603R1ZM');
+    await page.locator('#legal-taxRegistrationNumber').fill('29AABCU9603R1ZM');
     await page.getByLabel('Registered address', { exact: true }).fill('12 Residency Road');
     await page.getByLabel('City').fill('Bengaluru');
     await page.getByLabel('Finance contact email').fill('finance@bengaluru-live.test');
@@ -103,12 +103,18 @@ test.describe('organizer: tax identity, receipts and refunds', () => {
 
     await expect(page.getByText('Legal and tax details saved.')).toBeVisible({ timeout: 15_000 });
     // Says what is on (tax invoices), not "Complete." - other legal gaps are listed separately.
-    await expect(page.getByText(/Sales are documented as/)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('legal-document-status')).toContainText(/titled tax invoice/, {
+      timeout: 15_000,
+    });
     await expect(page.getByText('29AABCU9603R1ZM')).toBeVisible();
 
     // The value survives a reload — it was persisted, not just held in form state.
     await page.reload();
-    await expect(page.getByLabel(/^GSTIN/)).toHaveValue('29AABCU9603R1ZM');
+    await expect(page.locator('#legal-taxRegistrationNumber')).toHaveValue('29AABCU9603R1ZM');
+    await expect(page.locator('#legal-taxRegistrationKind')).toHaveValue('GSTIN');
+    // Saved but never loaded back, it read "Select..." after every reload (PROD, 2026-11).
+    await expect(page.getByLabel(/Registered as/i)).toHaveValue('Private limited company');
+    await expect(page.getByLabel('Country', { exact: true })).toHaveValue('India');
   });
 
   test('7-8: a manager cannot change the tax identity, only the owner can', async ({ request }) => {

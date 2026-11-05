@@ -201,6 +201,7 @@ describe('OfflineReconciliationService', () => {
       eventSession: { event: { organizationId: 'org1' } },
     };
     const prisma = {
+      organization: { findUnique: jest.fn().mockResolvedValue({ status: 'APPROVED' }) },
       checkInDevice: {
         findUnique: jest
           .fn()
@@ -236,6 +237,7 @@ describe('OfflineReconciliationService', () => {
 
   it('surfaces a transfer that happened after manifest download (server wins)', async () => {
     const prisma = {
+      organization: { findUnique: jest.fn().mockResolvedValue({ status: 'APPROVED' }) },
       checkInDevice: {
         findUnique: jest
           .fn()
@@ -287,6 +289,7 @@ describe('OfflineReconciliationService organization boundary', () => {
     const updateMany = jest.fn();
     const checkInCreate = jest.fn();
     const prisma = {
+      organization: { findUnique: jest.fn().mockResolvedValue({ status: 'APPROVED' }) },
       checkInDevice: {
         findUnique: jest
           .fn()
@@ -328,5 +331,111 @@ describe('OfflineReconciliationService organization boundary', () => {
     expect(res).toEqual([{ ticketId: 'tk-foreign', outcome: 'SUPERVISOR_REVIEW_REQUIRED' }]);
     expect(updateMany).not.toHaveBeenCalled();
     expect(checkInCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('OfflineReconciliationService and a suspension', () => {
+  const scan = (ticketId: string) => ({
+    ticketId,
+    deviceId: 'dev1',
+    nonce: 'n1',
+    version: 1,
+    eventSessionId: 'se1',
+    checkedInAt: Date.now(),
+    wasOverride: false,
+    manifestVersion: 1,
+    manifestSignature: 'sig-1',
+  });
+  const activeTicket = (id: string) => ({
+    id,
+    status: 'ACTIVE',
+    nonce: 'n1',
+    qrVersion: 1,
+    eventSessionId: 'se1',
+    checkIns: [],
+    eventSession: { event: { organizationId: 'org1' } },
+  });
+
+  it('stops claiming the moment a suspension lands part-way through an upload', async () => {
+    /*
+      The organization is APPROVED when the upload starts and SUSPENDED by the first claim: the
+      claim's own filter refuses it, and every later scan in the queue is held, not applied.
+    */
+    const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+    const checkInCreate = jest.fn();
+    const prisma = {
+      organization: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({ status: 'APPROVED' })
+          .mockResolvedValue({ status: 'SUSPENDED' }),
+      },
+      checkInDevice: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: 'dev1', organizationId: 'org1', status: 'ACTIVE' }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      ticket: {
+        findUnique: jest.fn(({ where }: { where: { id: string } }) =>
+          Promise.resolve(activeTicket(where.id)),
+        ),
+        updateMany,
+      },
+      checkIn: { create: checkInCreate },
+      offlineReconciliationRecord: { create: jest.fn().mockResolvedValue({ id: 'rec1' }) },
+      checkInManifest: { findMany: jest.fn().mockResolvedValue([ISSUED]) },
+    } as unknown as PrismaService;
+    const svc = new OfflineReconciliationService(prisma, access, audit);
+
+    const res = await svc.reconcile(USER, 'dev1', [scan('tk1'), scan('tk2')]);
+
+    expect(res).toEqual([
+      { ticketId: 'tk1', outcome: 'DEVICE_NOT_ACTIVE' },
+      { ticketId: 'tk2', outcome: 'DEVICE_NOT_ACTIVE' },
+    ]);
+    expect(updateMany).toHaveBeenCalledTimes(1);
+    expect(updateMany.mock.calls[0][0].where).toMatchObject({
+      eventSession: { event: { organization: { status: { not: 'SUSPENDED' } } } },
+    });
+    expect(checkInCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses a suspended organization upload, names every scan, and applies none', async () => {
+    const updateMany = jest.fn();
+    const prisma = {
+      organization: { findUnique: jest.fn().mockResolvedValue({ status: 'SUSPENDED' }) },
+      organizationMember: {
+        findUnique: jest.fn().mockResolvedValue({ status: 'ACTIVE', role: 'CHECKIN_STAFF' }),
+      },
+      checkInDevice: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'dev1',
+          organizationId: 'org1',
+          eventId: null,
+          status: 'REVOKED',
+          expiresAt: null,
+        }),
+      },
+      ticket: { updateMany },
+      offlineReconciliationRecord: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 'rec1' }),
+      },
+      checkInManifest: { findMany: jest.fn().mockResolvedValue([ISSUED]) },
+    } as unknown as PrismaService;
+    const svc = new OfflineReconciliationService(prisma, access, audit);
+
+    await expect(svc.reconcile(USER, 'dev1', [scan('tk1'), scan('tk2')])).rejects.toMatchObject({
+      code: 'ORGANIZATION_SUSPENDED',
+      details: {
+        heldForReview: 2,
+        rejected: [
+          expect.objectContaining({ ticketId: 'tk1', reason: 'ORGANIZATION_SUSPENDED' }),
+          expect.objectContaining({ ticketId: 'tk2', reason: 'ORGANIZATION_SUSPENDED' }),
+        ],
+      },
+    });
+    expect(updateMany).not.toHaveBeenCalled();
   });
 });

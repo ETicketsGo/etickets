@@ -1,6 +1,12 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import { WebProviders, workspaceThemeScript } from '@eticketsgo/web-kit';
+import { cookies } from 'next/headers';
+import {
+  SESSION_HINT_COOKIE,
+  SIDEBAR_COLLAPSED_COOKIE,
+  WebProviders,
+  workspaceThemeScript,
+} from '@eticketsgo/web-kit';
 // Self-hosted, so `next build` never downloads fonts; the display face is for titles only.
 import { inter } from '@eticketsgo/web-kit/fonts/inter';
 import { display } from '@eticketsgo/web-kit/fonts/display';
@@ -34,7 +40,16 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  /*
+    Whether this browser said it holds a session (the hint cookie web-kit's tokenStore writes
+    beside the tokens; never a credential). With it the server draws the console frame round
+    the wait, so a refresh does not paint an empty page first - see `RequireAuth`'s `frame`.
+  */
+  const jar = await cookies();
+  const sessionHint = jar.get(SESSION_HINT_COOKIE)?.value === '1';
+  // The device's collapsed sidebar, so the rail is drawn from the first paint (shell-preferences.ts).
+  const sidebarCollapsed = jar.get(SIDEBAR_COLLAPSED_COOKIE)?.value === '1';
   return (
     // `data-console` gives the operator consoles their teal accent; see tokens.css. The
     // storefront never sets it, which is what keeps its blue unchanged.
@@ -56,7 +71,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           the first paint: the parser executes it before reading the markup below it.
         */}
         <script dangerouslySetInnerHTML={{ __html: workspaceThemeScript }} />
-        <WebProviders>{children}</WebProviders>
+        <WebProviders sessionHint={sessionHint} sidebarCollapsed={sidebarCollapsed}>
+          {children}
+        </WebProviders>
       </body>
     </html>
   );

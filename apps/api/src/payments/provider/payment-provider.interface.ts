@@ -57,6 +57,13 @@ export interface PaymentEvent {
   bookingId: string;
   amountMinor: number;
   /**
+   * ISO-4217 code of the money the provider actually took, when the provider says (Razorpay's
+   * `payment.entity.currency`). Optional: Stripe, the mock and the free and cash paths do not set
+   * it, and an absent currency is not checked. When present it must equal the booking's currency,
+   * or the booking is not confirmed (see PaymentsService.confirm).
+   */
+  currency?: string;
+  /**
    * Why a `payment.failed` failed, when the provider said. `reason` is ours and is what the
    * buyer is told; `providerCode` is the provider's own token (e.g.
    * `international_transaction_not_allowed`), kept on the attempt for support — never its prose.

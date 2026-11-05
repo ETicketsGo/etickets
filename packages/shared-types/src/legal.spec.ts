@@ -67,7 +67,7 @@ describe('jurisdiction resolution', () => {
 });
 
 describe('policy resolution', () => {
-  const TYPES: PolicyType[] = ['TERMS', 'PRIVACY', 'SMS', 'REFUNDS', 'COOKIES'];
+  const TYPES: PolicyType[] = ['TERMS', 'PRIVACY', 'SMS', 'REFUNDS', 'COOKIES', 'MARKETING'];
 
   it('EVERY type has a current GLOBAL version', () => {
     /*

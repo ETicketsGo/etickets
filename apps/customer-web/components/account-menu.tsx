@@ -13,8 +13,7 @@ import {
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 
-/** Where the organizer console lives. Same source the become-organizer page uses. */
-const ORGANIZER_URL = process.env.NEXT_PUBLIC_ORGANIZER_URL ?? 'http://localhost:3001';
+import { ORGANIZER_LOGIN_URL, openOrganizerConsole } from '@/lib/organizer-console';
 
 /**
  * Who you are signed in as, and what you can do about it.
@@ -189,15 +188,25 @@ export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
 
           <div className="my-1 border-t border-brand-line" />
           {organization ? (
-            // A different origin with its own session, so this is a real navigation rather
-            // than a route — and it is marked as one, instead of looking like an in-app link
-            // that silently asks for a password.
+            /*
+              A different origin with its own session. It used to land on the console's sign-in
+              page, which asked a phone-registered organizer for an email and password they never
+              had. Now it carries THIS session across with a one-time code (see
+              lib/organizer-console.ts) - never a token in the URL. The href is the console's
+              sign-in, for a middle-click or a browser without script.
+            */
             <a
-              href={`${ORGANIZER_URL}/organizer`}
+              href={ORGANIZER_LOGIN_URL}
               role="menuitem"
               data-testid="open-organizer-console"
               className={item}
-              onClick={() => setOpen(false)}
+              onClick={(e) => {
+                // A modified click (new tab) keeps the plain link; the handoff is this tab's.
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+                e.preventDefault();
+                setOpen(false);
+                void openOrganizerConsole();
+              }}
             >
               <Store className="h-4 w-4" />
               <span className="min-w-0">

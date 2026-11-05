@@ -24,6 +24,7 @@ import { NotificationReadinessController } from './readiness/notification-readin
 import { NotificationRateService } from './cost/notification-rate.service';
 import { NotificationAnalyticsService } from './cost/notification-analytics.service';
 import { NotificationAnalyticsController } from './cost/notification-analytics.controller';
+import { ProviderEventSinks } from './delivery/provider-event-sinks';
 import { DeliveryRecorderService } from './delivery/delivery-recorder.service';
 import { SuppressionService } from './delivery/suppression.service';
 import { NotificationOpsService } from './delivery/notification-ops.service';
@@ -97,6 +98,7 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     MarketCertificationService,
     // Delivery receipts (ADR-046): what the provider said, as distinct from what we sent.
     SuppressionService,
+    ProviderEventSinks,
     DeliveryRecorderService,
     DeliveryWebhookService,
     ProviderEventReplayService,
@@ -150,11 +152,15 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     // Exported so phone sign-in can deliver an OTP WITHOUT going through
     // `NotificationService`, which would persist the live code in a Notification row.
     SmsChannel,
+    // Exported so adding an email address can send its code without persisting it (same reason).
+    EmailChannel,
     NotificationPreferencesService,
     AdminAudienceService,
     MarketingConsentService,
     SuppressionService,
     DeliveryRecorderService,
+    // Exported so campaigns can register for SES events about their own messages.
+    ProviderEventSinks,
     NotificationPolicyResolver,
     // Exported so the worker can sweep for fallbacks that are now due.
     NotificationFallbackService,

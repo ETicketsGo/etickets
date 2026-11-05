@@ -6,10 +6,15 @@ import { PaymentsService } from '../../payments.service';
 import { OrganizerConnectService } from '../../connect/organizer-connect.service';
 import { SettlementService } from '../../settlement/settlement.service';
 import { DisputeService, type StripeDisputeLike } from '../../dispute/dispute.service';
-import { PaymentStatus } from '@eticketsgo/shared-types';
+import { PaymentStatus, RefundStatus } from '@eticketsgo/shared-types';
+import { organizerShareOfProviderRefund } from '../../settlement/refund-organizer-share';
 import type { PaymentEvent } from '../../provider/payment-provider.interface';
 import { OpsAlertService } from '../../../ops/alerts/ops-alert.service';
 import { webhookDeadLetteredAlert } from '../../../ops/alerts/ops-alert-messages';
+import {
+  STRIPE_PURPOSE_CREDIT_PACK,
+  STRIPE_PURPOSE_SUBSCRIPTION,
+} from '../../../billing/provider/stripe-billing.provider';
 
 /** Max processing attempts before an event is dead-lettered for ops review. */
 const MAX_ATTEMPTS = 6;
@@ -18,6 +23,8 @@ const RETRY_BACKOFF_MS = 30_000;
 
 // ─── Minimal shapes of the Stripe objects we read (avoids importing SDK types here) ───
 interface SessionLike {
+  /** 'payment' for tickets; billing also uses 'subscription'. */
+  mode?: string | null;
   /** 'paid' | 'unpaid' | 'no_payment_required'. A delayed method completes 'unpaid'. */
   payment_status?: string | null;
   metadata?: Record<string, string> | null;
@@ -223,8 +230,7 @@ export class StripeWebhookProcessor {
       case 'charge.dispute.created':
       case 'charge.dispute.updated':
       case 'charge.dispute.closed':
-        await this.disputes.syncFromWebhook(payload.object as StripeDisputeLike);
-        return 'processed';
+        return this.handleDispute(payload.object as StripeDisputeLike);
       case 'transfer.failed':
         await this.settlements.onTransferFailed((payload.object as TransferLike).id);
         return 'processed';
@@ -269,6 +275,7 @@ export class StripeWebhookProcessor {
       where: { providerPaymentIntentId: charge.payment_intent },
       select: {
         id: true,
+        bookingId: true,
         amountMinor: true,
         organizerNetMinor: true,
         refundedMinor: true,
@@ -282,11 +289,22 @@ export class StripeWebhookProcessor {
     const delta = totalRefunded - payment.refundedMinor;
     if (delta <= 0) return 'processed'; // already accounted for (idempotent)
 
-    // Organizer's proportional share of this incremental refund.
-    const organizerShare =
-      payment.amountMinor > 0
-        ? Math.round((delta * payment.organizerNetMinor) / payment.amountMinor)
-        : 0;
+    // Organizer's share of this incremental refund. `charge.refunded` carries no refund id, so
+    // our newest COMPLETED Refund rows on the booking are matched to the delta; when they explain
+    // it exactly the documented rule applies, otherwise (a dashboard refund) pro-rata is kept.
+    const completed = await this.prisma.refund.findMany({
+      where: { bookingId: payment.bookingId, status: RefundStatus.COMPLETED },
+      orderBy: { createdAt: 'desc' },
+      select: { amountMinor: true, taxAddedMinor: true, platformFeeRefundedMinor: true },
+    });
+    const ownRows: typeof completed = [];
+    let explained = 0;
+    for (const row of completed) {
+      if (explained >= delta) break;
+      ownRows.push(row);
+      explained += row.amountMinor;
+    }
+    const organizerShare = organizerShareOfProviderRefund(delta, ownRows, payment);
 
     await this.prisma.payment.update({
       where: { id: payment.id },
@@ -303,6 +321,30 @@ export class StripeWebhookProcessor {
       charge.currency ?? 'usd',
       organizerShare,
     );
+    return 'processed';
+  }
+
+  /*
+    One Stripe account serves ticket payments AND organizer subscriptions, so a dispute on a
+    subscription invoice's charge is delivered here too. It used to become a ticket Dispute row
+    with no booking. A dispute is a ticket dispute only when its payment intent is one of OUR
+    ticket Payment rows (the same verified id the payment and refund paths use); anything
+    else is recorded IGNORED and left to the billing webhook, which handles its own disputes.
+    Never matched by email, description or naming.
+  */
+  private async handleDispute(dispute: StripeDisputeLike): Promise<DispatchResult> {
+    const pi = typeof dispute?.payment_intent === 'string' ? dispute.payment_intent : null;
+    if (!dispute?.id || !pi) return 'ignored';
+    const ticketPayment = await this.prisma.payment.findFirst({
+      // The same key DisputeService and charge.refunded resolve by: a Stripe `pi_` id we stored.
+      where: { providerPaymentIntentId: pi },
+      select: { id: true },
+    });
+    if (!ticketPayment) {
+      this.logger.log(`Stripe dispute ${dispute.id} is not on a ticket payment; ignored here.`);
+      return 'ignored';
+    }
+    await this.disputes.syncFromWebhook(dispute);
     return 'processed';
   }
 
@@ -327,6 +369,18 @@ export class StripeWebhookProcessor {
   }
 
   private fromSession(session: SessionLike, type: PaymentEvent['type']): PaymentEvent | null {
+    /*
+      Organizer billing shares this Stripe account, so its Checkout Sessions are delivered here
+      too. They carry the ORGANIZATION id in client_reference_id, which must never be read as a
+      booking id (it 404'd, retried and dead-lettered as an unconfirmed paid booking). Billing
+      applies them on its own endpoint (billing/webhooks/stripe). Tickets never use subscription
+      mode.
+    */
+    if (session.mode === 'subscription') return null;
+    const purpose = session.metadata?.etg_purpose;
+    if (purpose === STRIPE_PURPOSE_SUBSCRIPTION || purpose === STRIPE_PURPOSE_CREDIT_PACK) {
+      return null;
+    }
     const bookingId = session.metadata?.bookingId ?? session.client_reference_id ?? undefined;
     const amountMinor = session.amount_total;
     if (!bookingId || typeof amountMinor !== 'number') return null;

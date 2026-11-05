@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata, siteRobots } from '@/lib/seo';
 import { PrimaryLink } from '@/components/marketing/kit';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
@@ -8,9 +8,11 @@ import {
   LegalDocument,
   BackToLegal,
 } from '@/components/legal/policy-chrome';
-import { resolveJurisdiction } from '@/lib/market';
+import { resolveJurisdiction, resolveSelectedMarket } from '@/lib/market';
 import { BUSINESS_DETAILS, publishedDetail } from '@eticketsgo/web-kit';
 import { BrandPage } from '@/components/storefront-brand';
+import { NEUTRAL_OPERATOR_SENTENCE } from '@eticketsgo/shared-types';
+import { selectedMarketEntity } from '@/lib/legal-entity';
 
 /**
  * The public description of the text-message programme.
@@ -33,25 +35,28 @@ import { BrandPage } from '@/components/storefront-brand';
  * Every sentence below is true of the platform as built. Nothing here claims a legal review,
  * an approval, or a business detail that has not been published.
  */
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/sms', {
   title: 'Text messages',
   description:
     'What text messages ETicketsGo sends, how often, how to agree to them, and how to stop them.',
-  alternates: { canonical: '/sms' },
   // Indexable, unlike the other legal pages: a campaign reviewer is told to find the opt-in
   // description from the public site, and a page excluded from search is harder to find.
-  robots: { index: true, follow: true },
-};
+  robots: siteRobots(),
+});
 
 export default async function SmsPage({
   searchParams,
 }: {
   searchParams: Promise<{ country?: string | string[] }>;
 }) {
-  const country = await resolveJurisdiction((await searchParams).country);
+  const asked = (await searchParams).country;
+  const country = await resolveJurisdiction(asked);
+  // Which company the operator line names: what the reader chose, never an IP guess.
+  const market = await resolveSelectedMarket(asked);
   const supportEmail = publishedDetail(BUSINESS_DETAILS.supportEmail);
   const supportPhone = publishedDetail(BUSINESS_DETAILS.supportPhone);
-  const legalName = publishedDetail(BUSINESS_DETAILS.legalName);
+  // The sender company for the chosen market, from the entity registry. No market: both.
+  const sender = selectedMarketEntity(market);
 
   return (
     <BrandPage>
@@ -67,8 +72,9 @@ export default async function SmsPage({
           <h2>Who sends these messages</h2>
           <p>
             Text messages come from <strong>ETicketsGo</strong>
-            {legalName ? <> ({legalName})</> : null}, the ticketing platform you booked through. We
-            sell tickets for events and check guests in at the door.
+            {sender ? <> ({sender.legalName})</> : null}, the ticketing platform you booked through.
+            We sell tickets for events and check guests in at the door.
+            {sender ? null : <> {NEUTRAL_OPERATOR_SENTENCE}</>}
           </p>
 
           <h2>What we send</h2>
@@ -171,7 +177,7 @@ export default async function SmsPage({
             <Link href="/terms">Terms and Conditions</Link> cover your use of ETicketsGo.
           </p>
         </Prose>
-        <OperatorLine country={country} />
+        <OperatorLine market={market} />
       </LegalDocument>
     </BrandPage>
   );

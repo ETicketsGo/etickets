@@ -69,7 +69,8 @@ describe('integration-real-postgres: a support form message is mailed through th
     db!.notification.findMany({
       where: {
         type: { in: ['SUPPORT_REQUEST_RECEIVED', 'SUPPORT_REQUEST_ACKNOWLEDGED'] },
-        payload: { path: ['reference'], equals: feedbackId },
+        // The id rides in the payload for tracing; `reference` is the readable ETG-SUP-... one.
+        payload: { path: ['feedbackId'], equals: feedbackId },
       },
       orderBy: { type: 'asc' },
     });
@@ -116,7 +117,7 @@ describe('integration-real-postgres: a support form message is mailed through th
       });
       for (const { id } of feedback) {
         await db.notification.deleteMany({
-          where: { payload: { path: ['reference'], equals: id } },
+          where: { payload: { path: ['feedbackId'], equals: id } },
         });
       }
       await db.feedback.deleteMany({ where: { email: { contains: suffix } } });
@@ -148,6 +149,9 @@ describe('integration-real-postgres: a support form message is mailed through th
     // The provider throws on every call, and the form does not care.
     expect(r.status).toBe(201);
     expect(providerSend).not.toHaveBeenCalled();
+    // The id is kept, and the readable reference is added beside it.
+    expect(r.data.id).toEqual(expect.any(String));
+    expect(r.data.reference).toMatch(/^ETG-SUP-\d{4}-\d{6,}$/);
 
     const rows = await rowsFor(r.data.id);
     expect(rows.map((n: { type: string }) => n.type)).toEqual([
@@ -169,7 +173,8 @@ describe('integration-real-postgres: a support form message is mailed through th
       kind: 'CONTACT',
       topic: '[Support] Website enquiry',
       message: 'From: Walk Sender\n\nI was charged twice.',
-      link: `https://admin.walk.eticketsgo.com/admin/support?q=${r.data.id}`,
+      reference: r.data.reference,
+      link: `https://admin.walk.eticketsgo.com/admin/support?q=${r.data.reference}`,
     });
 
     expect(ack).toMatchObject({
@@ -178,7 +183,12 @@ describe('integration-real-postgres: a support form message is mailed through th
       locale: 'fr-CA',
       status: 'PENDING',
     });
-    expect(ack.payload).toEqual({ reference: r.data.id, email: sender, replyTo: inbox });
+    expect(ack.payload).toEqual({
+      reference: r.data.reference,
+      feedbackId: r.data.id,
+      email: sender,
+      replyTo: inbox,
+    });
     // Keyed, so nothing that re-runs the enqueue can write a second copy.
     expect(copy.dedupeKey).toBeTruthy();
     expect(ack.dedupeKey).toBeTruthy();
@@ -196,6 +206,7 @@ describe('integration-real-postgres: a support form message is mailed through th
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);
     expect(second.data.id).toBe(first.data.id);
+    expect(second.data.reference).toBe(first.data.reference);
     expect(await rowsFor(first.data.id)).toHaveLength(2);
     expect(await db!.feedback.count({ where: { message: body.message } })).toBe(1);
   });

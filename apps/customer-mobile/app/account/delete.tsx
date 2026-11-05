@@ -3,7 +3,8 @@ import { Alert, ScrollView, View } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/screen';
-import { Button, Card, Field, IconButton, Text } from '@/ui';
+import { TopBar } from '@/components/top-bar';
+import { Button, Card, Field, Text } from '@/ui';
 import { useAuth } from '@/hooks/use-auth';
 import { useOnline } from '@/hooks/use-online';
 import { useTheme } from '@/theme';
@@ -44,7 +45,7 @@ export default function DeleteAccountScreen() {
       expire();
       Alert.alert(
         'Account deleted',
-        'Your account has been deleted. Tickets you already bought remain valid — keep any confirmation email for entry.',
+        'Your account has been deleted. Tickets you already bought remain valid. Keep any confirmation email for entry.',
         [{ text: 'OK', onPress: () => router.replace('/(tabs)') }],
       );
       return;
@@ -57,24 +58,16 @@ export default function DeleteAccountScreen() {
   return (
     <Screen padded={false} edges={['top']}>
       <Stack.Screen options={{ headerShown: false }} />
-      <View className="flex-row items-center gap-1 px-2 py-1">
-        <IconButton
-          icon="chevron-back"
-          accessibilityLabel="Go back"
-          onPress={() => router.back()}
-        />
-        <Text variant="callout" className="flex-1 font-semibold">
-          Delete account
-        </Text>
-      </View>
+      <TopBar title="Delete account" />
 
       <ScrollView
+        automaticallyAdjustKeyboardInsets
         contentContainerClassName="gap-5 px-5 pb-8 pt-2"
         keyboardShouldPersistTaps="handled"
       >
-        <View className="flex-row items-start gap-2 rounded-md bg-status-error/12 px-3 py-3">
-          <Ionicons name="warning-outline" size={18} color="#DC2626" />
-          <Text variant="subhead" tone="danger" className="flex-1">
+        <View className="flex-row items-start gap-3 rounded-card bg-critical-tint px-4 py-3">
+          <Ionicons name="warning-outline" size={18} color="#B51D29" />
+          <Text variant="ui" tone="danger" className="flex-1 font-semibold">
             This is permanent. Your account cannot be restored once it is deleted.
           </Text>
         </View>
@@ -92,7 +85,7 @@ export default function DeleteAccountScreen() {
             <Consequence
               icon="ticket-outline"
               title="Tickets you already bought stay valid"
-              detail="Deleting your account does not cancel or refund them. They will no longer be listed in this app, so keep your confirmation email — it is what gets you in."
+              detail="Deleting your account does not cancel or refund them. They will no longer be listed in this app, so keep your confirmation email. It is what gets you in."
             />
             <Consequence
               icon="phone-portrait-outline"

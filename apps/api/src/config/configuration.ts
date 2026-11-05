@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { z } from 'zod';
 import {
   parseEnabledMarkets,
@@ -9,7 +10,7 @@ import {
   DLT_SMS_REPLACEMENTS,
   DLT_SMS_TEMPLATES,
   DLT_VARIABLE,
-  DOCUMENTED_APPROVED_SENDER_HEADER,
+  DOCUMENTED_APPROVED_SENDER_HEADERS,
   OTP_SMS_KIND,
   REJECTED_SENDER_HEADERS,
 } from '../notifications/templates/dlt-sms-templates';
@@ -18,6 +19,18 @@ import {
   OFFLINE_REVOCATION_WINDOW_MIN_MINUTES,
   offlineWindowContradictions,
 } from './offline-revocation-window';
+import { railwayEmailHostWarnings } from '../common/email-host-warnings';
+import {
+  SMS_TRANSACTIONAL_ELIGIBLE,
+  SMS_TRANSACTIONAL_MARKETS_SUPPORTED,
+  invalidSmsTransactionalMarkets,
+  invalidSmsTransactionalTypes,
+} from '../notifications/policy/sms-transactional';
+import {
+  BILLING_LIVE_MARKET_CODES,
+  parseBillingLiveMarkets,
+} from '../billing/provider/billing-credentials';
+import { indiaSellerProblems } from '../billing/billing-seller';
 
 /** Validated environment. Fails fast on boot if misconfigured. */
 const envSchema = z.object({
@@ -32,6 +45,15 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().min(0).max(65535).optional(),
   API_PORT: z.coerce.number().default(4000),
   API_GLOBAL_PREFIX: z.string().default('api'),
+  /*
+    HTTP server timeouts (common/http-timeouts.ts). Keep-alive must stay above Railway's 60 s
+    edge idle timeout or idle connections turn into 502s; headers is kept above keep-alive and
+    request at or above headers whatever is set here. Request bounds how long a request may take
+    to ARRIVE, not how long a report takes to answer.
+  */
+  HTTP_KEEP_ALIVE_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600_000).default(65_000),
+  HTTP_HEADERS_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600_000).default(66_000),
+  HTTP_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(900_000).default(120_000),
   CORS_ORIGINS: z.string().default('http://localhost:3000'),
   /*
     Organizations whose listings are curated DEMO content (comma-separated ids). Everything else
@@ -101,9 +123,14 @@ const envSchema = z.object({
     .optional()
     .transform((v) => v === 'true' || v === '1'),
   MANIFEST_SIGNING_SECRET: z.string().optional(),
+  // Signs one-click unsubscribe links (engagement/unsubscribe-token.ts). Optional: unset, a key
+  // is derived from JWT_ACCESS_SECRET. Set it wherever marketing email is sent, so rotating the
+  // JWT secret does not break every unsubscribe link already in somebody's inbox.
+  UNSUBSCRIBE_SIGNING_SECRET: z.string().optional(),
   // How long a signed offline ticket list stays valid, in minutes: the longest a revoked door
-  // phone can keep admitting from its cache. Unset = 45. STAGING/PRODUCTION must set it, at
-  // most 60, before OFFLINE_CHECKIN_ENABLED may be on (see config/offline-revocation-window.ts).
+  // phone can keep admitting from its cache. Unset = 45, and never more than 45 anywhere (larger
+  // values are clamped). STAGING/PRODUCTION must set it, at most 45, before OFFLINE_CHECKIN_ENABLED
+  // may be on (see config/offline-revocation-window.ts).
   OFFLINE_REVOCATION_WINDOW_MINUTES: z.coerce
     .number()
     .int()
@@ -188,7 +215,51 @@ const envSchema = z.object({
    * Bounded deliberately: under a minute cannot survive a slow card page and would strand
    * paying customers, and beyond an hour lets abandoned carts sterilise a sold-out show.
    */
+  /*
+    Discount codes on or off for the whole platform. 'false' refuses every code at checkout with
+    a plain reason, hides public offers and blocks creating codes (see
+    BookingsService.couponsDisabled). On by default so nothing changes where it is not set.
+  */
+  COUPONS_ENABLED: z.enum(['true', 'false']).default('true'),
   BOOKING_HOLD_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
+
+  /*
+    ── HOW MUCH ONE BUYER MAY HOLD AT ONCE ────────────────────────────────────────────
+    A hold takes seats off sale before anybody has paid, so it is the cheapest thing on the
+    platform to abuse: a script that opens checkouts and never pays can empty a show for as
+    long as the holds last, and a "pay at the venue" reservation lasts until the show starts.
+    These caps bound that without getting in the way of a real customer. See
+    `bookings/booking-hold-limits.ts` for how each one is counted and why the defaults are
+    where they are.
+
+    Every cap is the number of ACTIVE holds: PENDING_PAYMENT with a deadline still in the
+    future. A hold that is paid, cancelled or expired stops counting at once, because it is
+    counted from the bookings themselves rather than from a counter that could drift.
+
+    0 switches a cap off. That is an operator's emergency lever (a venue that genuinely sells
+    from one address and is being refused), not a setting to ship with.
+
+    Counter sales by the organizer's own staff are never limited by any of these.
+  */
+  /** Tickets in one online order, across every line. Per-ticket-type limits still apply. */
+  BOOKING_MAX_SEATS_PER_ORDER: z.coerce.number().int().min(0).max(500).default(20),
+  /** Unpaid online checkouts open at once for one signed-in account. */
+  BOOKING_MAX_ACTIVE_HOLDS_PER_USER: z.coerce.number().int().min(0).max(100).default(3),
+  /** Unpaid online checkouts open at once for one guest email address. */
+  BOOKING_MAX_ACTIVE_HOLDS_PER_EMAIL: z.coerce.number().int().min(0).max(100).default(3),
+  /**
+   * Unpaid holds (online and pay-at-venue) open at once from one client IP address. Generous
+   * on purpose: a cinema lobby, a campus or a mobile carrier puts many real buyers behind one
+   * address, and this is the backstop against a script that changes its email every request,
+   * not the everyday limit.
+   */
+  BOOKING_MAX_ACTIVE_HOLDS_PER_IP: z.coerce.number().int().min(0).max(10_000).default(20),
+  /** Pay-at-venue reservations one buyer (account or guest email) may hold for one show. */
+  BOOKING_MAX_CASH_RESERVATIONS_PER_SHOW: z.coerce.number().int().min(0).max(100).default(1),
+  /** Pay-at-venue reservations one buyer may hold across every show at once. */
+  BOOKING_MAX_CASH_RESERVATIONS_TOTAL: z.coerce.number().int().min(0).max(100).default(2),
+  /** Tickets in one pay-at-venue reservation. Paying online has the ordinary order limit. */
+  BOOKING_MAX_SEATS_PER_CASH_RESERVATION: z.coerce.number().int().min(0).max(500).default(6),
   /*
     ── HOW LONG ORGANIZER MONEY IS HELD AFTER A SHOW ──────────────────────────────────
     Days after an event's LAST session ends before its revenue may be settled to the
@@ -469,6 +540,65 @@ const envSchema = z.object({
   PAYMENTS_ACTIVATION_PENDING: z.enum(['true', 'false']).default('false'),
 
   /**
+   * Organizer billing: the platform charging organizers for Pro and Premium plans.
+   *
+   * OFF by default, everywhere. While off, no checkout can start, plans and prices are shown as
+   * "not open yet", and staff grants (trials, complimentary plans, overrides) still work - they
+   * move no money. `assertBillingConfiguration` refuses contradictory states at boot.
+   */
+  BILLING_ENABLED: z.enum(['true', 'false']).default('false'),
+  /**
+   * Who would take the money. `disabled` refuses every checkout. `mock` is a test double for
+   * LOCAL, DEV and QA only. `providers` routes by the ORGANIZER's country: US to Stripe Billing,
+   * IN to Razorpay Subscriptions - TEST keys only, LOCAL/DEV/QA only, until the owner approves
+   * a production configuration. See docs/billing/BILLING-PROVIDERS.md.
+   */
+  BILLING_PROVIDER: z.enum(['disabled', 'mock', 'providers']).default('disabled'),
+  /**
+   * PRODUCTION master switch for LIVE organizer billing. Off by default. Refused outside
+   * PRODUCTION. In PRODUCTION, BILLING_ENABLED=true and BILLING_PROVIDER=providers need it, and
+   * it needs at least one market in BILLING_LIVE_MARKETS with that market's live credentials.
+   */
+  BILLING_LIVE_ENABLED: z.enum(['true', 'false']).default('false'),
+  /**
+   * Comma-separated markets live billing opens in PRODUCTION: a subset of US (Stripe Billing)
+   * and IN (Razorpay Subscriptions). Empty by default. An organizer in a market not listed
+   * cannot start a subscription. Refused outside PRODUCTION.
+   */
+  BILLING_LIVE_MARKETS: z.string().default(''),
+  /**
+   * Billing credentials. Each may instead be given as a secret reference in `<NAME>_REF`,
+   * resolved through SECRET_MANAGER. API keys fall back to the ticket payments' keys on the same
+   * provider account (STRIPE_SECRET_KEY, RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET); the WEBHOOK
+   * secrets never do - billing webhooks have their own endpoints and signing secrets.
+   */
+  STRIPE_BILLING_SECRET_KEY: z.string().optional(),
+  STRIPE_BILLING_SECRET_KEY_REF: z.string().optional(),
+  STRIPE_BILLING_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_BILLING_WEBHOOK_SECRET_REF: z.string().optional(),
+  RAZORPAY_BILLING_KEY_ID: z.string().optional(),
+  RAZORPAY_BILLING_KEY_SECRET: z.string().optional(),
+  RAZORPAY_BILLING_KEY_SECRET_REF: z.string().optional(),
+  RAZORPAY_BILLING_WEBHOOK_SECRET: z.string().optional(),
+  RAZORPAY_BILLING_WEBHOOK_SECRET_REF: z.string().optional(),
+  /** RBI e-mandate: the largest recurring debit (paise) without per-debit approval. INR 15,000. */
+  RAZORPAY_BILLING_MANDATE_MAX_MINOR: z.coerce.number().int().min(100).default(1_500_000),
+  /** Whether UPI Autopay is enabled on the Razorpay account. Never assumed: default off. */
+  RAZORPAY_BILLING_UPI_AUTOPAY: z.enum(['true', 'false']).default('false'),
+  /** Days a paid plan stays PAST_DUE (provider retrying) before GRACE. */
+  BILLING_PAST_DUE_DAYS: z.coerce.number().int().min(1).max(60).default(7),
+  /** Days of GRACE (features kept, retries over) before the plan EXPIRES. */
+  BILLING_GRACE_DAYS: z.coerce.number().int().min(1).max(60).default(7),
+  /**
+   * US plan and credit pack tax from Stripe Tax (`automatic_tax`) instead of our TaxRule rows.
+   * Off by default. When on, Stripe prices must be tax-EXCLUSIVE and Stripe Tax must be set up
+   * on the account (origin address, registrations). When off, a US checkout needs an active
+   * PLATFORM_SERVICES TaxRule for the organizer's state, or it is refused. India always uses
+   * TaxRule rows (GST). See docs/billing/BILLING-PROVIDERS.md, "Invoices and tax".
+   */
+  STRIPE_BILLING_AUTOMATIC_TAX: z.enum(['true', 'false']).default('false'),
+
+  /**
    * The account that becomes this environment's FIRST administrator.
    *
    * A fresh environment has no back-office account and no way to make one: ADMIN is granted only
@@ -490,6 +620,15 @@ const envSchema = z.object({
    * exactly as before, so deploying this code can never lock the only administrator out. Set,
    * every administrator must enroll at their next sign-in. Once any authenticator exists the key
    * is mandatory (outside LOCAL and DEV the API refuses to boot without it; see MfaBootCheck).
+   *
+   * In STAGING and PRODUCTION it is mandatory from the start (assertAdminMfaArmed): "dormant"
+   * is a safe way to roll the feature out to QA, and an unacceptable way to run the back office
+   * of a platform that holds real customers' money. The one exception is MFA_ENROLLMENT=deferred,
+   * where a missing key BLOCKS the sensitive actions instead of skipping their check (below).
+   *
+   * Unset with MFA_ENROLLMENT=required, LOCAL and DEV keep the old dormant behaviour (no check
+   * at all, step-up included) so a laptop and the test suite need no key; everywhere else the
+   * step-up routes are refused (MFA_NOT_CONFIGURED). See MfaService.sessionState.
    */
   MFA_ENCRYPTION_KEY: z
     .string()
@@ -501,10 +640,56 @@ const envSchema = z.object({
       },
       { message: 'must be 32 bytes, base64 encoded (openssl rand -base64 32)' },
     ),
+  /**
+   * Whether back-office staff MUST enroll an authenticator before they can use the console.
+   *
+   *   required (default) - every ADMIN/SUPER_ADMIN must set up and pass the second factor to use
+   *                        any back-office route. This is the behaviour before the setting existed.
+   *   deferred           - the owner's launch decision: staff sign in with a password and use the
+   *                        ordinary back office without enrolling. The sensitive actions (every
+   *                        route marked @RequiresRecentMfa: refunds, payouts, payment, fee and tax
+   *                        configuration, staff and account changes) are NOT relaxed: they still
+   *                        need an enrolled factor checked within MFA_STEPUP_MINUTES, refuse
+   *                        MFA_SETUP_REQUIRED until the person enrolls, and refuse
+   *                        MFA_NOT_CONFIGURED when there is no MFA_ENCRYPTION_KEY at all. An account
+   *                        that HAS enrolled is held to the full `required` rules.
+   *
+   * Reversible by configuration alone: set it back to `required` (with the key) and every staff
+   * account that has not enrolled is walked into enrollment at its next request, exactly as when
+   * MFA was first armed. See docs/security/ADMIN-MFA.md.
+   */
+  MFA_ENROLLMENT: z.enum(['required', 'deferred']).default('required'),
   /** Name shown in the authenticator app. APP_ENV is appended outside PRODUCTION. */
   MFA_ISSUER: z.string().trim().min(1).max(40).default('ETicketsGo'),
   /** How recent a second-factor check must be for the most sensitive back-office actions. */
   MFA_STEPUP_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
+  /**
+   * Per-ACCOUNT password sign-in backoff (src/auth/login-backoff.ts). After THRESHOLD wrong
+   * passwords for one address inside WINDOW, that address waits BASE seconds before the next
+   * try, doubling per further failure up to MAX. Never a permanent lock. The per-client throttle
+   * (AUTH_THROTTLE) is separate and unchanged.
+   */
+  LOGIN_BACKOFF_THRESHOLD: z.coerce.number().int().min(1).max(100).default(5),
+  LOGIN_BACKOFF_WINDOW_MINUTES: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 60)
+    .default(15),
+  LOGIN_BACKOFF_BASE_SECONDS: z.coerce.number().int().min(1).max(3600).default(30),
+  LOGIN_BACKOFF_MAX_MINUTES: z.coerce.number().int().min(1).max(60).default(15),
+  /*
+    One ops alert (LOGIN_BACKOFF_BURST) when this many DIFFERENT addresses start a sign-in wait
+    inside one fixed window: password guessing across many accounts. 0 turns the alert off;
+    the backoff itself is unchanged either way.
+  */
+  LOGIN_BACKOFF_BURST_THRESHOLD: z.coerce.number().int().min(0).max(100_000).default(25),
+  LOGIN_BACKOFF_BURST_WINDOW_MINUTES: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 60)
+    .default(15),
   /**
    * Break-glass for a sole administrator who lost both device and recovery codes. The operator
    * sets BOTH, redeploys, and at boot that one account's authenticator is removed (so the next
@@ -679,8 +864,68 @@ const envSchema = z.object({
    * same amount, a possibly-wrong heading. See `tax-calculator.ts`.
    */
   PLATFORM_TAX_REGION: z.string().trim().max(60).optional(),
+  /**
+   * The registration facts an Indian platform invoice (ETGB series, a GST tax invoice) prints
+   * for its seller, DeepTrics Software Solutions Private Limited: the GSTIN, the SAC of the
+   * service and the registered address. The state is PLATFORM_TAX_REGION. Owner-supplied from
+   * the GST certificate; never written in code. In PRODUCTION with IN in BILLING_LIVE_MARKETS
+   * the boot refuses without all of them and a GSTIN that passes its checksum
+   * (billing/billing-seller.ts).
+   */
+  BILLING_SELLER_GSTIN_IN: z.string().trim().max(15).optional(),
+  BILLING_SELLER_SAC_IN: z.string().trim().max(8).optional(),
+  BILLING_SELLER_ADDRESS_IN: z.string().trim().max(400).optional(),
+  /**
+   * Whether the India seller is registered under GST - set by the owner, never derived from
+   * turnover. REGISTERED: GST tax invoices (GSTIN + SAC + address + an active PLATFORM_SERVICES
+   * TaxRule). UNREGISTERED: no GST is charged on organizer billing and the invoice is an ordinary
+   * "Invoice" (legal name + address; a GSTIN set alongside is a contradiction and refused in
+   * PRODUCTION). UNVERIFIED (default): PRODUCTION refuses Indian billing (and the boot refuses
+   * IN in BILLING_LIVE_MARKETS) until it is set. Outside PRODUCTION, UNVERIFIED behaves as
+   * REGISTERED when BILLING_SELLER_GSTIN_IN is set, otherwise as UNREGISTERED
+   * (billing/billing-seller.ts).
+   */
+  BILLING_SELLER_GST_STATUS_IN: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() ? v.trim().toUpperCase() : undefined),
+    z.enum(['UNVERIFIED', 'UNREGISTERED', 'REGISTERED']).default('UNVERIFIED'),
+  ),
 
   OTP_SMS_TEMPLATE: z.string().optional(),
+
+  /*
+    -- Sign-in code text limits (SMS pumping and OTP flooding) -------------------------
+    The request-code endpoint is public and every request is a text message we pay for. See
+    src/auth/otp-sms-guard.ts for how these are enforced (one atomic Redis script, with an
+    atomic Postgres fallback) and src/auth/otp-destination.ts for which numbers may be texted.
+
+    Per number: a resend cooldown, then an hourly and a daily cap. The defaults leave room for
+    somebody whose first text was slow (five in an hour, a minute apart) and refuse a script.
+  */
+  OTP_SMS_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().min(0).max(3600).default(60),
+  OTP_SMS_MAX_PER_NUMBER_PER_HOUR: z.coerce.number().int().min(1).max(100).default(5),
+  OTP_SMS_MAX_PER_NUMBER_PER_DAY: z.coerce.number().int().min(1).max(500).default(10),
+  /*
+    The platform's daily budget of sign-in texts, per UTC day: a circuit breaker. When it is
+    spent, phone sign-in answers SMS_UNAVAILABLE (sign in with email) until the next day and
+    ONE ops alert is raised; another is raised once a day at OTP_SMS_BUDGET_WARN_PERCENT.
+    Set well above honest traffic: reaching it means somebody is spending our money. 0 turns
+    the total budget off (never do that in production).
+  */
+  OTP_SMS_DAILY_LIMIT_TOTAL: z.coerce.number().int().min(0).default(2000),
+  /*
+    Per-market daily budgets, `IN=1500,US=500,CA=250` (the default). A market with no entry is
+    limited only by the total. US and Canadian texts cost far more than Indian ones, which is
+    why their defaults are lower. Set to an empty value to have no per-market budgets at all.
+  */
+  OTP_SMS_DAILY_LIMIT_BY_MARKET: z
+    .string()
+    .trim()
+    .regex(
+      /^$|^[A-Za-z]{2}=\d+(\s*,\s*[A-Za-z]{2}=\d+)*$/,
+      'must look like IN=1500,US=500,CA=250 (two-letter market = whole number)',
+    )
+    .optional(),
+  OTP_SMS_BUDGET_WARN_PERCENT: z.coerce.number().int().min(0).max(100).default(80),
 
   // --- SMS (recipient = payload.phone) ---
   /*
@@ -700,6 +945,45 @@ const envSchema = z.object({
     See src/common/client-ip.ts for why `req.ip` alone counted Railway's edge nodes, not people.
   */
   THROTTLE_CLIENT_IP_HEADER: z.string().trim().max(64).optional(),
+
+  /*
+    The human check (Cloudflare Turnstile) on abuse-prone public routes. OFF unless set: the
+    guard is then a pass-through. `adaptive` asks for a token only after a network has made a
+    few attempts in a window; `always` asks every time. A switched-on mode with no keys refuses
+    to boot. Full rules: src/human-check/human-check.settings.ts. Parsed loosely there too, so
+    these entries are kept as plain strings and numbers.
+  */
+  TURNSTILE_MODE: z.enum(['off', 'adaptive', 'always']).default('off'),
+  // Public: drawn into the page. Also served by GET /capabilities so it is per environment.
+  TURNSTILE_SITE_KEY: z.string().trim().optional(),
+  TURNSTILE_SECRET_KEY: z.string().trim().optional(),
+  // Comma list of the hostnames a token may have been solved on. Required when deployed.
+  TURNSTILE_ALLOWED_HOSTNAMES: z.string().optional(),
+  // Unset: each route's own choice (OTP and register fail closed, the rest open). Set: all.
+  TURNSTILE_FAIL_OPEN: z.enum(['true', 'false']).optional(),
+  TURNSTILE_VERIFY_TIMEOUT_MS: z.coerce.number().int().min(500).max(10000).default(3000),
+  TURNSTILE_MAX_TOKEN_AGE_SECONDS: z.coerce.number().int().min(30).max(300).default(300),
+  TURNSTILE_ADAPTIVE_WINDOW_SECONDS: z.coerce.number().int().min(60).max(86400).default(600),
+  // Attempts per window before a token is asked for: code/sign-up/email sends, then sign-in/checkout.
+  TURNSTILE_ADAPTIVE_STRICT_LIMIT: z.coerce.number().int().min(0).max(1000).default(3),
+  TURNSTILE_ADAPTIVE_LENIENT_LIMIT: z.coerce.number().int().min(0).max(1000).default(5),
+
+  /*
+    The Android app's answer to the same check: Google Play Integrity, accepted in place of a
+    Turnstile token on every guarded route (the app has no page to draw a widget on). Unset: the
+    app cannot answer a challenge, as before. All three of the first three, or the API refuses to
+    boot. Rules: src/human-check/play-integrity-verifier.ts.
+  */
+  // Comma list of application ids: com.eticketsgo.customer, com.eticketsgo.customer.preview.
+  PLAY_INTEGRITY_PACKAGE_NAMES: z.string().optional(),
+  // Public: the Google Cloud project NUMBER linked in Play Console > App integrity.
+  PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER: z.string().trim().optional(),
+  // Secret: a service-account JSON key in that project (no IAM role needed, only the API on).
+  PLAY_INTEGRITY_SERVICE_ACCOUNT_JSON: z.string().trim().optional(),
+  // QA only: accept a sideloaded build (UNRECOGNIZED_VERSION). Refused at boot in PRODUCTION.
+  PLAY_INTEGRITY_ALLOW_UNRECOGNIZED_APP: z.enum(['true', 'false']).optional(),
+  // Optional comma list of signing-certificate SHA-256 digests (hex with colons, or base64url).
+  PLAY_INTEGRITY_CERT_SHA256: z.string().optional(),
 
   /*
     How "use my current location" turns coordinates into a city. `offline` uses the bundled
@@ -815,6 +1099,38 @@ const envSchema = z.object({
   SES_CONFIGURATION_SET: z.string().optional(),
 
   /*
+    ── ORGANIZER EMAIL CAMPAIGNS ──────────────────────────────────────────────────────
+    OFF by default, everywhere. While off, every campaign route answers "not switched on" and
+    the worker sends nothing. The plan entitlements (campaigns.*) still apply on top: this is
+    the deployment switch, they are the per-organization answer.
+
+    Marketing mail has its OWN sender and configuration set, so a campaign's bounces and
+    complaints are measured apart from ticket mail, and an SES pause on marketing reputation
+    cannot stop a ticket. In LOCAL/DEV/QA/UAT an unset pair falls back to the transactional
+    ones, and the console says so. In STAGING and PRODUCTION a campaign is refused at send
+    time unless both are set (campaign-sending-config.ts). Checked at send time, not at boot, so
+    switching campaigns off can never stop the API from starting.
+  */
+  CAMPAIGNS_ENABLED: z.enum(['true', 'false']).default('false'),
+  SES_MARKETING_CONFIGURATION_SET: z.string().optional(),
+  MARKETING_EMAIL_FROM: z.string().optional(),
+  /** Campaign messages per second, per worker. Conservative by default; SES sandbox is 1/s. */
+  CAMPAIGN_SEND_RATE_PER_SECOND: z.coerce.number().int().min(1).max(50).default(5),
+  /** Days after a click during which a booking counts as ATTRIBUTED to the campaign. */
+  CAMPAIGN_ATTRIBUTION_WINDOW_DAYS: z.coerce.number().int().min(1).max(30).default(7),
+  /**
+   * The verified DeepTrics business mailing address printed in every campaign footer
+   * (anti-spam law asks for one), PER COUNTRY of the entity the footer names: the Indian
+   * company for an organizer registered in India, DeepTrics LLC for everyone else
+   * (campaignFooterAddress). EVERY environment refuses a campaign whose country has none
+   * (POSTAL_ADDRESS_MISSING); there is no placeholder fallback. Never invented.
+   */
+  MARKETING_POSTAL_ADDRESS_IN: z.string().optional(),
+  MARKETING_POSTAL_ADDRESS_US: z.string().optional(),
+  /** Old single address. A FALLBACK only, used when the country's own variable is unset. */
+  MARKETING_POSTAL_ADDRESS: z.string().optional(),
+
+  /*
     ── OBJECT STORAGE (Cloudflare R2, through the S3 API) ────────────────────────────
     Where posters, organization pictures and uploaded documents live. Unset everywhere means
     `postgres`, which is what every environment runs today and is a perfectly good answer at
@@ -900,6 +1216,16 @@ const envSchema = z.object({
   DLT_TEMPLATE_ID_REFUND_COMPLETED: z.string().trim().optional(),
   MSG91_SMS_TEMPLATE_SHOW_CANCELLED: z.string().trim().optional(),
   DLT_TEMPLATE_ID_SHOW_CANCELLED: z.string().trim().optional(),
+  MSG91_SMS_TEMPLATE_PASSWORD_RESET: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_PASSWORD_RESET: z.string().trim().optional(),
+  MSG91_SMS_TEMPLATE_PASSWORD_CHANGE: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_PASSWORD_CHANGE: z.string().trim().optional(),
+  MSG91_SMS_TEMPLATE_PASSWORD_UPDATE: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_PASSWORD_UPDATE: z.string().trim().optional(),
+  MSG91_SMS_TEMPLATE_PAYMENT_PENDING: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_PAYMENT_PENDING: z.string().trim().optional(),
+  MSG91_SMS_TEMPLATE_EVENT_REMINDER: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_EVENT_REMINDER: z.string().trim().optional(),
   /*
     Replacement show-cancelled wording (DLT_SMS_REPLACEMENTS), one pair per reader. Unset, the
     registered SHOW_CANCELLED template above stays in use for online buyers and a cash buyer
@@ -911,6 +1237,13 @@ const envSchema = z.object({
   DLT_TEMPLATE_ID_SHOW_CANCELLED_CASH: z.string().trim().optional(),
   /** Random path secret embedded in the MSG91 delivery-report URL. */
   MSG91_WEBHOOK_SECRET: z.string().optional(),
+  /*
+    QA safety guard for MSG91 (India). Outside APP_ENV=PRODUCTION, MSG91 sends ONLY to the
+    E.164 numbers listed here (comma-separated, e.g. `+919812345678`); every other number is
+    handled exactly as log mode (nothing is sent). Empty or unset outside PRODUCTION means
+    MSG91 sends to nobody. Ignored in PRODUCTION.
+  */
+  SMS_TEST_RECIPIENT_ALLOWLIST: z.string().optional(),
   /*
     Whether WhatsApp needs an affirmative opt-in before it may carry a TRANSACTIONAL message.
 
@@ -925,6 +1258,21 @@ const envSchema = z.object({
     are untouched, and the notification still goes.
   */
   WHATSAPP_TRANSACTIONAL_OPT_IN_REQUIRED: z.string().optional(),
+  /*
+    Transactional SMS in India, one notification type at a time (comma list). EMPTY by
+    default: no type sends an SMS until it is named here. Eligible names: BOOKING_CONFIRMED,
+    BOOKING_CANCELLED, PASSWORD_CHANGED, EVENT_REMINDER. Only an account with a VERIFIED Indian
+    number gets it (and +1, only if SMS_TRANSACTIONAL_MARKETS says so). Sign-in codes do not read this. Set it on
+    the api AND the worker (the worker composes reminders and delivers every row).
+  */
+  SMS_TRANSACTIONAL_TYPES: z.string().optional(),
+  /*
+    Which countries' numbers SMS_TRANSACTIONAL_TYPES may text (comma list). Default IN. US and
+    CA go through the existing Twilio route with the type's rendered text (no DLT). A +1 number
+    may be either, so it is texted only when BOTH US and CA are named. Keep +1 off until the
+    Twilio sender is certified. Set it on the api AND the worker, like the types list.
+  */
+  SMS_TRANSACTIONAL_MARKETS: z.string().optional(),
   /*
     Show reminders. OFF by default, and that default is the point: turning this on starts
     messaging every ticket holder on the platform about every future show. That is a product
@@ -1030,6 +1378,8 @@ function assertProductionHardening(cfg: AppConfig): void {
     PAYMENT_WEBHOOK_SECRET: cfg.PAYMENT_WEBHOOK_SECRET,
     // Only enforced when explicitly set (optional; falls back to QR_SIGNING_SECRET).
     MANIFEST_SIGNING_SECRET: cfg.MANIFEST_SIGNING_SECRET,
+    // Only enforced when explicitly set (optional; derived from JWT_ACCESS_SECRET otherwise).
+    UNSUBSCRIBE_SIGNING_SECRET: cfg.UNSUBSCRIBE_SIGNING_SECRET,
   };
   for (const [name, value] of Object.entries(secrets)) {
     if (value === undefined) continue;
@@ -1045,6 +1395,45 @@ function assertProductionHardening(cfg: AppConfig): void {
   if (errors.length) {
     throw new Error(`Insecure production configuration:\n${errors.join('\n')}`);
   }
+}
+
+/**
+ * STAGING and PRODUCTION must not run the back office on a password alone.
+ *
+ * ── THE FAILURE THIS CLOSES ────────────────────────────────────────────────────────
+ * `MFA_ENCRYPTION_KEY` is both the key for authenticator secrets and the switch that arms admin
+ * MFA. Unset, MfaService only WARNS and every administrator signs in with a password - which is
+ * right while the feature is being rolled out, and was the state any production could silently
+ * be left in by a forgotten variable. Nothing looked wrong: the API was healthy and the log line
+ * that said "MFA is NOT enforced" scrolled past at boot.
+ *
+ * ── WHY APP_ENV AND NOT NODE_ENV ───────────────────────────────────────────────────
+ * QA and UAT run NODE_ENV=production, and the deliverability guard below explains why keying a
+ * "real customers" rule on NODE_ENV is the wrong condition. Lower environments keep the dormant
+ * mode, which is how a new environment is brought up before its key is chosen.
+ *
+ * MfaService's own boot check (refuse when authenticators exist but the key does not) still
+ * applies everywhere outside LOCAL/DEV; this is the stricter rule for the two real tiers.
+ */
+function assertAdminMfaArmed(cfg: AppConfig): void {
+  if (!['STAGING', 'PRODUCTION'].includes(cfg.APP_ENV)) return;
+  if ((cfg.MFA_ENCRYPTION_KEY ?? '').trim()) return;
+  /*
+    MFA_ENROLLMENT=deferred is the one exception, and it is safe to boot without the key for a
+    reason that does not depend on anybody reading a log: with no key, MfaGuard refuses every
+    @RequiresRecentMfa route (MFA_NOT_CONFIGURED) and MfaService cannot store a secret at all.
+    So the back office runs on a password for the ordinary work, which is what the owner chose,
+    and the money and configuration actions are blocked rather than open. MfaService logs that
+    at boot. Still refused: authenticators that exist without the key (MfaService.onModuleInit).
+  */
+  if (cfg.MFA_ENROLLMENT === 'deferred') return;
+  throw new Error(
+    `Admin sign-in is not protected in this environment:\n` +
+      `  - MFA_ENCRYPTION_KEY is not set, so administrators could sign in with a password only. ` +
+      `APP_ENV=${cfg.APP_ENV} requires it. Generate one with: openssl rand -base64 32 ` +
+      `(keep it in the secret store: losing it voids every enrolled authenticator). ` +
+      `Or set MFA_ENROLLMENT=deferred to boot with sensitive admin actions blocked until it is set.`,
+  );
 }
 
 /**
@@ -1113,6 +1502,20 @@ function assertDeliverabilityHardening(cfg: AppConfig): void {
       errors.push(
         '  - SMS_PROVIDER=log SENDS NO TEXT MESSAGES: phone sign-in codes would never arrive. ' +
           'Route SMS to a real provider, e.g. SMS_PROVIDER_BY_MARKET=IN=msg91,US=twilio,CA=twilio.',
+      );
+    } else {
+      /*
+        A real provider with no market table routes EVERY destination through that one
+        provider: routing only refuses an unknown or unsupported market once a table exists
+        (`routeNotificationProvider`). That is "text anywhere on Earth at whatever it costs",
+        which is what an SMS-pumping attack needs, and Indian operators drop non-DLT traffic
+        from a foreign provider anyway. The sign-in code path checks destinations itself
+        (auth/otp-destination.ts), but booking texts do not, so the table is required here.
+      */
+      errors.push(
+        `  - SMS_PROVIDER=${cfg.SMS_PROVIDER} with no SMS_PROVIDER_BY_MARKET would send text ` +
+          'messages to ANY country through one provider. Name the markets explicitly, e.g. ' +
+          'SMS_PROVIDER_BY_MARKET=IN=msg91,US=twilio,CA=twilio.',
       );
     }
   } else {
@@ -1349,6 +1752,218 @@ function assertPaymentActivationPending(cfg: AppConfig): void {
 
   if (errors.length) {
     throw new Error(`Payment activation state is contradictory:\n${errors.join('\n')}`);
+  }
+}
+
+/**
+ * Organizer billing cannot be switched on by accident.
+ *
+ * Follows the payment-environment rules (payments/configuration/payment-environment.ts): the
+ * test double is refused where real money could be expected, and the fail-closed environments
+ * (STAGING, PRODUCTION) stay closed: the real providers (BILLING_PROVIDER=providers) run on TEST
+ * keys in LOCAL, DEV and QA only. STAGING stays closed. PRODUCTION opens only behind
+ * BILLING_LIVE_ENABLED=true, for the markets in BILLING_LIVE_MARKETS, each with its own LIVE
+ * billing credentials (never the ticket keys). Anything else stops the boot with a plain reason
+ * instead of opening a checkout.
+ *
+ * Only variable NAMES appear in the messages, never a value.
+ */
+export function billingConfigurationErrors(
+  cfg: {
+    APP_ENV: string;
+    BILLING_ENABLED: string;
+    BILLING_PROVIDER: string;
+  } & Partial<Record<string, string | number | boolean | undefined>>,
+): string[] {
+  const errors: string[] = [];
+  const env = cfg.APP_ENV;
+  const enabled = cfg.BILLING_ENABLED === 'true';
+  const testDoubleEnv = ['LOCAL', 'DEV', 'QA'].includes(env);
+  if (cfg.BILLING_PROVIDER === 'mock' && !testDoubleEnv) {
+    errors.push(
+      `  - BILLING_PROVIDER=mock is a test double and is refused in ${env}. Use BILLING_PROVIDER=disabled.`,
+    );
+  }
+  if (enabled && cfg.BILLING_PROVIDER === 'disabled') {
+    errors.push(
+      '  - BILLING_ENABLED=true but BILLING_PROVIDER=disabled: nothing could take a payment. ' +
+        'Name a provider, or leave billing off.',
+    );
+  }
+  const liveEnabled = cfg.BILLING_LIVE_ENABLED === 'true';
+  const liveMarkets = parseBillingLiveMarkets(cfg.BILLING_LIVE_MARKETS);
+  const production = env === 'PRODUCTION';
+  const has = (name: string) => {
+    const v = cfg[name];
+    return typeof v === 'string' && v.trim() !== '';
+  };
+  const value = (name: string, fallback?: string): string =>
+    String((has(name) ? cfg[name] : fallback && has(fallback) ? cfg[fallback] : '') ?? '').trim();
+
+  if (!production) {
+    if (liveEnabled) {
+      errors.push(
+        `  - BILLING_LIVE_ENABLED=true is refused in ${env}: live billing runs in PRODUCTION only.`,
+      );
+    }
+    if (liveMarkets.length > 0) {
+      errors.push(
+        `  - BILLING_LIVE_MARKETS is refused in ${env}: live billing runs in PRODUCTION only. ` +
+          'Leave it empty.',
+      );
+    }
+  }
+  if (enabled && env === 'STAGING') {
+    errors.push(
+      `  - BILLING_ENABLED=true is refused in ${env}: no real billing provider configuration is ` +
+        'approved here yet. Leave billing off until the owner approves one.',
+    );
+  }
+  if (enabled && production && !liveEnabled) {
+    errors.push(
+      '  - BILLING_ENABLED=true is refused in PRODUCTION without BILLING_LIVE_ENABLED=true ' +
+        '(the live billing master switch). Leave billing off until the owner approves it.',
+    );
+  }
+  if (production && liveEnabled) {
+    if (cfg.BILLING_PROVIDER !== 'providers') {
+      errors.push(
+        '  - BILLING_LIVE_ENABLED=true needs BILLING_PROVIDER=providers: nothing else can take a ' +
+          'live payment.',
+      );
+    }
+    if (liveMarkets.length === 0) {
+      errors.push(
+        '  - BILLING_LIVE_ENABLED=true but BILLING_LIVE_MARKETS lists no market. List US, IN ' +
+          'or both.',
+      );
+    }
+    for (const m of liveMarkets) {
+      if (!(BILLING_LIVE_MARKET_CODES as readonly string[]).includes(m)) {
+        errors.push(
+          `  - BILLING_LIVE_MARKETS names ${m.replace(/[^A-Z0-9_-]/g, '?').slice(0, 8)}: only ` +
+            `${BILLING_LIVE_MARKET_CODES.join(' and ')} have a billing provider.`,
+        );
+      }
+    }
+    // Live billing reads its own credentials directly: no ticket-key fallback, no _REF.
+    for (const name of [
+      'STRIPE_BILLING_SECRET_KEY',
+      'STRIPE_BILLING_WEBHOOK_SECRET',
+      'RAZORPAY_BILLING_KEY_SECRET',
+      'RAZORPAY_BILLING_WEBHOOK_SECRET',
+    ]) {
+      if (has(`${name}_REF`)) {
+        errors.push(
+          `  - ${name}_REF is refused in PRODUCTION: live billing credentials are set directly ` +
+            `in ${name} so their kind can be checked at boot.`,
+        );
+      }
+    }
+    const missing = (name: string) => `  - ${name} is not set. BILLING_LIVE_MARKETS lists `;
+    if (liveMarkets.includes('US')) {
+      if (!has('STRIPE_BILLING_SECRET_KEY')) {
+        errors.push(
+          `${missing('STRIPE_BILLING_SECRET_KEY')}US. Live billing never uses STRIPE_SECRET_KEY.`,
+        );
+      }
+      if (!has('STRIPE_BILLING_WEBHOOK_SECRET')) {
+        errors.push(`${missing('STRIPE_BILLING_WEBHOOK_SECRET')}US.`);
+      } else if (!value('STRIPE_BILLING_WEBHOOK_SECRET').startsWith('whsec_')) {
+        errors.push(
+          '  - STRIPE_BILLING_WEBHOOK_SECRET is not a Stripe webhook signing secret (whsec_).',
+        );
+      }
+    }
+    if (liveMarkets.includes('IN')) {
+      if (!has('RAZORPAY_BILLING_KEY_ID')) {
+        errors.push(
+          `${missing('RAZORPAY_BILLING_KEY_ID')}IN. Live billing never uses RAZORPAY_KEY_ID.`,
+        );
+      }
+      if (!has('RAZORPAY_BILLING_KEY_SECRET')) {
+        errors.push(
+          `${missing('RAZORPAY_BILLING_KEY_SECRET')}IN. Live billing never uses RAZORPAY_KEY_SECRET.`,
+        );
+      }
+      if (!has('RAZORPAY_BILLING_WEBHOOK_SECRET')) {
+        errors.push(`${missing('RAZORPAY_BILLING_WEBHOOK_SECRET')}IN.`);
+      }
+      // The seller facts the declared GST status needs (billing-seller.ts): REGISTERED needs
+      // GSTIN, SAC, address and state; UNREGISTERED needs address and state and NO GSTIN;
+      // UNVERIFIED (the default) is refused until the owner declares one.
+      for (const problem of indiaSellerProblems((name) => value(name))) {
+        errors.push(`  - ${problem} BILLING_LIVE_MARKETS lists IN.`);
+      }
+    }
+    // Any billing key present in PRODUCTION must be live, listed market or not.
+    const stripeBillingKey = value('STRIPE_BILLING_SECRET_KEY');
+    if (stripeBillingKey !== '' && !/^(sk|rk)_live_/.test(stripeBillingKey)) {
+      errors.push(
+        '  - STRIPE_BILLING_SECRET_KEY is not a LIVE key (sk_live_ or rk_live_). PRODUCTION ' +
+          'billing uses live keys only.',
+      );
+    }
+    const rzpBillingKey = value('RAZORPAY_BILLING_KEY_ID');
+    if (rzpBillingKey !== '' && !rzpBillingKey.startsWith('rzp_live_')) {
+      errors.push(
+        '  - RAZORPAY_BILLING_KEY_ID is not a LIVE key (rzp_live_). PRODUCTION billing uses ' +
+          'live keys only.',
+      );
+    }
+  }
+  if (cfg.BILLING_PROVIDER === 'providers') {
+    if (!testDoubleEnv && !(production && liveEnabled)) {
+      errors.push(
+        `  - BILLING_PROVIDER=providers is refused in ${env}: billing providers run on test keys ` +
+          'in LOCAL, DEV and QA only' +
+          (production ? ', and on live keys here only with BILLING_LIVE_ENABLED=true' : '') +
+          '. Use BILLING_PROVIDER=disabled.',
+      );
+    }
+    if (!production) {
+      const stripeKey = value('STRIPE_BILLING_SECRET_KEY', 'STRIPE_SECRET_KEY');
+      const rzpKey = value('RAZORPAY_BILLING_KEY_ID', 'RAZORPAY_KEY_ID');
+      if (/^(sk|rk)_live_/.test(stripeKey)) {
+        errors.push(
+          '  - The Stripe key billing would use (STRIPE_BILLING_SECRET_KEY, else STRIPE_SECRET_KEY) ' +
+            'is a LIVE key. Billing uses test keys only.',
+        );
+      }
+      if (rzpKey.startsWith('rzp_live_')) {
+        errors.push(
+          '  - The Razorpay key billing would use (RAZORPAY_BILLING_KEY_ID, else RAZORPAY_KEY_ID) ' +
+            'is a LIVE key. Billing uses test keys only.',
+        );
+      }
+      const stripeReady =
+        (has('STRIPE_BILLING_SECRET_KEY_REF') || stripeKey !== '') &&
+        (has('STRIPE_BILLING_WEBHOOK_SECRET') || has('STRIPE_BILLING_WEBHOOK_SECRET_REF'));
+      const razorpayReady =
+        rzpKey !== '' &&
+        (has('RAZORPAY_BILLING_KEY_SECRET') ||
+          has('RAZORPAY_BILLING_KEY_SECRET_REF') ||
+          has('RAZORPAY_KEY_SECRET')) &&
+        (has('RAZORPAY_BILLING_WEBHOOK_SECRET') || has('RAZORPAY_BILLING_WEBHOOK_SECRET_REF'));
+      if (enabled && !stripeReady && !razorpayReady) {
+        errors.push(
+          '  - BILLING_ENABLED=true with BILLING_PROVIDER=providers, but neither provider is ' +
+            'configured. Stripe needs a key (STRIPE_BILLING_SECRET_KEY or STRIPE_SECRET_KEY) and ' +
+            'STRIPE_BILLING_WEBHOOK_SECRET; Razorpay needs RAZORPAY_BILLING_KEY_ID (or ' +
+            'RAZORPAY_KEY_ID), its secret and RAZORPAY_BILLING_WEBHOOK_SECRET.',
+        );
+      }
+    }
+  }
+  return errors;
+}
+
+function assertBillingConfiguration(cfg: AppConfig): void {
+  const errors = billingConfigurationErrors(
+    cfg as unknown as Parameters<typeof billingConfigurationErrors>[0],
+  );
+  if (errors.length) {
+    throw new Error(`Unsafe billing configuration:\n${errors.join('\n')}`);
   }
 }
 
@@ -1643,7 +2258,7 @@ export function dltConfigContradictions(cfg: AppConfig): string[] {
   if (!msg91Sms) return errors;
 
   /*
-    A header the portal rejected. ETKTGO was applied for and refused, and messages under it are
+    A header the portal rejected (REJECTED_SENDER_HEADERS; empty today). Messages under one are
     dropped by the carrier exactly like unregistered wording -- while MSG91 reports them sent.
   */
   for (const key of ['DLT_SENDER_HEADER', 'MSG91_SENDER_ID'] as const) {
@@ -1651,12 +2266,12 @@ export function dltConfigContradictions(cfg: AppConfig): string[] {
     if (!header) continue;
     if (REJECTED_SENDER_HEADERS.includes(header.toUpperCase())) {
       errors.push(
-        `  - ${key}=${header} was REJECTED on the DLT portal. Use the approved header ` +
-          `(${DOCUMENTED_APPROVED_SENDER_HEADER}).`,
+        `  - ${key}=${header} was REJECTED on the DLT portal. Use an approved header ` +
+          `(${DOCUMENTED_APPROVED_SENDER_HEADERS.join(' or ')}).`,
       );
     } else if (!/^[A-Za-z]{6}$/.test(header)) {
       // A transactional or service header is exactly six letters; anything else is a typo.
-      errors.push(`  - ${key} must be the six-letter DLT header, e.g. DPTRCS.`);
+      errors.push(`  - ${key} must be the six-letter DLT header, e.g. ETKTGO.`);
     }
   }
 
@@ -1778,6 +2393,26 @@ function assertNotificationConfigConsistency(cfg: AppConfig): void {
     WhatsApp from everybody who has not consented, and if consent cannot be recorded that is
     everybody, permanently -- a silent shutdown of a channel, presented as a policy setting.
   */
+  /*
+    A name that is not eligible is refused at boot, not ignored: PASSWORD_RESET_REQUESTED in
+    particular has an approved wording with a code in it, and the reset flow sends a link.
+  */
+  const badSmsTypes = invalidSmsTransactionalTypes(cfg.SMS_TRANSACTIONAL_TYPES);
+  if (badSmsTypes.length > 0) {
+    errors.push(
+      `  - SMS_TRANSACTIONAL_TYPES names ${badSmsTypes.join(', ')}, which may not send an SMS. ` +
+        `Allowed: ${SMS_TRANSACTIONAL_ELIGIBLE.join(', ')}.`,
+    );
+  }
+
+  const badSmsMarkets = invalidSmsTransactionalMarkets(cfg.SMS_TRANSACTIONAL_MARKETS);
+  if (badSmsMarkets.length > 0) {
+    errors.push(
+      `  - SMS_TRANSACTIONAL_MARKETS names ${badSmsMarkets.join(', ')}, which has no SMS path. ` +
+        `Allowed: ${SMS_TRANSACTIONAL_MARKETS_SUPPORTED.join(', ')}.`,
+    );
+  }
+
   if (cfg.WHATSAPP_TRANSACTIONAL_OPT_IN_REQUIRED === 'true') {
     const anyWhatsApp =
       (cfg.WHATSAPP_PROVIDER ?? 'log') !== 'log' ||
@@ -1887,14 +2522,20 @@ export function loadConfig(): AppConfig {
     throw new Error(`Invalid environment configuration:\n${issues}`);
   }
   assertProductionHardening(parsed.data);
+  assertAdminMfaArmed(parsed.data);
   assertDeliverabilityHardening(parsed.data);
   assertSesProductionReadiness(parsed.data);
   assertOfflineCheckinWindow(parsed.data);
   assertRazorpayConsistency(parsed.data);
   assertPaymentEnvironmentKeySafety(parsed.data);
   assertPaymentActivationPending(parsed.data);
+  assertBillingConfiguration(parsed.data);
   assertPlatformConfigConsistency(parsed.data);
   assertNotificationConfigConsistency(parsed.data);
   assertObjectStoreConsistency(parsed.data);
+  // Warned, never refused: a generated Railway host still answers (common/email-host-warnings.ts).
+  for (const warning of railwayEmailHostWarnings(process.env)) {
+    new Logger('Config').warn(warning);
+  }
   return parsed.data;
 }

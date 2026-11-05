@@ -91,6 +91,19 @@ describe('RazorpayPaymentProvider', () => {
     });
   });
 
+  it('verifyWebhook carries the currency Razorpay charged in', async () => {
+    const signed = signWebhook({
+      event: 'payment.captured',
+      payload: {
+        payment: {
+          entity: { id: 'pay_1', amount: 50_000, currency: 'INR', notes: { bookingId: 'bk_1' } },
+        },
+      },
+    });
+    const event = await makeProvider().verifyWebhook(signed);
+    expect(event).toMatchObject({ amountMinor: 50_000, currency: 'INR' });
+  });
+
   it('verifyWebhook maps a valid payment.failed to payment.failed', async () => {
     const signed = signWebhook({
       event: 'payment.failed',

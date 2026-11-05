@@ -1,6 +1,7 @@
 # ADR-053: Twilio SMS pre-certification hardening
 
 - **Status:** Accepted
+- **Status (2026-11-01):** current for US and Canada SMS. India SMS goes through MSG91 (ADR-045 routing).
 - **Date:** 2026-09-11
 - **Relates to:** ADR-045 (provider routing), ADR-046 (delivery receipts), ADR-051 (failure model)
 

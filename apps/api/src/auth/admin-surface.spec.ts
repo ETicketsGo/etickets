@@ -145,9 +145,14 @@ describe('the admin surface is fully gated', () => {
       'AdminPermission.FINANCE_READ',
       'AdminPermission.OPS_READ',
       'AdminPermission.PLATFORM_CONFIG_READ',
+      'AdminPermission.BILLING_READ',
     ]);
     /** POSTs that compute and return, writing nothing. */
-    const READ_ONLY_POSTS = new Set(['CompensationAdminController.dryRun']);
+    const READ_ONLY_POSTS = new Set([
+      'CompensationAdminController.dryRun',
+      // Prices a draft fee policy on a sample basket; writes nothing (platform-fee-policies.service).
+      'PlatformFeePoliciesController.preview',
+    ]);
     const STAFF_ROLES = new Set(['Role.ADMIN', 'Role.SUPER_ADMIN']);
     const WRITES = new Set(['Post', 'Put', 'Patch', 'Delete']);
     const leaning: string[] = [];

@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata } from '@/lib/seo';
 import { Clock, ArrowRight } from 'lucide-react';
 import { Container, Section } from '@/components/marketing/kit';
 import { PageHero, NoticeBanner } from '@/components/marketing/blocks';
@@ -6,11 +6,10 @@ import { POSTS, CATEGORIES, formatDate } from '@/lib/blog';
 import { Link } from '@/i18n/navigation';
 import { BrandPage } from '@/components/storefront-brand';
 
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/blog', {
   title: 'Blog',
   description: 'Guides, growth ideas, and perspectives on running better events with ETicketsGo.',
-  alternates: { canonical: '/blog' },
-};
+});
 
 export default function BlogPage() {
   const featured = POSTS.find((p) => p.featured) ?? POSTS[0];

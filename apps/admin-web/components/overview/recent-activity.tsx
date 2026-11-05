@@ -51,7 +51,7 @@ function actionText(action: string): string {
 
 /**
  * The last privileged actions, from `GET /admin/audit` - the reference's activity timeline,
- * with real entries only. BOOKING_READ, as the audit log itself; the parent decides.
+ * with real entries only. AUDIT_READ, as the audit log itself; the parent decides.
  */
 export function RecentActivity() {
   const audit = useQuery({

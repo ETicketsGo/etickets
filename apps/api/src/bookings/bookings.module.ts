@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BookingsService } from './bookings.service';
+import { BookingHoldLimitsService } from './booking-hold-limits';
 import { PricingModule } from '../pricing/pricing.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { InventoryModule } from '../inventory/inventory.module';
@@ -19,7 +20,9 @@ import { BookingShadowModule } from './orchestration/booking-shadow.module';
     InventoryLockingModule,
     BookingShadowModule,
   ],
-  providers: [BookingsService],
+  // BookingHoldLimitsService is optional in BookingsService's constructor only for hand-built
+  // test harnesses; providing it here is what makes the active-hold limits real.
+  providers: [BookingsService, BookingHoldLimitsService],
   exports: [BookingsService],
 })
 export class BookingsModule {}
