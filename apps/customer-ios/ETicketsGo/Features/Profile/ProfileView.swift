@@ -12,6 +12,7 @@ struct ProfileView: View {
     @Environment(AppContainer.self) private var container
     @State private var confirmingSignOut = false
     @State private var deletingAccount = false
+    @State private var editingProfile = false
 
     var body: some View {
         List {
@@ -36,7 +37,14 @@ struct ProfileView: View {
             }
 
             Section("Account") {
-                comingSoon("Edit profile", "person")
+                if container.auth.user != nil {
+                    Button { editingProfile = true } label: {
+                        Label("Edit profile", systemImage: "person").foregroundStyle(ETGColor.ink)
+                    }
+                    .accessibilityIdentifier("profile.edit")
+                } else {
+                    comingSoon("Edit profile", "person")
+                }
                 comingSoon("Notifications", "bell")
                 if container.auth.user != nil {
                     NavigationLink(value: Route.bookings) {
@@ -77,6 +85,7 @@ struct ProfileView: View {
             }
         }
         .sheet(isPresented: $deletingAccount) { DeleteAccountView() }
+        .sheet(isPresented: $editingProfile) { EditProfileView() }
         .confirmationDialog("Sign out of ETicketsGo?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) { Task { await container.auth.logout() } }
         } message: {
@@ -131,6 +140,90 @@ struct ProfileView: View {
         let short = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
         return "\(short) (\(build))"
+    }
+}
+
+/// Name and country of residence (PATCH /users/me), as on the website's account page. The email
+/// is shown, not edited; a phone-only account has none.
+struct EditProfileView: View {
+    @Environment(AppContainer.self) private var container
+    @Environment(\.dismiss) private var dismiss
+    @State private var loaded: Loadable<UserProfile> = .idle
+    @State private var name = ""
+    @State private var country: String?
+    @State private var saving = false
+    @State private var problem: String?
+
+    var body: some View {
+        NavigationStack {
+            LoadableView(state: loaded, retry: { Task { await load() } }) { profile in
+                Form {
+                    Section {
+                        TextField("Full name", text: $name)
+                            .textContentType(.name)
+                            .accessibilityIdentifier("editProfile.name")
+                        LabeledContent("Email", value: profile.email ?? "None (signed in with phone)")
+                    } footer: {
+                        if validFullName(name) == nil { Text("Use 2 to 120 characters.") }
+                    }
+                    Section {
+                        Picker("Country you live in", selection: $country) {
+                            Text("Not set").tag(String?.none)
+                            ForEach(ResidenceCountry.all, id: \.code) { Text($0.name).tag(String?.some($0.code)) }
+                        }
+                        .accessibilityIdentifier("editProfile.country")
+                    } footer: {
+                        Text("Optional. Only you choose this; it is never worked out from your phone or location.")
+                    }
+                    if let problem {
+                        Section { Text(problem).foregroundStyle(ETGColor.critical) }
+                    }
+                }
+                .disabled(saving)
+            }
+            .navigationTitle("Edit profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(saving) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { Task { await save() } }
+                        .disabled(!canSave)
+                        .accessibilityIdentifier("editProfile.save")
+                }
+            }
+            .interactiveDismissDisabled(saving)
+        }
+        .task { if loaded.value == nil { await load() } }
+    }
+
+    private var canSave: Bool {
+        guard let profile = loaded.value, !saving, let valid = validFullName(name) else { return false }
+        return valid != profile.fullName || country != profile.countryOfResidence
+    }
+
+    private func load() async {
+        loaded = .loading
+        do {
+            let profile = try await container.auth.profile()
+            name = profile.fullName
+            country = profile.countryOfResidence
+            loaded = .loaded(profile)
+        } catch {
+            loaded = .failed(error.userMessage)
+        }
+    }
+
+    private func save() async {
+        guard let valid = validFullName(name) else { return }
+        saving = true
+        problem = nil
+        defer { saving = false }
+        do {
+            try await container.auth.updateProfile(fullName: valid, countryOfResidence: country)
+            dismiss()
+        } catch {
+            problem = error.userMessage
+        }
     }
 }
 

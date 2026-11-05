@@ -242,6 +242,21 @@ final class ProductStateUITests: JourneyUITestCase {
         XCTAssertTrue(any("Requested, waiting for the organizer", in: app).waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["refund.request"].exists, "no second request while one is open")
         snap("19-refund-requested")
+    func testEditProfileRenamesTheAccount() {
+        let app = launch(["-ETGMockSignedIn", "-ETGTab", "profile"])
+        let edit = app.buttons["profile.edit"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 10))
+        edit.tap()
+        let name = app.textFields["editProfile.name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["editProfile.save"].isEnabled, "nothing changed yet")
+        name.tap()
+        let current = (name.value as? String) ?? ""
+        name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 2) + "Renamed Customer")
+        snap("16-edit-profile")
+        app.buttons["editProfile.save"].tap()
+        XCTAssertTrue(app.staticTexts["Renamed Customer"].waitForExistence(timeout: 10))
+        snap("17-profile-renamed")
     }
 
     func testCityChoiceScopesHome() {
