@@ -25,6 +25,17 @@ const findBookingsSchema = z.object({
   organizationId: z.string().cuid(),
   q: z.string().trim().min(3).max(80),
 });
+const recentBookingsSchema = z.object({
+  organizationId: z.string().cuid(),
+  cursor: z.string().cuid().optional(),
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+  eventId: z.string().cuid().optional(),
+  /** Comma-separated booking statuses; abandoned holds are left out by default. */
+  status: z.string().trim().max(200).optional(),
+  q: z.string().trim().max(80).optional(),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+});
 const gateSessionsSchema = z.object({ organizationId: z.string().cuid() });
 const rosterSchema = z.object({
   eventSessionId: z.string().cuid(),
@@ -94,6 +105,30 @@ export class CheckinsController {
     @Query(new ZodValidationPipe(findBookingsSchema)) q: z.infer<typeof findBookingsSchema>,
   ) {
     return this.checkins.findBookings(staff, q.organizationId, q.q);
+  }
+
+  @Get('bookings/recent')
+  @ApiOperation({
+    summary: "The organization's bookings, newest first, a page at a time (no contact details).",
+  })
+  recentBookings(
+    @CurrentUser() staff: RequestUser,
+    @Query(new ZodValidationPipe(recentBookingsSchema)) q: z.infer<typeof recentBookingsSchema>,
+  ) {
+    const allowed = new Set([
+      'PENDING_PAYMENT',
+      'CONFIRMED',
+      'PARTIALLY_REFUNDED',
+      'REFUNDED',
+      'CANCELLED',
+      'EXPIRED',
+      'DISPUTED',
+    ]);
+    const status = q.status
+      ?.split(',')
+      .map((v) => v.trim().toUpperCase())
+      .filter((v) => allowed.has(v));
+    return this.checkins.listRecentBookings(staff, q.organizationId, { ...q, status });
   }
 
   @Post('visual')

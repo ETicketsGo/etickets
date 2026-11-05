@@ -2304,6 +2304,17 @@ export const api = {
     findBookings: (organizationId: string, q: string) =>
       request<CounterBookingRow[]>(`/checkins/bookings${qs({ organizationId, q })}`),
     /**
+     * The organization's bookings, newest first, a page at a time: what Bookings & attendees
+     * shows before anybody searches. No contact details, like the search.
+     */
+    recentBookings: (
+      organizationId: string,
+      params: { cursor?: string; limit?: number; status?: string; eventId?: string } = {},
+    ) =>
+      request<{ data: CounterBookingRow[]; nextCursor: string | null }>(
+        `/checkins/bookings/recent${qs({ organizationId, ...params })}`,
+      ),
+    /**
      * Admit a ticket identified by eye rather than scanned.
      *
      * Recorded as a VISUAL check-in, which is a different claim from a scan: one verifies a
@@ -6181,6 +6192,10 @@ export interface CounterBookingRow {
   timezone: string | null;
   currency: string;
   totalMinor: number;
+  /** On the recent list: how many of its tickets have been admitted. */
+  checkedInCount?: number;
+  eventId?: string;
+  createdAt?: string;
 }
 
 export interface CheckInRosterRow {
