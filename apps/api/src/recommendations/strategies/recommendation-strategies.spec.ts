@@ -29,6 +29,7 @@ const card = (id: string): PublicEventCardLike => ({
   slug: `event-${id}`,
   category: 'Music',
   attendanceMode: 'IN_PERSON',
+  typeLabel: null,
   venue: {
     name: 'Hall',
     city: 'BLR',
