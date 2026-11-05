@@ -354,7 +354,7 @@ describe('integration-real-postgres: transactional SMS consent', () => {
         },
       });
       // Never consent. (The earlier withdrawal for this number is what answers here.)
-    await expect(consent.smsTransactionalConsent(subject, phone)).resolves.not.toBe('granted');
+      await expect(consent.smsTransactionalConsent(subject, phone)).resolves.not.toBe('granted');
 
       await grant(american, 'sam', SMS_TRANSACTIONAL_SCOPE, true);
       await expect(consent.smsTransactionalConsent(subject, phone)).resolves.toBe('granted');
