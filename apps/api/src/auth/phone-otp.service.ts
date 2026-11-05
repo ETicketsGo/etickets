@@ -496,10 +496,35 @@ export class PhoneOtpService {
       );
     }
 
+    const before = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { phone: true, email: true },
+    });
     await this.prisma.user.update({
       where: { id: userId },
       data: { phone, phoneVerifiedAt: new Date() },
     });
+    /*
+      ── A NEW NUMBER STARTS WITH NO TEXT-MESSAGE CONSENT ─────────────────────────────────
+      Booking texts are agreed for one number. A grant only ever counts for the number it names,
+      but without this a person who moved A -> B -> A would find the old grant for A live again
+      without having been asked. So a change of number is recorded as a withdrawal (an append,
+      like every consent row), and the person agrees again, for the new number, in Settings.
+    */
+    if (before && before.phone && before.phone !== phone) {
+      await this.prisma.marketingConsent
+        .create({
+          data: {
+            userId,
+            email: before.email.trim().toLowerCase(),
+            channel: 'sms:transactional',
+            granted: false,
+            source: 'phone-number-changed',
+            phone: null,
+          },
+        })
+        .catch(() => undefined);
+    }
     return { phone };
   }
 

@@ -19,6 +19,7 @@ import { BRAND_LINK } from '@/components/booking-brand';
 import { Placeholder } from '@/components/home/parts';
 import { SignInRequired, isAuthFailure, useSignedIn } from '@/components/sign-in-required';
 import { useSingleFlight } from '@/lib/use-single-flight';
+import { SmsConsentLinks, SmsConsentStatement } from '@/components/sms-consent-text';
 
 /**
  * What you receive, and where.
@@ -127,6 +128,8 @@ export default function NotificationSettingsPage() {
     time. A toggle that cannot work should say why rather than failing silently afterwards.
   */
   const hasPhone = prefs.data?.destinations.hasPhone ?? false;
+  const phoneVerified = prefs.data?.destinations.phoneVerified ?? false;
+  const smsConsentRequired = prefs.data?.destinations.smsConsentRequired ?? false;
 
   /*
     Somebody with no session is not looking at a broken page - they are looking at somebody
@@ -171,6 +174,53 @@ export default function NotificationSettingsPage() {
       {/* Browser push registration lives with the existing component; one place asks for the
           permission, and this page only decides what it is used for. */}
       <PushToggle />
+
+      {/*
+        SMS ABOUT MY BOOKINGS. Offered where a text needs the person's own consent (a US or
+        Canadian number). OFF unless consent exists for the CURRENT verified number - the API
+        answers exactly as the send decides - and it cannot be turned on until the number is
+        verified. On records a consent bound to that number; off records a withdrawal. The
+        registered disclosure sits with the switch so nobody agrees to text they have not read.
+      */}
+      {smsConsentRequired && (
+        <section className={`${ACCOUNT_PANEL} p-5 sm:p-6`} data-testid="sms-booking-consent">
+          <h2 className={PANEL_TITLE}>{t('smsHeading')}</h2>
+          <div className="mt-4 flex items-start justify-between gap-4">
+            <p className="text-brand-ui leading-relaxed text-brand-ink-2">
+              <SmsConsentStatement />
+            </p>
+            <BrandToggle
+              checked={consentFor('sms:transactional')}
+              disabled={!phoneVerified || setConsent.isPending}
+              aria-label={t('smsToggleLabel')}
+              onChange={(granted) =>
+                once('consent:sms:transactional', () =>
+                  setConsent
+                    .mutateAsync({ channel: 'sms:transactional', granted })
+                    .catch(() => undefined),
+                )
+              }
+            />
+          </div>
+          <p className="mt-3 text-brand-ui text-brand-ink-2">
+            <SmsConsentLinks />
+          </p>
+          {!phoneVerified && (
+            <p className="mt-3 inline-flex items-center gap-2 text-brand-meta text-brand-ink-2">
+              <Phone className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span>
+                {t.rich('smsVerifyFirst', {
+                  link: (chunks) => (
+                    <Link href="/account/profile" className={BRAND_LINK}>
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </span>
+            </p>
+          )}
+        </section>
+      )}
 
       <section className={`${ACCOUNT_PANEL} p-5 sm:p-6`}>
         <h2 className={PANEL_TITLE}>{t('whatsappHeading')}</h2>

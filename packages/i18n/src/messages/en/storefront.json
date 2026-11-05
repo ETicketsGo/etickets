@@ -1000,7 +1000,10 @@
       "EARLY_ACCESS": "Early access by email",
       "OFFERS": "Offers by email"
     },
-    "organizerPurposeFor": "{purpose} from {name}"
+    "organizerPurposeFor": "{purpose} from {name}",
+    "smsHeading": "Text messages about my bookings",
+    "smsToggleLabel": "SMS about my bookings",
+    "smsVerifyFirst": "Verify your mobile number in <link>your profile</link> first. Then you can turn this on."
   },
   "following": {
     "heading": "Following",
