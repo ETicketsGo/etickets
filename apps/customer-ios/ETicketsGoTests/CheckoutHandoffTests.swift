@@ -185,6 +185,18 @@ struct SharedLinkTests {
         router.open(.booking(id: "b"))
         #expect(router.selectedTab == .profile && router.paths[.profile] == [.bookings])
         router.open(.movie(slug: "m"))
-        #expect(router.selectedTab == .movies)
+        #expect(router.selectedTab == .movies && router.paths[.movies] == [.movieLink(slug: "m")])
+    }
+}
+
+@Suite("Movie links open the movie")
+struct MovieLinkTests {
+    @Test("A movie loaded by slug becomes the summary the detail screen shows")
+    func summaryFromMovie() async throws {
+        let catalog = MockCatalogRepository(latency: .zero)
+        let slug = try #require(try await catalog.discovery(city: nil).nowShowing.first?.slug)
+        let movie = try await catalog.movieShows(slug: slug).movie
+        let summary = MovieSummary(movie)
+        #expect(summary.slug == slug && summary.title == movie.title && summary.runtimeMinutes == movie.runtimeMinutes)
     }
 }
