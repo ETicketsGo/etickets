@@ -459,3 +459,53 @@ struct PhoneOnlyAccountTests {
         #expect(TicketSelectionViewModel.ticketEmail(account: nil, entered: "not an email") == nil)
     }
 }
+
+// MARK: - Edit profile (GET / PATCH /users/me)
+
+@Suite("Edit profile")
+struct EditProfileTests {
+    private func signedIn() -> InMemoryTokenStore {
+        InMemoryTokenStore(StoredSession(
+            tokens: TokenPair(accessToken: "a", refreshToken: "r"), identity: "tester@qa.eticketsgo.test",
+            user: AuthenticatedUser(id: "u1", email: "tester@qa.eticketsgo.test", fullName: "Old Name", roles: ["CUSTOMER"], organizationId: nil)))
+    }
+
+    @Test("PATCH /users/me sends the name and an explicit null to clear the country; the session takes the new name")
+    func patchContract() async throws {
+        let store = signedIn()
+        let transport = RoutingTransport { _ in (200, #"{"id":"u1","email":null,"fullName":"New Name","roles":["CUSTOMER"],"countryOfResidence":null}"#) }
+        let (service, _, _) = remote(qaConfig(), store: store, transport: transport)
+        let user = try await service.updateProfile(fullName: "New Name", countryOfResidence: nil)
+        let request = try #require(transport.requests.first)
+        #expect(request.httpMethod == "PATCH" && request.url?.path() == "/api/users/me")
+        let json = try #require(request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any])
+        #expect(json["fullName"] as? String == "New Name")
+        #expect(json.keys.contains("countryOfResidence") && json["countryOfResidence"] is NSNull)
+        #expect(user.fullName == "New Name" && user.id == "u1")
+        #expect(store.read()?.user?.fullName == "New Name")
+    }
+
+    @Test("GET /users/me decodes a phone-only profile")
+    func profileDecodes() async throws {
+        let transport = RoutingTransport { _ in (200, #"{"id":"u1","email":null,"fullName":"P","roles":["CUSTOMER"],"status":"ACTIVE","createdAt":"2026-11-01T00:00:00.000Z","countryOfResidence":"IN","memberships":[]}"#) }
+        let (service, _, _) = remote(qaConfig(), store: signedIn(), transport: transport)
+        #expect(try await service.profile() == UserProfile(fullName: "P", email: nil, countryOfResidence: "IN"))
+    }
+
+    @Test("Names are trimmed and must be 2 to 120 characters")
+    func nameRule() {
+        #expect(validFullName("  Ada Lovelace ") == "Ada Lovelace")
+        #expect(validFullName("A") == nil)
+        #expect(validFullName(String(repeating: "x", count: 121)) == nil)
+    }
+
+    @Test("Saving updates the signed-in name the app shows; the country round-trips")
+    @MainActor
+    func storeUpdates() async throws {
+        let container = AppContainer.mock(latency: .zero)
+        try await container.auth.login(email: MockAuthService.demoEmail, password: MockAuthService.demoPassword)
+        try await container.auth.updateProfile(fullName: "Renamed Customer", countryOfResidence: "US")
+        #expect(container.auth.user?.fullName == "Renamed Customer")
+        #expect(try await container.auth.profile().countryOfResidence == "US")
+    }
+}
