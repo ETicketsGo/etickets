@@ -55,7 +55,14 @@ function resolverWith(env: Record<string, string>, phone: string) {
   };
   return new NotificationPolicyResolver(
     { resolveChannels: jest.fn(async (_u: unknown, _t: unknown, r: string[]) => r) } as never,
-    { mayReceiveMarketing: jest.fn(async () => false) } as never,
+    /*
+      The +1 recipient ticked the text-message box at signup. Without that record a +1 number
+      gets no SMS at all; sms-consent.spec.ts covers that side.
+    */
+    {
+      mayReceiveMarketing: jest.fn(async () => false),
+      smsTransactionalConsent: jest.fn(async () => 'granted'),
+    } as never,
     new ConfigService(env),
     prisma as never,
   );

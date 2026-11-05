@@ -141,6 +141,7 @@ describe('integration-real-postgres: India, US and Canada notification flows', (
     await db.notification.deleteMany({
       where: { userId: { in: [indianUser, americanUser, canadianUser] } },
     });
+    await db.marketingConsent.deleteMany({ where: { email: { contains: suffix } } });
     await db.user.deleteMany({ where: { email: { contains: suffix } } });
     await sweepLock?.release();
     await db.$disconnect();
@@ -393,6 +394,17 @@ describe('integration-real-postgres: India, US and Canada notification flows', (
     });
     const notifications = buildService();
     const fallbacks = new NotificationFallbackService(db as never, notifications as never);
+    /*
+      A +1 number is texted only with a current text-message consent on file (the sign-up
+      checkbox). Without one this fallback is skipped at send; sms-consent's own suites cover
+      that side.
+    */
+    await new MarketingConsentService(db as never).record(
+      { userId: canadianUser, email: `mo+${suffix}@example.test` },
+      'sms:transactional',
+      true,
+      { source: 'CUSTOMER_SIGNUP', country: 'CA' },
+    );
 
     await notifications.schedule(
       {

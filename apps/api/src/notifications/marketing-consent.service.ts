@@ -2,6 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { SuppressionService } from './delivery/suppression.service';
+import { SMS_TRANSACTIONAL_SCOPE, type SmsConsentState } from './policy/sms-consent';
 
 /** The audit action when the account-wide setting lifts an "unsubscribe from all marketing". */
 export const MARKETING_UNSUBSCRIBE_LIFTED = 'MARKETING_UNSUBSCRIBE_LIFTED';
@@ -168,6 +169,32 @@ export class MarketingConsentService {
       orderBy: { createdAt: 'desc' },
     });
     return latest?.granted ?? false;
+  }
+
+  /**
+   * The state of this person's `sms:transactional` consent: granted, withdrawn, or never given.
+   *
+   * Separate from {@link mayReceiveMarketing} because the transactional SMS rule has to say
+   * WHY a text was not sent, and "withdrawn" and "never given" are different answers to give
+   * a customer. Same matching as there: the newest row for the account or the email decides.
+   * Errors are not swallowed; a caller must never read a failed lookup as consent.
+   */
+  async smsTransactionalConsent(subject: ConsentSubject): Promise<SmsConsentState> {
+    const email = this.normalise(subject.email);
+    if (!subject.userId && !email) return 'none';
+    const latest = await this.prisma.marketingConsent.findFirst({
+      where: {
+        channel: SMS_TRANSACTIONAL_SCOPE,
+        OR: [
+          ...(subject.userId ? [{ userId: subject.userId }] : []),
+          ...(email ? [{ email }] : []),
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { granted: true },
+    });
+    if (!latest) return 'none';
+    return latest.granted ? 'granted' : 'withdrawn';
   }
 
   /** Current state per channel, for an account page or a data-subject request. */
