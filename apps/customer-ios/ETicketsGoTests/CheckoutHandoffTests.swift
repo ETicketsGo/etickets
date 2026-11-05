@@ -154,3 +154,37 @@ struct CheckoutHandoffTests {
         #expect(try await relaunched.booking(id: created.id).status == "PENDING_PAYMENT")
     }
 }
+
+@Suite("Shared universal links (#470)")
+struct SharedLinkTests {
+    private let host = "qa.eticketsgo.com"
+
+    @Test("Event, movie and booking pages map to their screens, with or without a locale")
+    func parses() {
+        #expect(SharedLink.parse(URL(string: "https://qa.eticketsgo.com/events/riverbend-jazz-night-6a61a6")!, webHost: host)
+            == .event(slug: "riverbend-jazz-night-6a61a6"))
+        #expect(SharedLink.parse(URL(string: "https://qa.eticketsgo.com/fr-CA/movies/dune-3")!, webHost: host) == .movie(slug: "dune-3"))
+        #expect(SharedLink.parse(URL(string: "https://qa.eticketsgo.com/en/booking/cmabc123")!, webHost: host) == .booking(id: "cmabc123"))
+    }
+
+    @Test("Other hosts, schemes, paths and odd ids are ignored")
+    func ignores() {
+        for link in ["https://evil.example/events/x", "http://qa.eticketsgo.com/events/x", "https://qa.eticketsgo.com/checkout/success",
+                     "https://qa.eticketsgo.com/events", "https://qa.eticketsgo.com/events/a/b", "https://qa.eticketsgo.com/events/%2e%2e"] {
+            #expect(SharedLink.parse(URL(string: link)!, webHost: host) == nil, "\(link)")
+        }
+        #expect(SharedLink.parse(URL(string: "https://eticketsgo.com/events/x")!, webHost: nil) == nil)
+    }
+
+    @Test("The router opens each link on the right tab")
+    @MainActor
+    func routes() {
+        let router = AppRouter(arguments: [])
+        router.open(.event(slug: "s"))
+        #expect(router.selectedTab == .home && router.paths[.home] == [.event(slug: "s")])
+        router.open(.booking(id: "b"))
+        #expect(router.selectedTab == .profile && router.paths[.profile] == [.bookings])
+        router.open(.movie(slug: "m"))
+        #expect(router.selectedTab == .movies)
+    }
+}

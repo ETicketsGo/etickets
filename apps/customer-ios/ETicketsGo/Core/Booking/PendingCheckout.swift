@@ -56,6 +56,34 @@ final class PendingCheckoutStore {
     }
 }
 
+/// A universal link to a page the website shares (apps/customer-web apple-app-site-association,
+/// PR #470): `/events/<slug>`, `/movies/<slug>`, `/booking/<id>`, optionally behind a locale
+/// (`/fr-CA/events/...`). Only this environment's own web host; anything else is ignored.
+enum SharedLink: Equatable, Sendable {
+    case event(slug: String)
+    case movie(slug: String)
+    case booking(id: String)
+
+    static func parse(_ url: URL, webHost: String?) -> SharedLink? {
+        guard url.scheme == "https", let webHost, url.host() == webHost else { return nil }
+        var parts = url.pathComponents.filter { $0 != "/" }
+        if let first = parts.first, first.range(of: #"^[a-z]{2}(-[A-Z]{2})?$"#, options: .regularExpression) != nil {
+            parts.removeFirst()
+        }
+        guard parts.count == 2, isIdentifier(parts[1]) else { return nil }
+        switch parts[0] {
+        case "events": return .event(slug: parts[1])
+        case "movies": return .movie(slug: parts[1])
+        case "booking": return .booking(id: parts[1])
+        default: return nil
+        }
+    }
+
+    private static func isIdentifier(_ value: String) -> Bool {
+        !value.isEmpty && value.count <= 128 && value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
+    }
+}
+
 /// A payment-return link: `https://<web host>/checkout/success?booking=<id>&session_id=…`,
 /// `/checkout/cancel?booking=<id>`, or the app's own `<scheme>://checkout/return?booking=<id>`.
 /// It identifies the booking to look at. It is NEVER evidence of payment: the app only ever

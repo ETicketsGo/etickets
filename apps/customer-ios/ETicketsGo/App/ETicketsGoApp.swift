@@ -31,6 +31,8 @@ struct ETicketsGoApp: App {
         let config = container.configuration
         if let found = PaymentReturn.parse(url, appScheme: config.appURLScheme, webHost: config.webHost) {
             router.paymentReturn = found
+        } else if let link = SharedLink.parse(url, webHost: config.webHost) {
+            router.open(link)
         }
     }
 }

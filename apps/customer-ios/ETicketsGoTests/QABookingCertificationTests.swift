@@ -13,6 +13,7 @@ import Testing
 ///   route to Razorpay, which has no app checkout yet)
 /// - optional `ETG_QA_STAFF_EMAIL` / `ETG_QA_STAFF_PASSWORD` — a QA staff member of that event's
 ///   organisation, for the check-in steps
+/// - optional `ETG_CERT_URL_FILE` - also write the checkout URL to this file
 /// - optional `ETG_QA_CERT_WAIT_SECONDS` (default 600) — how long to wait for the operator to
 ///   complete the Stripe **test** checkout (card 4242 4242 4242 4242) at the printed URL
 ///
@@ -83,6 +84,8 @@ struct QABookingCertificationTests {
         #expect(url.host()?.hasSuffix("stripe.com") == true)
         #expect(try await booking.booking(id: held.id).status == "PENDING_PAYMENT", "confirmed before anyone paid") // 8
         print("ETG-CERT: complete the Stripe TEST checkout (4242 4242 4242 4242) within \(Int(Cert.waitSeconds))s:\n\(url)")
+        // For an automated test-mode run: the operator's script reads the URL from this file.
+        if let path = Cert.env["ETG_CERT_URL_FILE"] { try? url.absoluteString.write(toFile: path, atomically: true, encoding: .utf8) }
 
         let deadline = Date().addingTimeInterval(Cert.waitSeconds)                                        // 7–8
         var status = "PENDING_PAYMENT"

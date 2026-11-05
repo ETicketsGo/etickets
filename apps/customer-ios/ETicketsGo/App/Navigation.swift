@@ -46,6 +46,23 @@ final class AppRouter {
         #endif
     }
 
+    /// Opens a shared website link on top of the current tab. A movie link opens Movies (its
+    /// screen needs the showing, which a slug alone does not give); a booking link opens
+    /// booking history, where the server decides what the signed-in customer may see.
+    func open(_ link: SharedLink) {
+        switch link {
+        case let .event(slug):
+            selectedTab = .home
+            paths[.home] = [.event(slug: slug)]
+        case .movie:
+            selectedTab = .movies
+            paths[.movies] = []
+        case .booking:
+            selectedTab = .profile
+            paths[.profile] = [.bookings]
+        }
+    }
+
     private static func value(after flag: String, in arguments: [String]) -> String? {
         guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else { return nil }
         return arguments[index + 1]
