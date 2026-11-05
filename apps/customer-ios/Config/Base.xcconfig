@@ -34,3 +34,9 @@ LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/Frameworks
 INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO
 // Honoured only by the Prod configuration; see Prod.xcconfig.
 PROD_LAUNCH_APPROVED = NO
+
+// Signing. The organization's Apple Team ID is never committed: put it in the gitignored
+// Config/Signing.local.xcconfig (copy Signing.local.xcconfig.example). Without it the app
+// still builds for the simulator and unsigned for device; archiving needs it.
+DEVELOPMENT_TEAM =
+#include? "Signing.local.xcconfig"

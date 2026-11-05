@@ -26,3 +26,6 @@ SWIFT_OPTIMIZATION_LEVEL = -O
 SWIFT_COMPILATION_MODE = wholemodule
 VALIDATE_PRODUCT = YES
 DEBUG_INFORMATION_FORMAT = dwarf-with-dsym
+
+// Universal links (QA and Prod only: MOCK has no web host).
+CODE_SIGN_ENTITLEMENTS = Config/ETicketsGo.entitlements

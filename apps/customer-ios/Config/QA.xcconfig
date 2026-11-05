@@ -30,3 +30,6 @@ GCC_OPTIMIZATION_LEVEL = 0
 ONLY_ACTIVE_ARCH = YES
 ENABLE_TESTABILITY = YES
 DEBUG_INFORMATION_FORMAT = dwarf
+
+// Universal links (QA and Prod only: MOCK has no web host).
+CODE_SIGN_ENTITLEMENTS = Config/ETicketsGo.entitlements
