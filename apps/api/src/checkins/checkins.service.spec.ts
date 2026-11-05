@@ -24,7 +24,7 @@ interface TicketShape {
   holderName: string | null;
   holderEmail: string | null;
   ticketType: { name: string };
-  booking: { reference: string | null };
+  booking: { reference: string | null; status: string };
 }
 
 function ticket(over: Partial<TicketShape> = {}): TicketShape {
@@ -39,7 +39,7 @@ function ticket(over: Partial<TicketShape> = {}): TicketShape {
     holderName: 'Ada',
     holderEmail: 'ada@example.test',
     ticketType: { name: 'General' },
-    booking: { reference: 'ETG-IND-2026-000001' },
+    booking: { reference: 'ETG-IND-2026-000001', status: 'CONFIRMED' },
     ...over,
   };
 }
@@ -155,6 +155,33 @@ describe('CheckinsService.scan', () => {
     expect(out.result).toBe(CheckInResult.CANCELLED);
     expect(prisma.ticket.updateMany).not.toHaveBeenCalled();
   });
+
+  it.each(['REFUNDED', 'CANCELLED', 'EXPIRED', 'PENDING_PAYMENT'])(
+    'CANCELLED: an ACTIVE ticket whose booking is %s is refused, and stays ACTIVE',
+    async (bookingStatus) => {
+      // REGRESSION: the gate read only ticket.status, so a booking refunded in the provider
+      // dashboard (tickets untouched) still admitted its old, never-expiring QR.
+      const { service, prisma } = setup({
+        ticket: ticket({ booking: { reference: 'ETG-1', status: bookingStatus } }),
+      });
+      const out = await service.scan(STAFF, 'token', {});
+      expect(out.result).toBe(CheckInResult.CANCELLED);
+      expect(out.message).toMatch(/Booking is/);
+      expect(prisma.ticket.updateMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['CONFIRMED', 'PARTIALLY_REFUNDED', 'DISPUTED'])(
+    'SUCCESS: an ACTIVE ticket on a %s booking is still admitted',
+    async (bookingStatus) => {
+      const { service, prisma } = setup({
+        ticket: ticket({ booking: { reference: 'ETG-1', status: bookingStatus } }),
+      });
+      const out = await service.scan(STAFF, 'token', {});
+      expect(out.result).toBe(CheckInResult.SUCCESS);
+      expect(prisma.ticket.updateMany).toHaveBeenCalled();
+    },
+  );
 
   it('FORBIDDEN: staff is not a member of the ticket owner org (throws)', async () => {
     const { service } = setup({ assertMemberThrows: true });

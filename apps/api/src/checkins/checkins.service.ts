@@ -20,6 +20,7 @@ import { NotificationService } from '../notifications/notification.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
+import { bookingAdmits } from './booking-admission';
 
 const STAFF_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.CHECKIN_STAFF];
 
@@ -72,7 +73,7 @@ export class CheckinsService {
       where: { id: payload.ticketId },
       include: {
         ticketType: { select: { name: true } },
-        booking: { select: { reference: true } },
+        booking: { select: { reference: true, status: true } },
       },
     });
     // A rotated nonce (attendee transfer/unassign) invalidates the old QR here.
@@ -112,7 +113,7 @@ export class CheckinsService {
       vendorBarcode: string | null;
       vendorName: string | null;
       ticketType: { name: string };
-      booking: { reference: string | null };
+      booking: { reference: string | null; status: string };
     },
     staff: RequestUser,
     opts: { expectedSessionId?: string; deviceInfo?: string; method: 'SCAN' | 'VISUAL' },
@@ -163,6 +164,24 @@ export class CheckinsService {
       return done({
         result: CheckInResult.CANCELLED,
         message: `Ticket is ${ticket.status.toLowerCase()}.`,
+        ticket: summary,
+      });
+    }
+
+    // The ticket may still say ACTIVE when its booking was refunded or never paid for (a
+    // provider-dashboard refund, an expired hold): the booking decides. See booking-admission.ts.
+    if (!bookingAdmits(ticket.booking.status)) {
+      await this.log(
+        ticket.id,
+        ticket.eventSessionId,
+        CheckInResult.CANCELLED,
+        staff.id,
+        opts.deviceInfo,
+        opts.method,
+      );
+      return done({
+        result: CheckInResult.CANCELLED,
+        message: `Booking is ${ticket.booking.status.toLowerCase().replace(/_/g, ' ')}.`,
         ticket: summary,
       });
     }
@@ -556,7 +575,7 @@ export class CheckinsService {
       where: { id: ticketId },
       include: {
         ticketType: { select: { name: true } },
-        booking: { select: { reference: true } },
+        booking: { select: { reference: true, status: true } },
       },
     });
     if (!ticket) {
