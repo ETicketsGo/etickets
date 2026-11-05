@@ -5,14 +5,50 @@ import Foundation
 /// contract fails here exactly as a real response would.
 struct FixtureStore: Sendable {
     let bundle: Bundle
+    /// Whole days added to every timestamp in a fixture. See `defaultDayShift`.
+    let dayShift: Int
 
-    init(bundle: Bundle = .main) { self.bundle = bundle }
+    init(bundle: Bundle = .main, dayShift: Int = FixtureStore.defaultDayShift) {
+        self.bundle = bundle
+        self.dayShift = dayShift
+    }
+
+    /// The day the fixtures were written for.
+    static let authoredOn = Date(timeIntervalSince1970: 1_792_627_200)  // 2026-10-22T00:00:00Z
+
+    /// The running MOCK app moves every fixture date forward by the days since `authoredOn`,
+    /// so its catalog never runs out of upcoming dates; the UI tests drive that app. Unit tests
+    /// pin their own clock to the authored day and read the fixtures as written. Whole days in
+    /// UTC keep showtimes at the same local time.
+    static let defaultDayShift: Int = {
+        if NSClassFromString("XCTestCase") != nil { return 0 }
+        return max(0, Int(Date.now.timeIntervalSince(authoredOn) / 86_400))
+    }()
 
     func load<T: Decodable>(_ name: String, as type: T.Type = T.self) throws -> T {
         guard let url = bundle.url(forResource: name, withExtension: "json") else {
             throw MockError.missingFixture(name)
         }
-        return try JSONDecoder.etg.decode(T.self, from: Data(contentsOf: url))
+        let data = try Data(contentsOf: url)
+        return try JSONDecoder.etg.decode(T.self, from: dayShift > 0 ? Self.shifting(data, days: dayShift) : data)
+    }
+
+    /// Every ISO-8601 UTC timestamp in the JSON text, moved by `days`.
+    static func shifting(_ data: Data, days: Int) -> Data {
+        guard let text = String(data: data, encoding: .utf8),
+              let pattern = try? NSRegularExpression(pattern: #"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z"#)
+        else { return data }
+        let plain = ISO8601DateFormatter()
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let result = NSMutableString(string: text)
+        for match in pattern.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
+            let stamp = (text as NSString).substring(with: match.range)
+            let formatter = match.range(at: 1).location == NSNotFound ? plain : fractional
+            guard let date = formatter.date(from: stamp) else { continue }
+            result.replaceCharacters(in: match.range, with: formatter.string(from: date.addingTimeInterval(TimeInterval(days) * 86_400)))
+        }
+        return Data((result as String).utf8)
     }
 }
 

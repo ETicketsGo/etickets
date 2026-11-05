@@ -156,3 +156,22 @@ struct FailingCatalog: CatalogRepository {
     func event(slug: String) async throws -> EventDetail { throw APIError.transport(.timedOut) }
     func movieShows(slug: String) async throws -> MovieShows { throw APIError.transport(.timedOut) }
 }
+
+@Suite("MOCK fixtures stay in the future")
+struct FixtureDateShiftTests {
+    @Test("Every timestamp moves by whole days, keeping its time of day and format")
+    func shifts() throws {
+        let json = #"{"a":"2026-10-23T14:00:00Z","b":"2026-11-07T14:00:00.000Z","c":"not a date","d":"2026-10-23"}"#
+        let out = String(decoding: FixtureStore.shifting(Data(json.utf8), days: 13), as: UTF8.self)
+        #expect(out == #"{"a":"2026-11-05T14:00:00Z","b":"2026-11-20T14:00:00.000Z","c":"not a date","d":"2026-10-23"}"#)
+    }
+
+    @Test("Unit tests read fixtures as written; a shifted store still decodes them")
+    func shiftedStoreDecodes() throws {
+        #expect(FixtureStore.defaultDayShift == 0)
+        let feed = try FixtureStore(dayShift: 400).load("discovery", as: DiscoveryFeed.self)
+        let original = try FixtureStore().load("discovery", as: DiscoveryFeed.self)
+        #expect(feed.trendingEvents.count == original.trendingEvents.count)
+        #expect(feed.trendingEvents.first?.nextSessionAt != original.trendingEvents.first?.nextSessionAt)
+    }
+}

@@ -13,6 +13,21 @@ class JourneyUITestCase: XCTestCase {
         return app
     }
 
+    /// Waits for `element`; on a timeout keeps a screenshot and the accessibility tree, so a
+    /// failure says what was on screen instead of only "XCTAssertTrue failed".
+    @discardableResult
+    func waitFor(_ element: XCUIElement, timeout: TimeInterval = 10, in app: XCUIApplication,
+                 file: StaticString = #filePath, line: UInt = #line) -> Bool {
+        if element.waitForExistence(timeout: timeout) { return true }
+        snap("timeout-\(line)")
+        let tree = XCTAttachment(string: app.debugDescription)
+        tree.name = "tree-\(line)"
+        tree.lifetime = .keepAlways
+        add(tree)
+        XCTFail("Timed out after \(timeout)s waiting for \(element)", file: file, line: line)
+        return false
+    }
+
     func snap(_ name: String) {
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         shot.name = name
@@ -83,7 +98,7 @@ final class BookingJourneyUITests: JourneyUITestCase {
     func testReservedSeatingSelection() {
         let app = launch(["-ETGMockSignedIn", "-ETGTab", "movies", "-ETGEvent", "the-long-monsoon-galaxy-cinemas-hyderabad"])
         let getTickets = app.buttons["event.getTickets"]
-        XCTAssertTrue(getTickets.waitForExistence(timeout: 10))
+        waitFor(getTickets, in: app)
         getTickets.tap()
         let available = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Row' AND value == 'Available'"))
         XCTAssertTrue(available.firstMatch.waitForExistence(timeout: 10))
@@ -103,7 +118,7 @@ final class BookingJourneyUITests: JourneyUITestCase {
     func testHoldExpiresAndCannotBePaid() {
         let app = launch(["-ETGMockSignedIn", "-ETGMockHoldSeconds", "6", "-ETGTab", "home", "-ETGEvent", "deccan-street-food-festival-hyderabad"])
         let getTickets = app.buttons["event.getTickets"]
-        XCTAssertTrue(getTickets.waitForExistence(timeout: 10))
+        waitFor(getTickets, in: app)
         getTickets.tap()
         // A free event confirms immediately, so pick a paid one instead.
         app.terminate()

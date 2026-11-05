@@ -32,3 +32,5 @@ ALWAYS_SEARCH_USER_PATHS = NO
 LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/Frameworks
 // HTTPS only (exempt): answers App Store Connect's export-compliance question for every build.
 INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO
+// Honoured only by the Prod configuration; see Prod.xcconfig.
+PROD_LAUNCH_APPROVED = NO

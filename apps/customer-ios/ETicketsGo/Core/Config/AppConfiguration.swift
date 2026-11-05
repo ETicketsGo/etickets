@@ -15,7 +15,8 @@ struct AppConfiguration: Sendable, Equatable {
     let environment: AppEnvironment
     /// `nil` in MOCK. Includes the global `/api` prefix (apps/api/src/main.ts).
     let apiBaseURL: URL?
-    /// The build's request to allow writes. Only QA honours it; see `permits(_:)`.
+    /// The build's request to allow writes. QA honours it alone; PROD only together with
+    /// `prodLaunchApproved`. See `permits(_:)`.
     let allowsMutations: Bool
     /// QA only: the identities allowed to write (sign in, sign up, and anything after).
     /// Exact email addresses or E.164 phone numbers. No patterns: a wildcard could admit
@@ -25,8 +26,18 @@ struct AppConfiguration: Sendable, Equatable {
     /// PROD until separately approved: QA booking data must not be mutated from the app.
     /// MOCK simulates the whole journey against an in-memory server.
     var allowsBookingWrites = false
+    /// PROD only, and off until the release is approved: the second, independent switch every
+    /// production write needs besides `allowsMutations` (sign-in, sign-up, account deletion,
+    /// and - with their own switches - bookings and checkout). Any identity may then sign in.
+    var prodLaunchApproved = false
 
-    var bookingWritesPermitted: Bool { environment == .mock || (environment == .qa && allowsBookingWrites) }
+    var bookingWritesPermitted: Bool {
+        switch environment {
+        case .mock: true
+        case .qa: allowsBookingWrites
+        case .prod: allowsBookingWrites && permits(.post)
+        }
+    }
     /// Whether a provider-hosted checkout page may be opened from the app. Off for QA and PROD
     /// until real QA checkout is certified; MOCK uses the simulated provider.
     var allowsNativeCheckout = false
@@ -35,25 +46,27 @@ struct AppConfiguration: Sendable, Equatable {
     /// The app's own URL scheme (Info.plist CFBundleURLTypes).
     var appURLScheme: String?
 
-    var nativeCheckoutPermitted: Bool { environment == .mock || (environment == .qa && allowsNativeCheckout && bookingWritesPermitted) }
+    var nativeCheckoutPermitted: Bool { environment == .mock || (environment != .mock && allowsNativeCheckout && bookingWritesPermitted) }
 
-    /// Reads are always allowed; writes only against QA, and only when the build opted in.
-    /// PROD is read-only whatever the build settings say, so a misconfigured xcconfig cannot
-    /// create a real booking, a real account or a real session.
+    /// Reads are always allowed. QA writes when the build opted in. PROD writes only when BOTH
+    /// `allowsMutations` and `prodLaunchApproved` are set, so one mistaken xcconfig value
+    /// cannot create a real account, session or booking.
     func permits(_ method: HTTPMethod) -> Bool {
         if method.isSafe { return true }
         switch environment {
         case .qa: return allowsMutations
-        case .mock, .prod: return false
+        case .prod: return allowsMutations && prodLaunchApproved
+        case .mock: return false
         }
     }
 
     /// Whether this identity may write. MOCK writes nothing real, so anyone may; QA requires
-    /// the identity to be on the approved list; PROD allows nobody in this phase.
+    /// the identity to be on the approved list; PROD admits everyone once the launch is
+    /// approved, and nobody before.
     func isApprovedTestAccount(_ identity: String) -> Bool {
         switch environment {
         case .mock: return true
-        case .prod: return false
+        case .prod: return permits(.post)
         case .qa:
             let id = Self.normalised(identity)
             guard !id.isEmpty else { return false }
@@ -87,8 +100,9 @@ struct AppConfiguration: Sendable, Equatable {
         return AppConfiguration(
             environment: environment, apiBaseURL: url, allowsMutations: allows,
             qaTestAccounts: environment == .qa ? accounts : [],
-            allowsBookingWrites: environment == .qa && (info["ETGAllowBookingWrites"] as? String)?.uppercased() == "YES",
-            allowsNativeCheckout: environment == .qa && (info["ETGNativeCheckout"] as? String)?.uppercased() == "YES",
+            allowsBookingWrites: (info["ETGAllowBookingWrites"] as? String)?.uppercased() == "YES",
+            prodLaunchApproved: environment == .prod && (info["ETGProdLaunchApproved"] as? String)?.uppercased() == "YES",
+            allowsNativeCheckout: (info["ETGNativeCheckout"] as? String)?.uppercased() == "YES",
             webHost: (info["ETGWebHost"] as? String).flatMap { $0.isEmpty ? nil : $0 },
             appURLScheme: scheme)
     }
