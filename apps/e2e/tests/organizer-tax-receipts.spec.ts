@@ -90,7 +90,7 @@ test.describe('organizer: tax identity, receipts and refunds', () => {
       same reason - a state box whose hint reads "pick a country first" is a box somebody
       fills in twice.
     */
-    await page.getByLabel('Country').selectOption({ label: 'India' });
+    await page.getByLabel('Country', { exact: true }).selectOption({ label: 'India' });
     await page.getByLabel(/Registered as/i).selectOption('Private limited company');
     await page.locator('#legal-taxRegistrationKind').selectOption('GSTIN');
     // A fixture identifier. The platform records it verbatim and asserts nothing about it.
@@ -114,7 +114,7 @@ test.describe('organizer: tax identity, receipts and refunds', () => {
     await expect(page.locator('#legal-taxRegistrationKind')).toHaveValue('GSTIN');
     // Saved but never loaded back, it read "Select..." after every reload (PROD, 2026-11).
     await expect(page.getByLabel(/Registered as/i)).toHaveValue('Private limited company');
-    await expect(page.getByLabel('Country')).toHaveValue('India');
+    await expect(page.getByLabel('Country', { exact: true })).toHaveValue('India');
   });
 
   test('7-8: a manager cannot change the tax identity, only the owner can', async ({ request }) => {
