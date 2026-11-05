@@ -30,3 +30,5 @@ SWIFT_EMIT_LOC_STRINGS = YES
 CLANG_ENABLE_MODULES = YES
 ALWAYS_SEARCH_USER_PATHS = NO
 LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/Frameworks
+// HTTPS only (exempt): answers App Store Connect's export-compliance question for every build.
+INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO

@@ -36,6 +36,16 @@ protocol AuthService: Sendable {
     func verifyPhoneCode(phone: String, code: String, fullName: String?) async throws -> AuthenticatedUser
     /// Revokes the refresh token when the server can be reached; always ends the local session.
     func logout() async
+    /// Deletes the account (App Store 5.1.1(v)). Ends the local session only once the server
+    /// says the account is gone.
+    func deleteAccount() async -> AccountDeletionOutcome
+}
+
+enum AccountDeletionOutcome: Equatable, Sendable {
+    case deleted
+    /// A reason the customer can act on (409, e.g. sole owner of an organisation), verbatim.
+    case blocked(String)
+    case failed(String)
 }
 
 extension AuthService {
@@ -106,6 +116,27 @@ struct RemoteAuthService: AuthService {
             _ = try? await publicClient.send(AuthAPI.logout(refresh))
         }
         await session.end()
+    }
+
+    /// A 401 counts as deleted, as on Android (customer-mobile delete-account.ts): the server
+    /// revokes the session with the account, so a retry after a dropped response is refused
+    /// for an account that no longer exists. Telling that customer "couldn't delete" would be
+    /// wrong and leave them stuck.
+    func deleteAccount() async -> AccountDeletionOutcome {
+        do {
+            _ = try await client.send(AuthAPI.deleteAccount())
+        } catch APIError.unauthorized {
+            // Already deleted; the session died with it.
+        } catch let APIError.server(status, _, message, _) where status == 401 || status == 409 {
+            if status == 409 { return .blocked(message ?? "Your account can't be deleted yet.") }
+        } catch let error as APIError {
+            if case .mutationBlocked = error { return .failed(error.userMessage) }
+            return .failed("We couldn't delete your account. Check your connection and try again.")
+        } catch {
+            return .failed("We couldn't delete your account. Check your connection and try again.")
+        }
+        await session.end()
+        return .deleted
     }
 
     private func begin(_ result: LoginResult, identity: String) async throws -> AuthenticatedUser {
@@ -191,6 +222,12 @@ struct MockAuthService: AuthService {
 
     func logout() async {
         await session.end()
+    }
+
+    func deleteAccount() async -> AccountDeletionOutcome {
+        try? await pause()
+        await session.end()
+        return .deleted
     }
 
     private func begin(identity: String, user: AuthenticatedUser) async throws -> AuthenticatedUser {

@@ -35,6 +35,11 @@ struct PhoneVerifyBody: Encodable, Sendable {
     let fullName: String?
 }
 
+/// DELETE /users/me (apps/api/src/users/users.controller.ts `deleteAccountSchema`).
+struct DeleteAccountBody: Encodable, Sendable {
+    let reason: String?
+}
+
 /// POST /auth/login and /auth/register answer with a token pair. A back-office account that
 /// must pass MFA gets `{ mfaRequired, challengeToken, methods }` instead (shared-types api.ts);
 /// the customer app does not complete MFA and sends those accounts to the web console.
@@ -86,6 +91,11 @@ enum AuthAPI {
 
     static func verifyPhoneCode(_ body: PhoneVerifyBody) -> Endpoint<PhoneVerifyResult> {
         Endpoint(method: .post, path: "/auth/phone/verify", body: encode(body), isAuthFlow: true)
+    }
+
+    /// Irreversible. Idempotent on the server; the session is revoked with the account.
+    static func deleteAccount(reason: String? = nil) -> Endpoint<IgnoredResponse> {
+        Endpoint(method: .delete, path: "/users/me", body: encode(DeleteAccountBody(reason: reason)), requiresAuth: true)
     }
 
     private static func encode<T: Encodable>(_ value: T) -> Data? {

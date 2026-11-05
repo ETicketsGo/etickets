@@ -367,3 +367,67 @@ struct MockAuthTests {
         #expect(!SignInViewModel.looksLikePhone("9000000001"))  // national number: country code required
     }
 }
+
+// MARK: - Account deletion (App Store 5.1.1(v); DELETE /users/me)
+
+@Suite("Account deletion")
+struct AccountDeletionTests {
+    private func signedIn() -> InMemoryTokenStore {
+        InMemoryTokenStore(StoredSession(
+            tokens: TokenPair(accessToken: "access-del", refreshToken: "r"), identity: "tester@qa.eticketsgo.test", user: nil))
+    }
+
+    @Test("Sends an authenticated DELETE /users/me and ends the session once the server confirms")
+    func deletes() async throws {
+        let store = signedIn()
+        let transport = RoutingTransport { _ in (200, #"{"deleted":true}"#) }
+        let (service, _, _) = remote(qaConfig(), store: store, transport: transport)
+        #expect(await service.deleteAccount() == .deleted)
+        let request = try #require(transport.requests.first)
+        #expect(request.httpMethod == "DELETE")
+        #expect(request.url?.path() == "/api/users/me")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer access-del")
+        #expect(store.read() == nil)
+    }
+
+    @Test("409 (sole organisation owner) shows the server's reason and keeps the session")
+    func blocked() async {
+        let store = signedIn()
+        let transport = RoutingTransport { _ in (409, #"{"code":"ACCOUNT_DELETION_BLOCKED","message":"Transfer your organization first."}"#) }
+        let (service, _, _) = remote(qaConfig(), store: store, transport: transport)
+        #expect(await service.deleteAccount() == .blocked("Transfer your organization first."))
+        #expect(store.read() != nil)
+    }
+
+    @Test("A retry refused with 401 means the account is already gone: treated as deleted")
+    func alreadyDeleted() async {
+        let store = signedIn()
+        let transport = RoutingTransport { request in
+            request.url?.path().hasSuffix("/auth/refresh") == true ? (401, "{}") : (401, #"{"code":"UNAUTHORIZED"}"#)
+        }
+        let (service, _, _) = remote(qaConfig(), store: store, transport: transport)
+        #expect(await service.deleteAccount() == .deleted)
+        #expect(store.read() == nil)
+    }
+
+    @Test("Server or network failure is reported and nothing is cleared")
+    func failure() async {
+        let store = signedIn()
+        let transport = RoutingTransport { _ in (503, "{}") }
+        let (service, _, _) = remote(qaConfig(), store: store, transport: transport)
+        guard case .failed = await service.deleteAccount() else { Issue.record("expected failure"); return }
+        #expect(store.read() != nil)
+    }
+
+    @Test("The store signs out and removes offline tickets and the pending checkout")
+    @MainActor
+    func storeScrubs() async throws {
+        let container = AppContainer.mock(latency: .zero)
+        try await container.auth.login(email: MockAuthService.demoEmail, password: MockAuthService.demoPassword)
+        let pending = PendingCheckoutStore(defaults: UserDefaults(suiteName: "etg.delete.\(UUID().uuidString)")!)
+        pending.record(PendingCheckout(bookingId: "bk1", userId: container.auth.user!.id, title: "Show"))
+        #expect(await container.auth.deleteAccount(pendingCheckout: pending) == .deleted)
+        #expect(container.auth.state == .signedOut)
+        #expect(pending.current == nil)
+    }
+}
