@@ -91,17 +91,34 @@ final class TicketSelectionViewModel {
         }
     }
 
+    /// Where tickets are sent, for an account that has no email (signed up with a phone).
+    var contactEmail = ""
+
+    /// The account's email, or for a phone-only account the one typed at checkout. The API
+    /// requires a deliverable address on every booking; this checks only that it is shaped
+    /// like one, and the server judges the rest.
+    nonisolated static func ticketEmail(account: String?, entered: String) -> String? {
+        if let account, !account.isEmpty { return account }
+        let typed = entered.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard typed.range(of: #"^[^\s@]+@[^\s@]+\.[^\s@]+$"#, options: .regularExpression) != nil else { return nil }
+        return typed
+    }
+
     /// POST /bookings. Disabled while in flight, so a double tap cannot send twice; the
     /// idempotency key makes a network retry safe as well.
     func reserve(buyer: AuthenticatedUser) async {
         guard !isReserving, !items.isEmpty else { return }
+        guard let buyerEmail = Self.ticketEmail(account: buyer.email, entered: contactEmail) else {
+            reserveError = "Add an email address for your tickets."
+            return
+        }
         isReserving = true
         reserveError = nil
         defer { isReserving = false }
         do {
             reserved = try await repository.createBooking(
                 CreateBookingBody(eventSessionId: sessionId, items: items, buyerName: buyer.fullName,
-                                  buyerEmail: buyer.email, paymentMethod: paymentMethod, couponCode: nil),
+                                  buyerEmail: buyerEmail, paymentMethod: paymentMethod, couponCode: nil),
                 idempotencyKey: idempotencyKey)
             idempotencyKey = UUID().uuidString
         } catch let APIError.server(status, code, message, _) where status == 409 {
@@ -264,7 +281,8 @@ struct TicketSelectionView: View {
     }
 
     private func reserveBar(_ model: TicketSelectionViewModel) -> some View {
-        VStack(spacing: ETGSpace.sm) {
+        @Bindable var model = model
+        return VStack(spacing: ETGSpace.sm) {
             if let error = model.reserveError {
                 Text(error).font(ETGFont.subheadline).foregroundStyle(ETGColor.critical).multilineTextAlignment(.center)
             }
@@ -278,6 +296,16 @@ struct TicketSelectionView: View {
                 Button("Sign in to book") { container.auth.isPresentingSignIn = true }
                     .buttonStyle(.etgPrimary)
             } else {
+                if container.auth.user?.email == nil {
+                    TextField("Email for your tickets", text: $model.contactEmail)
+                        .keyboardType(.emailAddress)
+                        .textContentType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .padding(ETGSpace.md)
+                        .background(ETGColor.surface, in: RoundedRectangle(cornerRadius: 12))
+                        .accessibilityIdentifier("booking.contactEmail")
+                }
                 Button {
                     guard let user = container.auth.user else { return }
                     Task { await model.reserve(buyer: user) }

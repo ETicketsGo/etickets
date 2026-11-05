@@ -34,7 +34,7 @@ private func reserved(holdSeconds: TimeInterval = 600) async throws -> (any Book
     let session = try #require(event.sessions.first), type = try #require(session.ticketTypes.first)
     let created = try await repo.createBooking(
         CreateBookingBody(eventSessionId: session.id, items: [BookingItem(ticketTypeId: type.id, quantity: 1)],
-                          buyerName: buyer.fullName, buyerEmail: buyer.email, paymentMethod: .online, couponCode: nil),
+                          buyerName: buyer.fullName, buyerEmail: buyer.email ?? "", paymentMethod: .online, couponCode: nil),
         idempotencyKey: UUID().uuidString)
     return (repo, server, created)
 }

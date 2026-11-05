@@ -98,7 +98,7 @@ struct ProfileView: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(user.fullName).font(ETGFont.headline).foregroundStyle(ETGColor.ink)
-                Text(user.email).font(ETGFont.subheadline).foregroundStyle(ETGColor.muted)
+                Text(user.email ?? "Signed in with your phone number").font(ETGFont.subheadline).foregroundStyle(ETGColor.muted)
             }
         }
         .padding(.vertical, ETGSpace.xs)

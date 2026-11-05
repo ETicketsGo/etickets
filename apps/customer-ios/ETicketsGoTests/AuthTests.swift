@@ -345,7 +345,7 @@ struct MockAuthTests {
     @Test("A session restored from storage is signed in at launch")
     func restore() async throws {
         let user = try FixtureStore().load("me", as: AuthenticatedUser.self)
-        let store = InMemoryTokenStore(StoredSession(tokens: TokenPair(accessToken: "a", refreshToken: "r"), identity: user.email, user: user))
+        let store = InMemoryTokenStore(StoredSession(tokens: TokenPair(accessToken: "a", refreshToken: "r"), identity: user.email ?? user.id, user: user))
         let container = AppContainer.mock(store: store, latency: .zero)
         await container.auth.start()
         #expect(container.auth.state == .signedIn(user))
@@ -429,5 +429,33 @@ struct AccountDeletionTests {
         #expect(await container.auth.deleteAccount(pendingCheckout: pending) == .deleted)
         #expect(container.auth.state == .signedOut)
         #expect(pending.current == nil)
+    }
+}
+
+// MARK: - Phone-only accounts (no email)
+
+@Suite("Phone-only accounts")
+struct PhoneOnlyAccountTests {
+    private static let phoneMe = #"{"id":"u2","email":null,"fullName":"Phone Customer","roles":["CUSTOMER"],"organizationId":null,"permissions":[]}"#
+
+    @Test("A phone sign-in whose /auth/me has email null signs in (it used to fail decoding and end the session)")
+    func phoneSignIn() async throws {
+        let config = AppConfiguration(environment: .qa, apiBaseURL: URL(string: "https://api-qa.eticketsgo.com/api")!,
+                                      allowsMutations: true, qaTestAccounts: ["+15550100"])
+        let transport = RoutingTransport { request in
+            request.url?.path().hasSuffix("/auth/phone/verify") == true
+                ? (201, #"{"accessToken":"a","refreshToken":"r","isNewAccount":false}"#) : (200, Self.phoneMe)
+        }
+        let (service, _, _) = remote(config, transport: transport)
+        let user = try await service.verifyPhoneCode(phone: "+15550100", code: "123456", fullName: nil)
+        #expect(user.email == nil && user.fullName == "Phone Customer")
+    }
+
+    @Test("Tickets go to the account email, else a well-formed address typed at checkout")
+    func ticketEmail() {
+        #expect(TicketSelectionViewModel.ticketEmail(account: "a@b.co", entered: "") == "a@b.co")
+        #expect(TicketSelectionViewModel.ticketEmail(account: nil, entered: "  me@example.com ") == "me@example.com")
+        #expect(TicketSelectionViewModel.ticketEmail(account: nil, entered: "") == nil)
+        #expect(TicketSelectionViewModel.ticketEmail(account: nil, entered: "not an email") == nil)
     }
 }
