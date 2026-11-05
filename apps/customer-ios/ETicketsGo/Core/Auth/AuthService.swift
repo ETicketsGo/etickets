@@ -39,6 +39,15 @@ protocol AuthService: Sendable {
     /// Deletes the account (App Store 5.1.1(v)). Ends the local session only once the server
     /// says the account is gone.
     func deleteAccount() async -> AccountDeletionOutcome
+    func profile() async throws -> UserProfile
+    /// Saves the profile and returns the signed-in user with the new name.
+    func updateProfile(fullName: String, countryOfResidence: String?) async throws -> AuthenticatedUser
+}
+
+/// A full name the server will accept (2 to 120 characters once trimmed), or nil.
+func validFullName(_ name: String) -> String? {
+    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    return (2...120).contains(trimmed.count) ? trimmed : nil
 }
 
 enum AccountDeletionOutcome: Equatable, Sendable {
@@ -139,6 +148,15 @@ struct RemoteAuthService: AuthService {
         return .deleted
     }
 
+    func profile() async throws -> UserProfile {
+        try await client.send(AuthAPI.profile())
+    }
+
+    func updateProfile(fullName: String, countryOfResidence: String?) async throws -> AuthenticatedUser {
+        let saved = try await client.send(AuthAPI.updateProfile(UpdateProfileBody(fullName: fullName, countryOfResidence: countryOfResidence)))
+        return await renamed(to: saved.fullName, session: session)
+    }
+
     private func begin(_ result: LoginResult, identity: String) async throws -> AuthenticatedUser {
         guard case let .tokens(tokens) = result else { throw AuthError.mfaRequired }
         try await session.begin(tokens: tokens, identity: identity, user: nil)
@@ -168,6 +186,21 @@ struct RemoteAuthService: AuthService {
 /// - Sign-up: succeeds for any new address. The demo address gets a field error, as a duplicate
 ///   would. Passwords under 10 characters get the API's VALIDATION_FAILED shape.
 /// - Phone: any number gets a code; the code is always 123456.
+/// MOCK: the country of residence, which the session does not carry.
+actor MockResidence {
+    private(set) var code: String?
+    func set(_ code: String?) { self.code = code }
+}
+
+/// The stored user with a new name, kept in the session so a relaunch shows it too.
+private func renamed(to name: String, session: AuthSession) async -> AuthenticatedUser {
+    let current = await session.current?.user
+    let user = AuthenticatedUser(id: current?.id ?? "", email: current?.email, fullName: name,
+                                 roles: current?.roles ?? [], organizationId: current?.organizationId)
+    await session.updateUser(user)
+    return user
+}
+
 struct MockAuthService: AuthService {
     static let demoEmail = "demo.customer@example.com"
     static let demoPassword = "Tickets-Demo-2026"
@@ -176,6 +209,7 @@ struct MockAuthService: AuthService {
     let session: AuthSession
     var fixtures = FixtureStore()
     var latency: Duration = .milliseconds(400)
+    var residence = MockResidence()
 
     func restore() async -> AuthenticatedUser? {
         await session.current?.user
@@ -215,7 +249,7 @@ struct MockAuthService: AuthService {
             throw APIError.server(status: 400, code: "INVALID_CODE", message: "That code isn't right. Check it and try again.")
         }
         let user = AuthenticatedUser(
-            id: "usr-phone", email: "phone@phone.eticketsgo.invalid",
+            id: "usr-phone", email: nil,
             fullName: fullName ?? "Mobile Customer", roles: ["CUSTOMER"], organizationId: nil)
         return try await begin(identity: phone, user: user)
     }
@@ -228,6 +262,22 @@ struct MockAuthService: AuthService {
         try? await pause()
         await session.end()
         return .deleted
+    }
+
+    func profile() async throws -> UserProfile {
+        try await pause()
+        guard let user = await session.current?.user else { throw APIError.unauthorized }
+        return UserProfile(fullName: user.fullName, email: user.email, countryOfResidence: await residence.code)
+    }
+
+    func updateProfile(fullName: String, countryOfResidence: String?) async throws -> AuthenticatedUser {
+        try await pause()
+        guard let name = validFullName(fullName) else {
+            throw APIError.server(status: 400, code: "VALIDATION_FAILED", message: "The request failed validation.",
+                                  fields: ["fullName": ["Use 2 to 120 characters."]])
+        }
+        await residence.set(countryOfResidence)
+        return await renamed(to: name, session: session)
     }
 
     private func begin(identity: String, user: AuthenticatedUser) async throws -> AuthenticatedUser {

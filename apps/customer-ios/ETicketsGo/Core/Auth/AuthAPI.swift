@@ -35,6 +35,42 @@ struct PhoneVerifyBody: Encodable, Sendable {
     let fullName: String?
 }
 
+/// GET /users/me: the fields a customer edits (users.service.ts `profile`). `email` is nil for a
+/// phone-only account.
+struct UserProfile: Decodable, Equatable, Sendable {
+    let fullName: String
+    let email: String?
+    let countryOfResidence: String?
+}
+
+/// PATCH /users/me (users.controller.ts `updateProfileSchema`). Both fields are always sent;
+/// a cleared country goes as an explicit `null`, which is how the server clears it.
+struct UpdateProfileBody: Encodable, Sendable {
+    let fullName: String
+    let countryOfResidence: String?
+
+    private enum Keys: String, CodingKey { case fullName, countryOfResidence }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: Keys.self)
+        try container.encode(fullName, forKey: .fullName)
+        if let countryOfResidence {
+            try container.encode(countryOfResidence, forKey: .countryOfResidence)
+        } else {
+            try container.encodeNil(forKey: .countryOfResidence)
+        }
+    }
+}
+
+/// Where a customer may say they live: the platform's markets (packages/shared-types markets.ts,
+/// `RESIDENCE_COUNTRIES`). Optional and never inferred. The server validates the code.
+enum ResidenceCountry {
+    static let all: [(code: String, name: String)] = [
+        ("IN", "India"), ("US", "United States"), ("CA", "Canada"), ("GB", "United Kingdom"),
+        ("AE", "United Arab Emirates"), ("SG", "Singapore"), ("AU", "Australia"), ("NZ", "New Zealand"),
+    ]
+}
+
 /// DELETE /users/me (apps/api/src/users/users.controller.ts `deleteAccountSchema`).
 struct DeleteAccountBody: Encodable, Sendable {
     let reason: String?
@@ -91,6 +127,14 @@ enum AuthAPI {
 
     static func verifyPhoneCode(_ body: PhoneVerifyBody) -> Endpoint<PhoneVerifyResult> {
         Endpoint(method: .post, path: "/auth/phone/verify", body: encode(body), isAuthFlow: true)
+    }
+
+    static func profile() -> Endpoint<UserProfile> {
+        Endpoint(path: "/users/me", requiresAuth: true)
+    }
+
+    static func updateProfile(_ body: UpdateProfileBody) -> Endpoint<UserProfile> {
+        Endpoint(method: .patch, path: "/users/me", body: encode(body), requiresAuth: true)
     }
 
     /// Irreversible. Idempotent on the server; the session is revoked with the account.

@@ -85,6 +85,14 @@ final class AuthStore {
         state = .signedOut
     }
 
+    func profile() async throws -> UserProfile {
+        try await service.profile()
+    }
+
+    func updateProfile(fullName: String, countryOfResidence: String?) async throws {
+        state = .signedIn(try await service.updateProfile(fullName: fullName, countryOfResidence: countryOfResidence))
+    }
+
     /// On success nothing of the account is left on this phone: session, offline tickets and
     /// the checkout awaiting recovery are all removed.
     func deleteAccount(pendingCheckout: PendingCheckoutStore? = nil) async -> AccountDeletionOutcome {
