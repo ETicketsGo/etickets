@@ -114,6 +114,7 @@ export async function fetchEventCards(
         category: e.category,
         // The same card venue as the browse list, so a carousel names the country the same way.
         venue: cardVenue(e.venue),
+        attendanceMode: e.attendanceMode,
         organizer: e.organization.name,
         imagePath: coverImagePath(e.id, e.images),
         imageVariants: coverImageVariants(e.id, e.images),

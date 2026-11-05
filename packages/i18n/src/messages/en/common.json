@@ -150,5 +150,6 @@
     "failed": "The check did not load. Check your connection, or turn off a content blocker for this site. Then try again.",
     "retry": "Try again",
     "cancel": "Cancel"
-  }
+  },
+  "online": "Online"
 }

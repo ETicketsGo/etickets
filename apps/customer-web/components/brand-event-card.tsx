@@ -15,6 +15,7 @@ import { Link } from '@/i18n/navigation';
 import { ContentLabelBadge } from './content-label-badge';
 import { FromPrice } from './home/parts';
 import { SaveEventButton } from './storefront-brand';
+import { useEventPlace } from '@/lib/event-place';
 
 /*
   ── AN EVENT IN A GRID, ON THE BRAND LAYER ───────────────────────────────────────────
@@ -41,6 +42,7 @@ export function BrandEventCard({
   /** The first cards on a page are fetched at once; the rest stay lazy. */
   priority?: boolean;
 }) {
+  const place = useEventPlace();
   const { dateTime, zoneAbbrev } = useFormat();
   const image = eventImageSource({ variants: event.imageVariants, path: event.imagePath }, 'card');
   // The venue's zone, else its country's only one (a saved card can predate the API's answer).
@@ -108,9 +110,7 @@ export function BrandEventCard({
         </p>
         <p className="mt-1 flex items-start gap-1.5 text-brand-meta text-brand-ink-3">
           <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-          <span>
-            {event.venue.name}, {event.venue.city}
-          </span>
+          <span>{place(event).full}</span>
         </p>
         <p className="mt-auto pt-2">
           <FromPrice event={event} />

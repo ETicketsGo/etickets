@@ -85,3 +85,14 @@ describe('the postal code an address can carry', () => {
     expect(postalCodeProblem('United Kingdom', 'SW1A 1AA')).toBeNull();
   });
 });
+
+describe('one zone name for one zone, on every surface (PROD, 2026-11-05)', () => {
+  it('names the zone the way people say it, not as an offset, where a name exists', async () => {
+    const { zoneAbbrev } = await import('./format');
+    // A Meridian (Idaho) show in November: the console said MST, the storefront said GMT-7.
+    expect(zoneAbbrev('2026-11-12T01:00:00Z', 'America/Boise')).toBe('MST');
+    expect(zoneAbbrev('2026-07-12T01:00:00Z', 'America/Boise')).toBe('MDT');
+    expect(zoneAbbrev('2026-11-12T01:00:00Z', 'Asia/Kolkata')).toBe('IST');
+    expect(zoneAbbrev('2026-11-12T01:00:00Z', 'America/New_York')).toBe('EST');
+  });
+});

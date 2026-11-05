@@ -1,6 +1,15 @@
 import { PublicEventsService } from './public-events.service';
 import { AdvertisedPriceService } from '../pricing/advertised-price.service';
 
+/**
+ * The in-person city clause. It sits inside AND/OR beside the online branch (online and hybrid
+ * events are listed in every city of their country), so the test reads it from there.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const cityVenue = (where: any) => where.AND?.[0]?.OR?.[0]?.venue ?? where.venue;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const onlineBranch = (where: any) => where.AND?.[0]?.OR?.[1];
+
 // PRICE_DISPLAY_MODE defaults to `itemised`, in which the advertised-price service returns
 // prices exactly as stored and never touches the database. Passing the real service (rather
 // than a stub returning a fixed number) keeps these tests honest about the default: if the
@@ -80,7 +89,7 @@ describe('PublicEventsService.list place scope', () => {
   it('ignores excludeCity when a city is named: that city is the one wanted', async () => {
     const { service, count } = makeService();
     await service.list({ page: 1, pageSize: 8, city: 'Mumbai', excludeCity: 'Mumbai' });
-    expect(JSON.stringify(count.mock.calls[0][0].where.venue)).not.toContain('NOT');
+    expect(JSON.stringify(cityVenue(count.mock.calls[0][0].where))).not.toContain('NOT');
   });
 });
 
@@ -138,7 +147,7 @@ describe('PublicEventsService.list geography', () => {
 
     await service.list({ city: 'Mumbai', country: 'US', page: 1, pageSize: 10 });
 
-    const venue = count.mock.calls[0][0].where.venue;
+    const venue = cityVenue(count.mock.calls[0][0].where);
     expect(venue).toEqual({ city: { equals: 'Mumbai', mode: 'insensitive' } });
     expect(venue.country).toBeUndefined();
   });
@@ -153,7 +162,7 @@ describe('PublicEventsService.list geography', () => {
       page: 1,
       pageSize: 10,
     });
-    const venue = count.mock.calls[0][0].where.venue;
+    const venue = cityVenue(count.mock.calls[0][0].where);
     expect(venue.city).toEqual({ equals: 'Springfield', mode: 'insensitive' });
     expect(venue.country.in).toEqual(expect.arrayContaining(['us', 'united states']));
     // A venue that never recorded its state is kept, not hidden.
@@ -161,6 +170,30 @@ describe('PublicEventsService.list geography', () => {
       { region: { equals: 'Illinois', mode: 'insensitive' } },
       { region: null },
     ]);
+  });
+
+  it('lists online and hybrid events in every city of their own country, never another (PROD, 2026-11-05)', async () => {
+    /*
+      The PROD case: an online US event was missing for a buyer who chose Meridian, because
+      its venue city ("Online") never equals "Meridian". Online events now match any city of
+      their country, and only that country, so a US event cannot reach an Indian city.
+    */
+    const { service, count } = makeService();
+    await service.list({ city: 'Meridian', cityCountry: 'US', page: 1, pageSize: 10 });
+    const online = onlineBranch(count.mock.calls[0][0].where);
+    expect(online.attendanceMode).toEqual({ in: ['ONLINE', 'HYBRID'] });
+    expect(online.venue.country.in).toEqual(expect.arrayContaining(['us', 'united states']));
+    expect(online.venue.country.in).not.toContain('india');
+    expect(cityVenue(count.mock.calls[0][0].where).city).toEqual({
+      equals: 'Meridian',
+      mode: 'insensitive',
+    });
+  });
+
+  it('adds no online branch when the city has no known country (no market, no leak)', async () => {
+    const { service, count } = makeService();
+    await service.list({ city: 'Meridian', page: 1, pageSize: 10 });
+    expect(onlineBranch(count.mock.calls[0][0].where)).toBeUndefined();
   });
 
   it('applies no geography at all when neither is given', async () => {

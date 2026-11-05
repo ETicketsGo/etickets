@@ -19,6 +19,7 @@ import { useFormat } from '@/lib/format';
 import { eventZone } from '@/lib/event-when';
 import { useReaderZone } from '@/lib/reader-zone';
 import { priceSlot, type Buyability } from '@/lib/home-feed';
+import { useEventPlace } from '@/lib/event-place';
 
 /*
   ── THE HOME PAGE'S PIECES (docs/design/DESIGN-SYSTEM.md) ─────────────────────────────
@@ -232,6 +233,7 @@ function RowThumb({ event }: { event: PublicEventCard }) {
 
 /** The 16:9 lead of an editorial section. */
 export function FeatureCard({ event, state }: { event: PublicEventCard; state?: Buyability }) {
+  const place = useEventPlace();
   const when = useVenueWhen()(event.nextSessionAt, eventZone(event));
   const image = cardImage(event, 'banner');
   return (
@@ -267,7 +269,7 @@ export function FeatureCard({ event, state }: { event: PublicEventCard; state?: 
         )}
         <span className="text-brand-ink-2">
           {when ? ' - ' : ''}
-          {event.venue.name}, {event.venue.city}
+          {place(event).full}
         </span>
       </p>
       <p className="mt-2">
@@ -279,6 +281,7 @@ export function FeatureCard({ event, state }: { event: PublicEventCard; state?: 
 
 /** One row of the 4:3 list beside the feature. */
 export function EventRow({ event, state }: { event: PublicEventCard; state?: Buyability }) {
+  const place = useEventPlace();
   const when = useVenueWhen()(event.nextSessionAt, eventZone(event));
   return (
     <Link
@@ -298,7 +301,7 @@ export function EventRow({ event, state }: { event: PublicEventCard; state?: Buy
         </h3>
         <p className="mt-1 line-clamp-2 text-brand-meta text-brand-ink-3">
           {when ? `${when.day}, ${when.time} - ` : ''}
-          {event.venue.name}, {event.venue.city}
+          {place(event).full}
         </p>
       </div>
       {/*
@@ -323,6 +326,7 @@ export function EventTile({
   showCity?: boolean;
   state?: Buyability;
 }) {
+  const place = useEventPlace();
   const when = useVenueWhen()(event.nextSessionAt, eventZone(event));
   const image = cardImage(event, 'card');
   return (
@@ -346,7 +350,7 @@ export function EventTile({
       <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-gold-text">
         <span>
           {event.category}
-          {showCity ? ` / ${event.venue.city}` : ''}
+          {showCity ? ` / ${place(event).city}` : ''}
         </span>
         <ContentLabelBadge label={event.contentLabel} />
       </p>
@@ -451,6 +455,7 @@ export function RailItem({ children }: { children: ReactNode }) {
 
 /** The hero: one real event, its photo, and the one action on the page. */
 export function StageHero({ event }: { event: PublicEventCard }) {
+  const place = useEventPlace();
   const h = useTranslations('home.hero');
   const nav = useTranslations('home.chips');
   const when = useVenueWhen()(event.nextSessionAt, eventZone(event));
@@ -496,7 +501,7 @@ export function StageHero({ event }: { event: PublicEventCard }) {
           <div className="flex flex-wrap items-center gap-3">
             {today && <BrandStatusPill status="live">{nav('today')}</BrandStatusPill>}
             <span className="text-brand-eyebrow uppercase text-brand-gold-text">
-              {event.category} / {event.venue.city}
+              {event.category} / {place(event).city}
             </span>
             <ContentLabelBadge label={event.contentLabel} />
           </div>
@@ -510,7 +515,14 @@ export function StageHero({ event }: { event: PublicEventCard }) {
               </li>
             )}
             <li>
-              <b className="font-semibold text-brand-ink">{event.venue.name}</b> {event.venue.city}
+              {event.attendanceMode === 'ONLINE' ? (
+                <b className="font-semibold text-brand-ink">{place(event).full}</b>
+              ) : (
+                <>
+                  <b className="font-semibold text-brand-ink">{event.venue.name}</b>{' '}
+                  {place(event).city}
+                </>
+              )}
             </li>
             {event.organizer && <li>{h('by', { name: event.organizer })}</li>}
           </ul>

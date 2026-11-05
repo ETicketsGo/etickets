@@ -37,6 +37,7 @@ import {
   zoneAbbrev,
   type OrgEventDetail,
   type TileTone,
+  type AttendanceMode,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { EVENT_CATEGORIES, isListedCategory } from '@/lib/templates';
@@ -89,6 +90,7 @@ interface EditForm {
   isFree: boolean;
   /** '' is "not set". */
   taxCategory: string;
+  attendanceMode: AttendanceMode;
 }
 
 function formFrom(event: WithRefundRule): EditForm {
@@ -102,6 +104,9 @@ function formFrom(event: WithRefundRule): EditForm {
     feeMode: event.feeMode,
     isFree: event.isFree,
     taxCategory: event.taxCategory ?? '',
+    attendanceMode:
+      ((event as { attendanceMode?: AttendanceMode }).attendanceMode as AttendanceMode) ??
+      'IN_PERSON',
   };
 }
 
@@ -150,6 +155,7 @@ export default function EditEvent() {
     feeMode: 'CUSTOMER_PAYS',
     isFree: false,
     taxCategory: '',
+    attendanceMode: 'IN_PERSON',
   });
   /* What the server holds, for "unsaved changes" and for sending the refund rule only if it moved. */
   const [loaded, setLoaded] = useState<{ form: EditForm; details: EventDetailsValue } | null>(null);
@@ -205,6 +211,7 @@ export default function EditEvent() {
         refundPolicy: form.refundPolicy || undefined,
         feeMode: form.feeMode,
         isFree: form.isFree,
+        attendanceMode: form.attendanceMode,
         taxCategory: taxCategoryBody(form.taxCategory),
         ...(refundChanged
           ? {
@@ -480,6 +487,25 @@ export default function EditEvent() {
                 disabled={!editable}
               />
             )}
+            {/*
+              How people attend, said once and kept apart from the time zone. An online event
+              is listed in every city of its country; its venue gives the country and the time
+              zone and is never printed as an address.
+            */}
+            <Select
+              id="attendance-mode"
+              label="How people attend"
+              hint="Online events are shown to buyers in every city of your country."
+              value={form.attendanceMode}
+              disabled={!editable}
+              onChange={(e) =>
+                setForm({ ...form, attendanceMode: e.target.value as AttendanceMode })
+              }
+            >
+              <option value="IN_PERSON">In person, at the venue</option>
+              <option value="ONLINE">Online only</option>
+              <option value="HYBRID">In person and online</option>
+            </Select>
             <Textarea
               id="desc"
               label="Description"

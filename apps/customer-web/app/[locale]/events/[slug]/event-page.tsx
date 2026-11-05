@@ -17,7 +17,6 @@ import {
   RatingStars,
   apiAssetUrl,
   brandButtonClasses,
-  brandChipClasses,
   eventImageSource,
   publishedDetail,
   showDurationMinutes,
@@ -86,10 +85,12 @@ import {
   TicketAvailability,
   useVenueWhen,
 } from '@/components/booking-brand';
+import { useEventPlace } from '@/lib/event-place';
 
 export function EventDetailPage() {
   // `tx` is the shared vocabulary (Free, Sold out); `sf` is storefront copy.
   const tx = useTranslations('common');
+  const place = useEventPlace();
   const sf = useTranslations('storefront');
   const b = useTranslations('storefront.booking');
   const { money, dateOnly } = useFormat();
@@ -636,7 +637,7 @@ export function EventDetailPage() {
   const supportEmail = publishedDetail(BUSINESS_DETAILS.supportEmail);
   const minutes = session ? showDurationMinutes(session.startsAt, session.endsAt) : null;
   const duration = minutes ? durationText(minutes) : null;
-  const eyebrow = [event.category, event.venue.city, longDate?.short].filter(
+  const eyebrow = [event.category, place(event).city, longDate?.short].filter(
     (part): part is string => Boolean(part),
   );
   const arrival = arrivalFacts(futureSessions.length > 0);
@@ -1257,46 +1258,93 @@ export function EventDetailPage() {
               {shownWhen ? (
                 <p className="mt-1 text-center text-brand-meta text-brand-ink-2">
                   {shownWhen.day}, {shownWhen.time}
-                  {shownWhen.zone ? ` ${shownWhen.zone}` : ''} - {event.venue.name}
+                  {shownWhen.zone ? ` ${shownWhen.zone}` : ''} - {place(event).full}
                 </p>
               ) : null}
 
               {/*
-                Dates, as chips, inside the card: the date and the tickets are one decision. Only
-                when there is more than one to choose from.
+                ── DATES AS A LIST, NOT A SCROLLING ROW OF CHIPS ─────────────────────────
+                With several dates the chips overflowed sideways behind a scrollbar, without the
+                year, the end time or the zone, and nothing said which were sold out. Each date
+                is now one row of a radio group in date order: the full date, start to end on
+                the venue's clock with the zone named (the same name the console and the email
+                use), and whether it can still be booked. Choosing a row drives the quote, the
+                hold and the ticket exactly as a chip did.
               */}
               {event.sessions.length > 1 ? (
-                <div className="mt-5 border-t border-brand-line pt-4">
-                  <p className={BRAND_EYEBROW}>{sf('event.chooseDate')}</p>
-                  <div
-                    role="group"
-                    aria-label={sf('event.sessionsHeading')}
-                    className="-mx-1 mt-2 flex gap-2 overflow-x-auto px-1 pb-1"
-                  >
-                    {event.sessions.map((s) => {
-                      const active = session?.id === s.id;
-                      // Only from a page left open past the start: the API no longer sends these.
-                      const started = new Date(s.startsAt).getTime() <= Date.now();
-                      const when = venueWhen(s.startsAt, sessionZone(s, event));
-                      return (
-                        <button
-                          key={s.id}
-                          type="button"
-                          disabled={started}
-                          aria-pressed={active}
-                          onClick={() => {
-                            setSessionId(s.id);
-                            setQty({});
-                            setChosenTicket(null);
-                          }}
-                          className={`${brandChipClasses(active)} h-11 shrink-0 disabled:opacity-40`}
-                        >
-                          {when.day.replace(/\s\d{4}$/, '')}, {when.time}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                <fieldset className="mt-5 border-t border-brand-line pt-4">
+                  <legend className={BRAND_EYEBROW}>{sf('event.chooseDate')}</legend>
+                  <ul className="mt-2 space-y-2" data-testid="session-list">
+                    {[...event.sessions]
+                      .sort(
+                        (a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
+                      )
+                      .map((s, i) => {
+                        const active = session?.id === s.id;
+                        // Only from a page left open past the start: the API no longer sends these.
+                        const started = new Date(s.startsAt).getTime() <= Date.now();
+                        const cancelled = s.status === 'CANCELLED';
+                        const soldOut =
+                          !s.seatBased &&
+                          s.ticketTypes.length > 0 &&
+                          s.ticketTypes.every((tt) => tt.available <= 0);
+                        const zone = sessionZone(s, event);
+                        const when = venueWhen(s.startsAt, zone);
+                        const end = venueWhen(s.endsAt, zone);
+                        const blocked = started || cancelled;
+                        const status = cancelled
+                          ? sf('event.sessionCancelled')
+                          : started
+                            ? sf('event.sessionStarted')
+                            : soldOut
+                              ? tx('state.soldOut')
+                              : sf('event.sessionAvailable');
+                        return (
+                          <li key={s.id}>
+                            <label
+                              className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-brand-control border px-3 py-2.5 ${
+                                active
+                                  ? 'border-brand-ink bg-brand-sunken'
+                                  : 'border-brand-line hover:border-brand-ink-3'
+                              } ${blocked ? 'cursor-not-allowed opacity-50' : ''}`}
+                            >
+                              <input
+                                type="radio"
+                                name="event-session"
+                                className="mt-1 h-4 w-4 accent-brand-ink"
+                                checked={active}
+                                disabled={blocked}
+                                onChange={() => {
+                                  setSessionId(s.id);
+                                  setQty({});
+                                  setChosenTicket(null);
+                                }}
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span className="block text-brand-ui font-semibold text-brand-ink">
+                                  {sf('event.sessionNumber', { n: i + 1 })} - {when.day}
+                                </span>
+                                <span className="block text-brand-meta text-brand-ink-2">
+                                  {sf('event.sessionTime', {
+                                    start: when.time,
+                                    end: end.time,
+                                    zone: when.zone,
+                                  })}
+                                </span>
+                              </span>
+                              <span
+                                className={`shrink-0 text-brand-meta ${
+                                  soldOut || blocked ? 'text-brand-ink-3' : 'text-brand-ink-2'
+                                }`}
+                              >
+                                {active ? sf('event.sessionSelected') : status}
+                              </span>
+                            </label>
+                          </li>
+                        );
+                      })}
+                  </ul>
+                </fieldset>
               ) : null}
               {futureSessions.length === 0 ? (
                 <p className="mt-4 text-center text-brand-ui text-brand-ink-2">

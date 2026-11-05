@@ -142,18 +142,8 @@ export function formatFor(uiLocale?: string | null): LocaleFormat {
  * asked, and the first real name wins; an offset is the fallback, which is never wrong.
  */
 export function zoneShortName(iso: string, zone: string): string {
-  const names = ['en-US', 'en-IN'].map((locale) => {
-    try {
-      return (
-        new Intl.DateTimeFormat(locale, { timeZone: zone, timeZoneName: 'short' })
-          .formatToParts(new Date(iso))
-          .find((p) => p.type === 'timeZoneName')?.value ?? ''
-      );
-    } catch {
-      return '';
-    }
-  });
-  return names.find((n) => n && !/^(GMT|UTC)/.test(n)) ?? (names[0] || zoneAbbrev(iso, zone));
+  // One rule for console, storefront and email: see `zoneAbbrev`.
+  return zoneAbbrev(iso, zone);
 }
 
 /** Where a show is: anything that carries the venue's zone, or the zone itself. */

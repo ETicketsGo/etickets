@@ -83,6 +83,11 @@ export const createEventSchema = z.object({
   description: z.string().trim().max(8000).optional(),
   venueId: z.string().cuid(),
   /**
+   * How people attend. ONLINE and HYBRID events are listed in every city of their country; the
+   * venue then gives the country and the time zone, not a place anybody goes to.
+   */
+  attendanceMode: z.enum(['IN_PERSON', 'ONLINE', 'HYBRID']).optional(),
+  /**
    * Free text shown to buyers. DESCRIBES the policy; the two fields below enforce it.
    *
    * ── WHY BOTH ──────────────────────────────────────────────────────────────────────

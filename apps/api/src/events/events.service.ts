@@ -328,6 +328,7 @@ export class EventsService {
         : {}),
       feeMode: input.feeMode,
       isFree: input.isFree,
+      ...(input.attendanceMode ? { attendanceMode: input.attendanceMode } : {}),
       // Declared or absent - never guessed. See `Event.taxCategory`.
       ...(input.taxCategory !== undefined ? { taxCategory: input.taxCategory } : {}),
       ...eventDetailsData(input),
