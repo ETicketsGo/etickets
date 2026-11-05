@@ -52,7 +52,7 @@ final class AppContainer {
                let user = try? FixtureStore().load("me", as: AuthenticatedUser.self) {
                 try? store.save(StoredSession(
                     tokens: TokenPair(accessToken: "mock-access-debug", refreshToken: "mock-refresh-debug"),
-                    identity: user.email, user: user))
+                    identity: user.email ?? user.id, user: user))
             }
             #endif
             return .mock(configuration: configuration, store: store, offline: offline)

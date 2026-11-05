@@ -69,7 +69,7 @@ struct QABookingCertificationTests {
         #expect(["USD", "CAD"].contains(quote.fees.currency), "certification needs a Stripe (USD/CAD) event")
 
         let key = UUID().uuidString
-        let body = CreateBookingBody(eventSessionId: session.id, items: items, buyerName: user.fullName, buyerEmail: user.email,
+        let body = CreateBookingBody(eventSessionId: session.id, items: items, buyerName: user.fullName, buyerEmail: try #require(user.email),
                                      paymentMethod: .online, couponCode: nil)
         let held = try await booking.createBooking(body, idempotencyKey: key)                             // 4
         #expect(held.status == "PENDING_PAYMENT" && held.holdExpiresAt != nil)
@@ -127,7 +127,7 @@ struct QABookingCertificationTests {
         let booking = RemoteBookingRepository(client: customer.client)
         let held = try await booking.createBooking(
             CreateBookingBody(eventSessionId: session.id, items: [BookingItem(ticketTypeId: type.id, quantity: 1)],
-                              buyerName: user.fullName, buyerEmail: user.email, paymentMethod: .online, couponCode: nil),
+                              buyerName: user.fullName, buyerEmail: try #require(user.email), paymentMethod: .online, couponCode: nil),
             idempotencyKey: UUID().uuidString)
         try await booking.cancel(bookingId: held.id)
         #expect(try await booking.booking(id: held.id).status == "CANCELLED")

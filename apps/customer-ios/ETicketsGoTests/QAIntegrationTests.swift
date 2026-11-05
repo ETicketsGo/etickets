@@ -87,7 +87,7 @@ struct QALiveSignedInTests {
         let email = try #require(QAEnv.email), password = try #require(QAEnv.password)
 
         let user = try await stack.auth.login(email: email, password: password)
-        #expect(user.email.lowercased() == email.lowercased())
+        #expect(user.email?.lowercased() == email.lowercased())
 
         let tickets = RemoteTicketsRepository(client: stack.client)
         let bookings = try await tickets.bookings()

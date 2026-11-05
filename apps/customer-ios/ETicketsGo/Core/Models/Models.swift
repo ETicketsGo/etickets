@@ -332,7 +332,9 @@ struct Booking: Codable, Hashable, Identifiable, Sendable {
 /// GET /auth/me — `AuthenticatedUser` in packages/shared-types/src/api.ts.
 struct AuthenticatedUser: Codable, Hashable, Sendable {
     let id: String
-    let email: String
+    /// `nil` for an account made with a phone number and no email yet: /auth/me never sends
+    /// the placeholder address such accounts have on the server (auth.controller.ts).
+    let email: String?
     let fullName: String
     let roles: [String]
     let organizationId: String?
