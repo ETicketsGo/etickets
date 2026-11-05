@@ -189,7 +189,13 @@ describe('integration-real-postgres: transactional SMS consent', () => {
       { userId, email: emailOf(tag) },
       channel,
       granted,
-      { source: granted ? 'CUSTOMER_SIGNUP' : `withdrawn-by-user:${channel}` },
+      {
+        source: granted ? 'CUSTOMER_SIGNUP' : `withdrawn-by-user:${channel}`,
+        // As sign-up does: the grant names the number the person agreed to be texted on.
+        ...(granted
+          ? { phone: (await db!.user.findUnique({ where: { id: userId } }))?.phone ?? undefined }
+          : {}),
+      },
     );
   };
 
@@ -229,7 +235,8 @@ describe('integration-real-postgres: transactional SMS consent', () => {
     await grant(american, 'sam', SMS_TRANSACTIONAL_SCOPE, true);
     const consent = new MarketingConsentService(db as never);
     const subject = { userId: american, email: emailOf('sam') };
-    await expect(consent.smsTransactionalConsent(subject)).resolves.toBe('granted');
+    const phone = (await db!.user.findUnique({ where: { id: american } }))!.phone!;
+    await expect(consent.smsTransactionalConsent(subject, phone)).resolves.toBe('granted');
     await expect(consent.mayReceiveMarketing(subject, 'sms')).resolves.toBe(false);
   });
 
@@ -287,6 +294,104 @@ describe('integration-real-postgres: transactional SMS consent', () => {
     await confirm(american, 'sam', lifted);
     await build().service.dispatchDue(AFTER());
     expect(smsSentFor(lifted)).toBe(1);
+  });
+
+  /*
+    Consent is for ONE number. Changing the account's number always takes a fresh code (the
+    number is re-verified), and the old grant does not carry over: the person agrees again
+    for the new number before anything is texted to it.
+  */
+  maybe('a grant for the old number is not consent for a new, re-verified number', async () => {
+    const before = (await db!.user.findUnique({ where: { id: american } }))!.phone!;
+    await grant(american, 'sam', SMS_TRANSACTIONAL_SCOPE, true);
+    const moved = `+1415${String(Date.now()).slice(-7)}`;
+    await db!.user.update({
+      where: { id: american },
+      data: { phone: moved, phoneVerifiedAt: new Date() },
+    });
+    try {
+      const first = `us-moved-${suffix}`;
+      const rows = await confirm(american, 'sam', first);
+      expect(rows.find((r) => r.channel === 'sms')).toMatchObject({
+        status: 'SKIPPED',
+        lastError: 'not_sent: sms consent not given for this number',
+      });
+      expect(rows.find((r) => r.channel === 'email')?.status).toBe('PENDING');
+
+      // Agreeing again, now, records the NEW number, and the next booking is texted to it.
+      await grant(american, 'sam', SMS_TRANSACTIONAL_SCOPE, true);
+      const consent = new MarketingConsentService(db as never);
+      const subject = { userId: american, email: emailOf('sam') };
+      await expect(consent.smsTransactionalConsent(subject, moved)).resolves.toBe('granted');
+      await expect(consent.smsTransactionalConsent(subject, before)).resolves.toBe('granted');
+      const second = `us-moved-2-${suffix}`;
+      const again = await confirm(american, 'sam', second);
+      expect(again.find((r) => r.channel === 'sms')?.status).toBe('PENDING');
+      await build().service.dispatchDue(AFTER());
+      expect(smsSentFor(second)).toBe(1);
+    } finally {
+      await db!.user.update({ where: { id: american }, data: { phone: before } });
+      await grant(american, 'sam', SMS_TRANSACTIONAL_SCOPE, false);
+    }
+  });
+
+  maybe(
+    'a grant that names no number counts for no number; a withdrawal with none stops all',
+    async () => {
+      const consent = new MarketingConsentService(db as never);
+      const subject = { userId: american, email: emailOf('sam') };
+      const phone = (await db!.user.findUnique({ where: { id: american } }))!.phone!;
+      await new Promise((r) => setTimeout(r, 10));
+      // Stored the way sms:transactional consents were before the number was kept with them.
+      await db!.marketingConsent.create({
+        data: {
+          userId: american,
+          email: emailOf('sam'),
+          channel: SMS_TRANSACTIONAL_SCOPE,
+          granted: true,
+          source: 'CUSTOMER_SIGNUP',
+          phone: null,
+        },
+      });
+      // Never consent. (The earlier withdrawal for this number is what answers here.)
+      await expect(consent.smsTransactionalConsent(subject, phone)).resolves.not.toBe('granted');
+
+      await grant(american, 'sam', SMS_TRANSACTIONAL_SCOPE, true);
+      await expect(consent.smsTransactionalConsent(subject, phone)).resolves.toBe('granted');
+      await new Promise((r) => setTimeout(r, 10));
+      await db!.marketingConsent.create({
+        data: {
+          userId: american,
+          email: emailOf('sam'),
+          channel: SMS_TRANSACTIONAL_SCOPE,
+          granted: false,
+          source: 'withdrawn-by-user:sms:transactional',
+          phone: null,
+        },
+      });
+      await expect(consent.smsTransactionalConsent(subject, phone)).resolves.toBe('withdrawn');
+    },
+  );
+
+  maybe('signup and settings consents now keep the number they are for', async () => {
+    const consent = new MarketingConsentService(db as never);
+    const phone = (await db!.user.findUnique({ where: { id: american } }))!.phone!;
+    await new Promise((r) => setTimeout(r, 10));
+    // Settings: no number passed; the account's verified number is read and stored.
+    await consent.record(
+      { userId: american, email: emailOf('sam') },
+      SMS_TRANSACTIONAL_SCOPE,
+      true,
+      {
+        source: 'account-settings:sms:transactional',
+      },
+    );
+    const row = await db!.marketingConsent.findFirst({
+      where: { userId: american, channel: SMS_TRANSACTIONAL_SCOPE },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(row?.phone).toBe(phone);
+    await grant(american, 'sam', SMS_TRANSACTIONAL_SCOPE, false);
   });
 
   maybe('India, verified phone, no consent record: texted exactly as before', async () => {

@@ -951,8 +951,8 @@ export class NotificationService {
     return smsConsentRefusal({
       phone: addressed.destination ?? null,
       hasSubject: Boolean(row.userId || row.toEmail),
-      readConsent: () =>
-        this.consent.smsTransactionalConsent({ userId: row.userId, email: row.toEmail }),
+      readConsent: (dialled) =>
+        this.consent.smsTransactionalConsent({ userId: row.userId, email: row.toEmail }, dialled),
     });
   }
 

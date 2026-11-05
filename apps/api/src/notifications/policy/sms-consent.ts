@@ -37,13 +37,14 @@ export const SMS_TRANSACTIONAL_SCOPE = 'sms:transactional';
 export const SMS_CONSENT_REQUIRED_MARKETS: readonly string[] = ['US', 'CA'];
 
 /** The current state of one person's `sms:transactional` consent. */
-export type SmsConsentState = 'granted' | 'withdrawn' | 'none';
+export type SmsConsentState = 'granted' | 'withdrawn' | 'none' | 'other_number';
 
 /** Skip reasons, recorded as `not_sent: <reason>` on the SMS row. ASCII, no number in them. */
 export const SMS_SKIP_REASON = {
   NO_CONSENT: 'no sms consent',
   CONSENT_WITHDRAWN: 'sms consent withdrawn',
   CONSENT_UNREADABLE: 'sms consent could not be checked',
+  OTHER_NUMBER: 'sms consent not given for this number',
   SUPPRESSED: 'destination suppressed',
 } as const;
 
@@ -69,12 +70,14 @@ export function smsConsentRequiredFor(phone: string): boolean {
 export async function smsConsentRefusal(input: {
   phone: string | null | undefined;
   hasSubject: boolean;
-  readConsent: () => Promise<SmsConsentState>;
+  /** Reads the consent FOR THIS NUMBER: a grant given for another number does not count. */
+  readConsent: (phone: string) => Promise<SmsConsentState>;
 }): Promise<string | null> {
   if (!input.phone) return null;
   if (!smsConsentRequiredFor(input.phone)) return null;
   if (!input.hasSubject) return SMS_SKIP_REASON.NO_CONSENT;
-  const state = await input.readConsent();
+  const state = await input.readConsent(input.phone);
   if (state === 'granted') return null;
+  if (state === 'other_number') return SMS_SKIP_REASON.OTHER_NUMBER;
   return state === 'withdrawn' ? SMS_SKIP_REASON.CONSENT_WITHDRAWN : SMS_SKIP_REASON.NO_CONSENT;
 }

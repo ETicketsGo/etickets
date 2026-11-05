@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Ip, Headers, Put } from '@nestjs/common';
+import { Body, Controller, Get, Ip, Headers, HttpStatus, Put } from '@nestjs/common';
+import { AppException, ErrorCodes } from '../common/errors';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { MarketingConsentService } from './marketing-consent.service';
@@ -87,6 +88,20 @@ export class MarketingConsentController {
     @Ip() ip: string,
     @Headers('user-agent') userAgent?: string,
   ) {
+    /*
+      Texts about bookings go to ONE number, the one this account has proved. Agreeing with no
+      proved number on file would record a consent that names no number, which the send never
+      accepts, so the person would think they had opted in and get nothing. Say so instead.
+    */
+    if (body.channel === 'sms:transactional' && body.granted) {
+      if (!(await this.consent.verifiedPhone(user.id))) {
+        throw new AppException(
+          ErrorCodes.VALIDATION_FAILED,
+          'Verify your mobile number first. Then you can agree to texts about your bookings.',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+    }
     const jurisdiction = policyJurisdictionFor(body.country);
     /*
       Which disclosure this decision was made against. SMS consent is given against the SMS
