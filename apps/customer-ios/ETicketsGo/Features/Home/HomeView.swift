@@ -9,10 +9,10 @@ final class HomeViewModel {
 
     init(catalog: any CatalogRepository) { self.catalog = catalog }
 
-    func load() async {
+    func load(city: String? = nil) async {
         if state.value == nil { state = .loading }
         do {
-            state = .loaded(try await catalog.discovery())
+            state = .loaded(try await catalog.discovery(city: city))
         } catch {
             // Keep showing what we had on a failed refresh; only an empty screen shows the error.
             if state.value == nil { state = .failed(error.userMessage) }
@@ -39,10 +39,10 @@ struct HomeView: View {
         }
         .etgScreenBackground()
         .toolbar(.hidden, for: .navigationBar)
-        .refreshable { await model?.load() }
-        .task {
+        .refreshable { await model?.load(city: container.city.selected?.city) }
+        .task(id: container.city.selected?.id) {
             if model == nil { model = HomeViewModel(catalog: container.catalog) }
-            if model?.state.value == nil { await model?.load() }
+            await model?.load(city: container.city.selected?.city)
         }
     }
 
@@ -57,9 +57,18 @@ struct HomeView: View {
                 .font(ETGFont.display)
                 .foregroundStyle(ETGColor.ink)
                 .accessibilityAddTraits(.isHeader)
-            Text("Movies, concerts and live events near you")
-                .font(ETGFont.subheadline)
-                .foregroundStyle(ETGColor.muted)
+            Button { container.city.isPresentingPicker = true } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "mappin.and.ellipse")
+                    Text(container.city.selected?.city ?? "All cities")
+                    Image(systemName: "chevron.down").font(.caption2.weight(.bold))
+                }
+                .font(ETGFont.subheadline.weight(.semibold))
+                .foregroundStyle(ETGColor.ink)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("City: \(container.city.selected?.city ?? "All cities"). Change city")
+            .accessibilityIdentifier("home.city")
             Button { router.explore() } label: {
                 HStack(spacing: ETGSpace.sm) {
                     Image(systemName: "magnifyingglass")

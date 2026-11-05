@@ -76,6 +76,12 @@ struct EventDetailView: View {
                     if let address = event.venue.address {
                         Text(address).padding(.leading, 28)
                     }
+                    if let maps = Self.mapsURL(event) {
+                        Link(destination: maps) {
+                            Text("Open in Maps").font(ETGFont.subheadline.weight(.semibold)).foregroundStyle(ETGColor.ink).underline()
+                        }
+                        .padding(.leading, 28)
+                    }
                     Label("By \(event.organizer.name)", systemImage: "person.2")
                 }
                 .font(ETGFont.subheadline)
@@ -109,23 +115,36 @@ struct EventDetailView: View {
     }
 
     private func bookingBar(_ event: EventDetail) -> some View {
-        VStack(spacing: ETGSpace.sm) {
+        let sessions = EventDetailViewModel.upcomingSessions(event)
+        return VStack(spacing: ETGSpace.sm) {
             if let lowest = EventDetailViewModel.lowestPrice(event),
                let price = Formatters.fromPrice(minor: lowest.minor, currency: lowest.currency) {
                 Text(price).font(ETGFont.subheadline.weight(.semibold)).foregroundStyle(ETGColor.ink)
             }
-            // Phase 1 stops before checkout: holds, pricing and payment are server flows
-            // that land in Phase 2.
-            Button("Booking opens in the next release") {}
+            if sessions.isEmpty || sessions.allSatisfy({ $0.ticketTypes.allSatisfy { $0.available == 0 } }) {
+                Button(sessions.isEmpty ? "No upcoming dates" : "Sold out") {}
+                    .buttonStyle(.etgPrimary)
+                    .disabled(true)
+            } else {
+                NavigationLink(value: Route.selectTickets(event, sessionId: nil)) {
+                    Text("Get tickets")
+                }
                 .buttonStyle(.etgPrimary)
-                .disabled(true)
-                .accessibilityHint("Ticket booking is not available in this build")
+                .accessibilityIdentifier("event.getTickets")
+            }
         }
         .padding(.horizontal, ETGSpace.gutter)
         .padding(.top, ETGSpace.md)
         .padding(.bottom, ETGSpace.sm)
         .background(ETGColor.surface.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { Rectangle().fill(ETGColor.rule).frame(height: 1) }
+    }
+
+    static func mapsURL(_ event: EventDetail) -> URL? {
+        let query = [event.venue.name, event.venue.address, event.venue.city].compactMap { $0 }.joined(separator: ", ")
+        var components = URLComponents(string: "https://maps.apple.com/")
+        components?.queryItems = [URLQueryItem(name: "q", value: query)]
+        return components?.url
     }
 
     private func detailSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {

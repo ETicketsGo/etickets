@@ -12,7 +12,7 @@ struct ModelAndMockTests {
         let feed = try await catalog.discovery()
         #expect(!feed.nowShowing.isEmpty && !feed.trendingEvents.isEmpty)
         let tickets = try await MockTicketsRepository(session: await signedInSession(), latency: .zero).tickets()
-        #expect(tickets.count == 5)
+        #expect(tickets.count == 6)
         #expect(try FixtureStore().load("me", as: AuthenticatedUser.self).fullName == "Demo Customer")
     }
 
@@ -117,7 +117,7 @@ struct ModelAndMockTests {
         guard case let .tickets(upcoming, past, _) = MyTicketsViewModel.split(tickets, now: now) else {
             Issue.record("expected tickets"); return
         }
-        #expect(upcoming.count == 4)
+        #expect(upcoming.count == 5)
         #expect(past.map(\.id) == ["tkt-4"])
         #expect(upcoming.map(\.startsAt) == upcoming.map(\.startsAt).sorted())
     }
@@ -151,7 +151,7 @@ func signedInSession(configuration: AppConfiguration = .mock) async -> AuthSessi
 }
 
 struct FailingCatalog: CatalogRepository {
-    func discovery() async throws -> DiscoveryFeed { throw APIError.transport(.notConnectedToInternet) }
+    func discovery(city: String?) async throws -> DiscoveryFeed { throw APIError.transport(.notConnectedToInternet) }
     func events(_ query: EventQuery) async throws -> Page<EventSummary> { throw APIError.transport(.timedOut) }
     func event(slug: String) async throws -> EventDetail { throw APIError.transport(.timedOut) }
     func movieShows(slug: String) async throws -> MovieShows { throw APIError.transport(.timedOut) }

@@ -1,0 +1,20 @@
+[
+  {
+    "city": "Hyderabad",
+    "country": "India",
+    "countryCode": "IN",
+    "eventCount": 3
+  },
+  {
+    "city": "Bengaluru",
+    "country": "India",
+    "countryCode": "IN",
+    "eventCount": 2
+  },
+  {
+    "city": "Vijayawada",
+    "country": "India",
+    "countryCode": "IN",
+    "eventCount": 2
+  }
+]

@@ -41,14 +41,14 @@ final class CustomerJourneyUITests: XCTestCase {
         XCTAssertFalse(element(containing: "Laugh Riot", in: app).exists)
     }
 
-    func testEventDetailShowsTicketsAndNoBooking() {
+    func testEventDetailShowsTicketsAndBookingEntry() {
         let app = launch(["-ETGTab", "home", "-ETGEvent", "monsoon-jazz-nights-hyderabad"])
         XCTAssertTrue(app.staticTexts["Monsoon Jazz Nights"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Dates and tickets"].exists)
-        // Phase 1–2B never books: the action is present but disabled.
-        let book = app.buttons["Booking opens in the next release"]
+        // Booking starts from here; the flow itself is covered in BookingJourneyUITests.
+        let book = app.buttons["event.getTickets"]
         XCTAssertTrue(book.exists)
-        XCTAssertFalse(book.isEnabled)
+        XCTAssertTrue(book.isEnabled)
     }
 
     func testSignInThenTicketsLoad() {
