@@ -85,6 +85,11 @@ describe('phone numbers', () => {
     expect(phoneProblem('+9197044640071')).toMatch(/India/);
   });
 
+  it('names the country and its length for a number that is too short (QA, 2026-11-05)', () => {
+    expect(phoneProblem('+9112')).toMatch(/valid India number: 10 digits/);
+    expect(phoneProblem('+1208', { country: 'US' })).toMatch(/valid United States number/);
+  });
+
   it('is not ten digits everywhere', () => {
     expect(phoneProblem('+6581234567')).toBeNull();
     expect(phoneProblem('+447911123456')).toBeNull();
@@ -93,7 +98,7 @@ describe('phone numbers', () => {
   it('refuses letters, punctuation and over-long input', () => {
     expect(phoneProblem('+1208555CALL')).toMatch(/digits only/);
     expect(phoneProblem('+1 208 555 0100')).toMatch(/digits only/);
-    expect(phoneProblem('+1208555010012345678')).toMatch(/digits only/);
+    expect(phoneProblem('+1208555010012345678')).toMatch(/too long/);
     expect(phoneProblem('')).toBeNull();
   });
 });

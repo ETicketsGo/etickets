@@ -36,10 +36,13 @@ import {
  * and pretending otherwise would put a claim in the record that nobody made.
  */
 export function AdmitByEye({
+  eventId,
   sessionId,
   query,
   onAdmitted,
 }: {
+  /** The event whose page this is: a ticket for any other event is refused. */
+  eventId?: string;
   sessionId: string;
   /**
    * A search handed in from outside: a ticket number typed into the scan box, which is a
@@ -71,6 +74,7 @@ export function AdmitByEye({
       api.checkins.admitVisually({
         ticketId,
         expectedSessionId: sessionId,
+        expectedEventId: eventId,
         // Recorded alongside the admission, so a disputed entry can be traced to a door.
         deviceInfo:
           typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 200) : undefined,

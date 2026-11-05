@@ -2165,6 +2165,7 @@ export class ShowsService {
         status: session.status,
         changed: false,
         bookingsRequiringRefund: [] as string[],
+        freeBookingsCancelled: [] as string[],
       };
     }
 
@@ -2173,7 +2174,7 @@ export class ShowsService {
         eventSessionId: sessionId,
         status: { in: [BookingStatus.CONFIRMED, BookingStatus.PARTIALLY_REFUNDED] },
       },
-      select: { id: true, reference: true },
+      select: { id: true, reference: true, totalMinor: true },
     });
 
     /*
@@ -2293,7 +2294,18 @@ export class ShowsService {
        * Handed back rather than acted on. These need the existing refund workflow; this
        * endpoint deliberately does not start it.
        */
-      bookingsRequiringRefund: affected.map((b) => b.reference ?? b.id),
+      bookingsRequiringRefund: affected
+        .filter((b) => b.totalMinor > 0)
+        .map((b) => b.reference ?? b.id),
+      /*
+        Free bookings are cancelled, not refunded: nothing was paid, so no Refund row, provider
+        call or credit note follows (RefundsService.cancelFreeTickets). They used to be counted
+        as "owed a refund", and the console told the organizer to approve refunds that do not
+        exist.
+      */
+      freeBookingsCancelled: affected
+        .filter((b) => b.totalMinor === 0)
+        .map((b) => b.reference ?? b.id),
     };
   }
 

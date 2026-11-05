@@ -85,6 +85,12 @@ export const ErrorCodes = {
     PAYMENT_PROVIDER_UNAVAILABLE stays for the provider being down or slow: try again later.
   */
   PAYMENT_PROVIDER_NOT_CONFIGURED: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
+  /**
+   * Checkout: the platform can take this currency, but this ORGANIZER has not finished payment
+   * setup (no charges-enabled connected account). Not "payments are being activated": the
+   * buyer is told the organizer cannot take card payments yet.
+   */
+  ORGANIZER_PAYMENTS_NOT_READY: 'ORGANIZER_PAYMENTS_NOT_READY',
   PAYOUT_COUNTRY_UNSUPPORTED: 'PAYOUT_COUNTRY_UNSUPPORTED',
   ORGANIZATION_DETAILS_INCOMPLETE: 'ORGANIZATION_DETAILS_INCOMPLETE',
   /**

@@ -14,6 +14,7 @@ import {
   marketFor,
   useToast,
   errorMessage,
+  ApiRequestError,
   type OrganizationLegalIdentityFields,
 } from '@eticketsgo/web-kit';
 
@@ -78,8 +79,16 @@ const FIELDS: { key: keyof OrganizationLegalIdentityFields; label: string; hint?
   { key: 'financeContactEmail', label: 'Finance contact email' },
   { key: 'grievanceOfficerName', label: 'Complaints contact name' },
   { key: 'grievanceOfficerEmail', label: 'Complaints contact email' },
-  { key: 'grievanceOfficerPhone', label: 'Complaints contact phone' },
-  { key: 'financeContactPhone', label: 'Finance contact phone' },
+  {
+    key: 'grievanceOfficerPhone',
+    label: 'Complaints contact phone',
+    hint: 'International format, digits only: +12085550100 or +919876543210.',
+  },
+  {
+    key: 'financeContactPhone',
+    label: 'Finance contact phone',
+    hint: 'International format, digits only: +12085550100 or +919876543210.',
+  },
 ];
 
 type Draft = Record<string, string>;
@@ -88,6 +97,12 @@ export function LegalIdentityCard({ organizationId }: { organizationId: string }
   const qc = useQueryClient();
   const toast = useToast();
   const [draft, setDraft] = useState<Draft | null>(null);
+  /*
+    The API's per-field refusals, under their fields. A changed phone, name, email or tax number
+    is checked by country (organizer-contact rules); "The request failed validation." alone left
+    the admin guessing which of eighteen fields it meant.
+  */
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const q = useQuery({
     queryKey: ['org-legal-identity', organizationId],
@@ -112,9 +127,23 @@ export function LegalIdentityCard({ organizationId }: { organizationId: string }
     onSuccess: async () => {
       toast.push('Seller identity saved.');
       setDraft(null); // re-seed from the server, so what is shown is what was stored
+      setFieldErrors({});
       await qc.invalidateQueries({ queryKey: ['org-legal-identity', organizationId] });
     },
-    onError: (e) => toast.push(errorMessage(e)),
+    onError: (e) => {
+      const fields =
+        e instanceof ApiRequestError
+          ? ((e.details as { fields?: Record<string, string[]> } | undefined)?.fields ?? {})
+          : {};
+      const named = Object.fromEntries(
+        Object.entries(fields).map(([k, msgs]) => [k, msgs[0] ?? 'Check this field.']),
+      );
+      setFieldErrors(named);
+      const labels = Object.keys(named).map(
+        (k) => `${FIELDS.find((f) => f.key === k)?.label ?? k}: ${named[k]}`,
+      );
+      toast.push(labels.length ? `Not saved. ${labels.join(' ')}` : errorMessage(e));
+    },
   });
 
   if (q.isLoading || !draft) {
@@ -258,7 +287,11 @@ export function LegalIdentityCard({ organizationId }: { organizationId: string }
               <Input
                 label={f.label}
                 value={draft[f.key] ?? ''}
-                onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
+                error={fieldErrors[f.key]}
+                onChange={(e) => {
+                  setFieldErrors(({ [f.key]: _done, ...rest }) => rest);
+                  setDraft({ ...draft, [f.key]: e.target.value });
+                }}
               />
               {f.hint && <p className="mt-1 text-caption text-text-muted">{f.hint}</p>}
             </div>

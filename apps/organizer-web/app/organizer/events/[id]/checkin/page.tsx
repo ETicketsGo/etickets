@@ -127,6 +127,8 @@ export default function CheckinTab() {
       api.checkins.scan({
         token: t,
         expectedSessionId: sessionId || undefined,
+        // Always this event: with "Any session" chosen, another event's ticket was admitted.
+        expectedEventId: id,
         deviceInfo: 'Organizer web',
       }),
     onSuccess: (res) => {
@@ -374,7 +376,12 @@ export default function CheckinTab() {
             is the better evidence; where it is not — which is most Indian cinemas — this is
             what the door actually does, and it is now recorded instead of invisible.
           */}
-          <AdmitByEye sessionId={sessionId} query={lookup} onAdmitted={recordAdmission} />
+          <AdmitByEye
+            eventId={id}
+            sessionId={sessionId}
+            query={lookup}
+            onAdmitted={recordAdmission}
+          />
           <AttendeeLookup
             eventId={id}
             onReversed={() => {

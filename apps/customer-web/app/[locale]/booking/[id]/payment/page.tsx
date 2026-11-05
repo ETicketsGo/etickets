@@ -27,6 +27,7 @@ import {
   useVenueWhenText,
 } from '@/components/booking-brand';
 import { paymentsActivatingCopy } from '@/components/payment/payments-activating';
+import { usePaymentBlock } from '@/components/payment/use-payment-block';
 import { OperatorStatement } from '@/components/legal/operator-statement';
 import { checkoutOperatorCountry } from '@/lib/legal-entity';
 import { PriceBreakdown } from '@/components/price-breakdown';
@@ -198,7 +199,9 @@ function AccountPayment() {
     is a fact about us and is worth saying plainly to whoever is standing at the payment step -
     including the gateway's own reviewer, who will be.
   */
-  const [paymentsActivating, setPaymentsActivating] = useState(false);
+  // Asked before Pay is pressed, so Pay is disabled with the reason (see usePaymentBlock).
+  const block = usePaymentBlock(id);
+  const paymentsActivating = block.reason !== null;
   const [code, setCode] = useState('');
   const [couponError, setCouponError] = useState<string | null>(null);
 
@@ -388,7 +391,9 @@ function AccountPayment() {
         return { redirected: true as const };
       }
       // Local/dev mock (same-origin URL, no hosted page): stand in with mock-pay.
-      // A real gateway would instead call our signed webhook.
+      // A real gateway would instead call our signed webhook. Only for the mock: any other
+      // gateway's answer without a hosted page is an error, never a stand-in success.
+      if (payResult.provider !== 'mock') throw new Error('unexpected payment response');
       await api.mockPay(id, 'succeeded');
       return { redirected: false as const };
     },
@@ -403,8 +408,7 @@ function AccountPayment() {
         platform has no credentials for it yet. That is not a failed payment and must not be
         dressed as one; it is answered with the notice below instead.
       */
-      if (err instanceof ApiRequestError && err.code === 'PAYMENT_PROVIDER_UNAVAILABLE') {
-        setPaymentsActivating(true);
+      if (block.fromError(err)) {
         setError(null);
         return;
       }
@@ -667,20 +671,27 @@ function AccountPayment() {
               first is the payment gateway's own reviewer opening the site we gave them.
             */
             <div
+              id="payment-blocked-notice"
+              data-testid="payment-blocked-notice"
               role="status"
               className="mt-5 space-y-2 rounded-brand-control bg-brand-info-tint p-4"
             >
               <p className="text-brand-ui font-semibold text-brand-ink">
-                {k('paymentsActivatingTitle')}
+                {block.reason === 'organizer'
+                  ? k('paymentsOrganizerNotReadyTitle')
+                  : k('paymentsActivatingTitle')}
               </p>
               <p className="text-brand-ui text-brand-ink-2">
-                {k(paymentsActivatingCopy(booking.currency).body)}
+                {block.reason === 'organizer'
+                  ? k('paymentsOrganizerNotReadyBody')
+                  : k(paymentsActivatingCopy(booking.currency).body)}
               </p>
-              {paymentsActivatingCopy(booking.currency).showOperator && (
-                <p className="text-brand-meta text-brand-ink-3">
-                  {k('paymentsActivatingOperator', { entity: INDIA_OPERATOR.legalName })}
-                </p>
-              )}
+              {block.reason !== 'organizer' &&
+                paymentsActivatingCopy(booking.currency).showOperator && (
+                  <p className="text-brand-meta text-brand-ink-3">
+                    {k('paymentsActivatingOperator', { entity: INDIA_OPERATOR.legalName })}
+                  </p>
+                )}
             </div>
           )}
 
@@ -709,7 +720,9 @@ function AccountPayment() {
                 size="lg"
                 className="w-full"
                 aria-busy={pay.isPending || undefined}
-                disabled={pay.isPending}
+                disabled={pay.isPending || paymentsActivating}
+                aria-describedby={paymentsActivating ? 'payment-blocked-notice' : undefined}
+                data-testid="pay-button"
                 onClick={() => pay.mutate()}
               >
                 {pay.isPending
@@ -830,7 +843,9 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
     503 with a red "Payment could not be completed. Please try again." - telling the one person we
     most needed to inform that our checkout was broken.
   */
-  const [paymentsActivating, setPaymentsActivating] = useState(false);
+  // Asked before Pay is pressed, so Pay is disabled with the reason (see usePaymentBlock).
+  const block = usePaymentBlock(id);
+  const paymentsActivating = block.reason !== null;
   /*
     Why cancellation being unavailable is STATE and not just a message.
 
@@ -911,7 +926,8 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
         checkout.open();
         return { redirected: true as const };
       }
-      // Local/dev mock. A real gateway calls our signed webhook instead.
+      // Local/dev mock. A real gateway calls our signed webhook instead. Only for the mock.
+      if (payResult.provider !== 'mock') throw new Error('unexpected payment response');
       await api.mockPay(id, 'succeeded');
       return { redirected: false as const };
     },
@@ -922,8 +938,7 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
     },
     onError: (err: unknown) => {
       // No gateway can take this currency yet: state, not a failure. See the signed-in view.
-      if (err instanceof ApiRequestError && err.code === 'PAYMENT_PROVIDER_UNAVAILABLE') {
-        setPaymentsActivating(true);
+      if (block.fromError(err)) {
         setError(null);
         return;
       }
@@ -1024,20 +1039,27 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
 
           {paymentsActivating && (
             <div
+              id="payment-blocked-notice"
+              data-testid="payment-blocked-notice"
               role="status"
               className="mt-5 space-y-2 rounded-brand-control bg-brand-info-tint p-4"
             >
               <p className="text-brand-ui font-semibold text-brand-ink">
-                {k('paymentsActivatingTitle')}
+                {block.reason === 'organizer'
+                  ? k('paymentsOrganizerNotReadyTitle')
+                  : k('paymentsActivatingTitle')}
               </p>
               <p className="text-brand-ui text-brand-ink-2">
-                {k(paymentsActivatingCopy(view.currency).body)}
+                {block.reason === 'organizer'
+                  ? k('paymentsOrganizerNotReadyBody')
+                  : k(paymentsActivatingCopy(view.currency).body)}
               </p>
-              {paymentsActivatingCopy(view.currency).showOperator && (
-                <p className="text-brand-meta text-brand-ink-3">
-                  {k('paymentsActivatingOperator', { entity: INDIA_OPERATOR.legalName })}
-                </p>
-              )}
+              {block.reason !== 'organizer' &&
+                paymentsActivatingCopy(view.currency).showOperator && (
+                  <p className="text-brand-meta text-brand-ink-3">
+                    {k('paymentsActivatingOperator', { entity: INDIA_OPERATOR.legalName })}
+                  </p>
+                )}
             </div>
           )}
           {error && (
@@ -1065,7 +1087,9 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
                 size="lg"
                 className="w-full"
                 aria-busy={pay.isPending || undefined}
-                disabled={pay.isPending}
+                disabled={pay.isPending || paymentsActivating}
+                aria-describedby={paymentsActivating ? 'payment-blocked-notice' : undefined}
+                data-testid="pay-button"
                 onClick={() => pay.mutate()}
               >
                 {pay.isPending

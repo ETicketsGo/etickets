@@ -56,7 +56,7 @@ export class CheckinsService {
   async scan(
     staff: RequestUser,
     token: string,
-    opts: { expectedSessionId?: string; deviceInfo?: string },
+    opts: { expectedSessionId?: string; expectedEventId?: string; deviceInfo?: string },
   ): Promise<CheckInOutcome> {
     let payload;
     try {
@@ -115,7 +115,12 @@ export class CheckinsService {
       booking: { reference: string | null };
     },
     staff: RequestUser,
-    opts: { expectedSessionId?: string; deviceInfo?: string; method: 'SCAN' | 'VISUAL' },
+    opts: {
+      expectedSessionId?: string;
+      expectedEventId?: string;
+      deviceInfo?: string;
+      method: 'SCAN' | 'VISUAL';
+    },
   ): Promise<CheckInOutcome> {
     const scanned = opts.method === 'SCAN';
     /** A scan metric is only meaningful for a scan; a visual admission was never scanned. */
@@ -129,6 +134,67 @@ export class CheckinsService {
       reference: ticket.booking.reference,
       seatLabel: ticket.seatLabel,
     };
+
+    /*
+      Where the ticket is for, and whether that still stands. Read here, once, for both a scan
+      and a visual admission.
+
+      - Another EVENT's ticket used to be admitted from this event's page whenever the session
+        filter was left on "Any session": the only check was the organization.
+      - A ticket on a CANCELLED session stayed ACTIVE (until its refund completed, or its free
+        cancellation ran) and was admitted.
+      - A ticket whose booking was cancelled, refunded or expired is not entry.
+    */
+    const context = await this.prisma.ticket.findUnique({
+      where: { id: ticket.id },
+      select: {
+        booking: { select: { status: true, currency: true } },
+        eventSession: {
+          select: {
+            status: true,
+            eventId: true,
+            event: { select: { title: true, venue: { select: { country: true } } } },
+          },
+        },
+      },
+    });
+    if (opts.expectedEventId && context?.eventSession?.eventId !== opts.expectedEventId) {
+      await this.log(
+        ticket.id,
+        ticket.eventSessionId,
+        CheckInResult.WRONG_SESSION,
+        staff.id,
+        opts.deviceInfo,
+        opts.method,
+      );
+      return done({
+        result: CheckInResult.WRONG_SESSION,
+        message: 'This ticket is for a different event.',
+        ticket: summary,
+      });
+    }
+    const deadBooking = ['CANCELLED', 'REFUNDED', 'EXPIRED'];
+    if (
+      context?.eventSession?.status === 'CANCELLED' ||
+      (context?.booking && deadBooking.includes(context.booking.status))
+    ) {
+      await this.log(
+        ticket.id,
+        ticket.eventSessionId,
+        CheckInResult.CANCELLED,
+        staff.id,
+        opts.deviceInfo,
+        opts.method,
+      );
+      return done({
+        result: CheckInResult.CANCELLED,
+        message:
+          context?.eventSession?.status === 'CANCELLED'
+            ? 'This session was cancelled. The ticket cannot be used.'
+            : `This booking is ${context!.booking!.status.toLowerCase()}. The ticket cannot be used.`,
+        ticket: summary,
+      });
+    }
 
     if (opts.expectedSessionId && opts.expectedSessionId !== ticket.eventSessionId) {
       await this.log(
@@ -244,7 +310,18 @@ export class CheckinsService {
       await this.notifications.send({
         type: NotificationType.TICKET_CHECKED_IN,
         toEmail: ticket.holderEmail,
-        payload: { ticketId: ticket.id, serial: ticket.serial },
+        /*
+          Currency and country name the company in the email footer, as the booking email
+          does. Without them this one email fell back to naming both companies.
+        */
+        payload: {
+          ticketId: ticket.id,
+          serial: ticket.serial,
+          reference: ticket.booking.reference,
+          eventTitle: context?.eventSession?.event.title,
+          currency: context?.booking?.currency,
+          country: context?.eventSession?.event.venue?.country,
+        },
       });
     }
     this.metrics.recordCheckin();
@@ -550,7 +627,7 @@ export class CheckinsService {
   async admitVisually(
     staff: RequestUser,
     ticketId: string,
-    opts: { expectedSessionId?: string; deviceInfo?: string } = {},
+    opts: { expectedSessionId?: string; expectedEventId?: string; deviceInfo?: string } = {},
   ): Promise<CheckInOutcome> {
     const ticket = await this.prisma.ticket.findUnique({
       where: { id: ticketId },
