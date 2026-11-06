@@ -1,4 +1,4 @@
-import { API_URL, ApiRequestError, api, tokenStore, type Paged } from '@eticketsgo/web-kit';
+import { ApiRequestError, api, apiUrl, tokenStore, type Paged } from '@eticketsgo/web-kit';
 import { askForStepUp, reportMfaSetup } from './step-up-bridge';
 
 /**
@@ -11,7 +11,8 @@ import { askForStepUp, reportMfaSetup } from './step-up-bridge';
 
 export type FeePolicyScope = 'EVENT' | 'ORGANIZATION';
 export type FeePolicyKind = 'WAIVE' | 'FIXED' | 'PERCENT' | 'COMBINED' | 'FIXED_PER_TICKET';
-export type FeePolicyStatus = 'ACTIVE' | 'INACTIVE' | 'EXPIRED' | 'EXHAUSTED';
+export type FeePolicyStatus =
+  'ACTIVE' | 'INACTIVE' | 'EXPIRED' | 'EXHAUSTED' | 'PENDING_APPROVAL' | 'REJECTED' | 'WITHDRAWN';
 export type FeePolicyEffectiveStatus = FeePolicyStatus | 'SCHEDULED';
 export type FeeMode = 'CUSTOMER_PAYS' | 'ORGANIZER_PAYS' | 'SHARED';
 
@@ -43,19 +44,75 @@ export interface PlatformFeePolicyView {
   deactivatedAt: string | null;
   deactivatedByUserId: string | null;
   deactivationReason: string | null;
+  approvedByUserId: string | null;
+  approvedByName: string | null;
+  approvedAt: string | null;
+  approvalNote: string | null;
+  rejectedByUserId: string | null;
+  rejectedByName: string | null;
+  rejectedAt: string | null;
+  rejectionNote: string | null;
+  /** A request to switch the policy off, waiting for a second administrator. */
+  deactivationRequest: {
+    requestedByUserId: string;
+    requestedByName: string | null;
+    requestedAt: string | null;
+    reason: string | null;
+  } | null;
+  emergencyDeactivation: boolean;
   version: number;
 }
 
 export interface FeePolicyHistoryEntry {
   id: string;
-  action: 'CREATED' | 'DEACTIVATED' | 'EXHAUSTED' | 'REOPENED';
+  action:
+    | 'CREATED'
+    | 'APPROVED'
+    | 'REJECTED'
+    | 'WITHDRAWN'
+    | 'DEACTIVATION_REQUESTED'
+    | 'DEACTIVATION_REJECTED'
+    | 'DEACTIVATION_WITHDRAWN'
+    | 'DEACTIVATED'
+    | 'EMERGENCY_DEACTIVATED'
+    | 'EXHAUSTED'
+    | 'REOPENED';
   actorUserId: string | null;
   actorName: string | null;
   reason: string | null;
   createdAt: string;
 }
 
-export type PlatformFeePolicyDetail = PlatformFeePolicyView & { history: FeePolicyHistoryEntry[] };
+/** What on a policy waits for a second person: the policy itself, or switching it off. */
+export type PendingDecision = 'POLICY' | 'DEACTIVATION';
+
+export type PlatformFeePolicyDetail = PlatformFeePolicyView & {
+  history: FeePolicyHistoryEntry[];
+  pendingDecision: PendingDecision | null;
+  /** Why the person looking may not decide on what is pending: they proposed it. */
+  viewerBlockedReason: 'CREATOR' | 'REQUESTER' | null;
+};
+
+/** The estimated effect of the pending decision on recent orders, per currency. */
+export interface FeePolicyImpact {
+  policyId: string;
+  mode: 'APPROVE' | 'DEACTIVATE';
+  windowDays: number;
+  orders: number;
+  direction: 'INCREASE' | 'DECREASE' | 'MIXED' | 'NONE';
+  currencies: Array<{
+    currency: string;
+    orders: number;
+    beforeFeeMinor: number;
+    afterFeeMinor: number;
+    deltaMinor: number;
+    higher: number;
+    lower: number;
+    unchanged: number;
+    largestIncreaseMinor: number;
+    largestDecreaseMinor: number;
+  }>;
+}
 
 export interface FeeLines {
   bookingFeeMinor: number;
@@ -132,7 +189,7 @@ async function send<T>(
   const headers = new Headers(init.headers);
   if (init.body) headers.set('content-type', 'application/json');
   if (tokenStore.access) headers.set('authorization', `Bearer ${tokenStore.access}`);
-  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
+  const res = await fetch(`${apiUrl()}${path}`, { ...init, headers });
   const text = await res.text();
   let data: unknown = null;
   try {
@@ -191,12 +248,30 @@ export const feePolicyApi = {
     send<FeePolicyPreview>(`${BASE}/preview`, { method: 'POST', body: JSON.stringify(body) }),
   create: (body: CreateFeePolicyBody) =>
     send<PlatformFeePolicyView>(BASE, { method: 'POST', body: JSON.stringify(body) }),
+  /** Asks to switch the policy off. A second administrator approves it. */
   deactivate: (id: string, body: { reason: string; version: number }) =>
-    send<PlatformFeePolicyView>(`${BASE}/${encodeURIComponent(id)}/deactivate`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
+    post(id, 'deactivate', body),
+  impact: (id: string, days = 30) =>
+    send<FeePolicyImpact>(`${BASE}/${encodeURIComponent(id)}/impact${query({ days })}`),
+  approve: (id: string, body: { version: number; note?: string }) => post(id, 'approve', body),
+  reject: (id: string, body: { version: number; note: string }) => post(id, 'reject', body),
+  withdraw: (id: string, body: { version: number }) => post(id, 'withdraw', body),
+  approveDeactivation: (id: string, body: { version: number; note?: string }) =>
+    post(id, 'deactivation/approve', body),
+  rejectDeactivation: (id: string, body: { version: number; note: string }) =>
+    post(id, 'deactivation/reject', body),
+  withdrawDeactivation: (id: string, body: { version: number }) =>
+    post(id, 'deactivation/withdraw', body),
+  emergencyDeactivate: (id: string, body: { version: number; reason: string }) =>
+    post(id, 'emergency-deactivate', body),
 };
+
+function post(id: string, action: string, body: unknown) {
+  return send<PlatformFeePolicyView>(`${BASE}/${encodeURIComponent(id)}/${action}`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
 
 /** The policy a 409 says this one overlaps, when the API names it. */
 export function conflictingPolicyId(err: unknown): string | null {
@@ -300,6 +375,9 @@ export const STATUS_LABEL: Record<FeePolicyEffectiveStatus, string> = {
   EXPIRED: 'Expired',
   EXHAUSTED: 'Used up',
   INACTIVE: 'Inactive',
+  PENDING_APPROVAL: 'Waiting for approval',
+  REJECTED: 'Not approved',
+  WITHDRAWN: 'Withdrawn',
 };
 
 export const STATUS_TONE: Record<
@@ -311,6 +389,9 @@ export const STATUS_TONE: Record<
   EXPIRED: 'neutral',
   EXHAUSTED: 'warning',
   INACTIVE: 'neutral',
+  PENDING_APPROVAL: 'warning',
+  REJECTED: 'neutral',
+  WITHDRAWN: 'neutral',
 };
 
 export const KIND_LABEL: Record<FeePolicyKind, string> = {
@@ -322,15 +403,53 @@ export const KIND_LABEL: Record<FeePolicyKind, string> = {
 };
 
 export const HISTORY_LABEL: Record<FeePolicyHistoryEntry['action'], string> = {
-  CREATED: 'Created',
-  DEACTIVATED: 'Deactivated',
+  CREATED: 'Created and sent for approval',
+  APPROVED: 'Approved',
+  REJECTED: 'Not approved',
+  WITHDRAWN: 'Withdrawn by its maker',
+  DEACTIVATION_REQUESTED: 'Switch-off requested',
+  DEACTIVATION_REJECTED: 'Switch-off not approved',
+  DEACTIVATION_WITHDRAWN: 'Switch-off request withdrawn',
+  DEACTIVATED: 'Switched off (approved)',
+  EMERGENCY_DEACTIVATED: 'Switched off in an emergency',
   EXHAUSTED: 'Order limit reached',
   REOPENED: 'Reopened',
 };
 
-/** Whether the policy can still be switched off: live now, or waiting to start. */
-export function canDeactivate(p: Pick<PlatformFeePolicyView, 'effectiveStatus'>): boolean {
-  return p.effectiveStatus === 'ACTIVE' || p.effectiveStatus === 'SCHEDULED';
+/**
+ * Whether somebody can ask to switch the policy off: live now, or waiting to start, and no
+ * request already waiting. The switch-off itself needs a second administrator.
+ */
+export function canDeactivate(
+  p: Pick<PlatformFeePolicyView, 'effectiveStatus'> &
+    Partial<Pick<PlatformFeePolicyView, 'deactivationRequest'>>,
+): boolean {
+  return (
+    (p.effectiveStatus === 'ACTIVE' || p.effectiveStatus === 'SCHEDULED') && !p.deactivationRequest
+  );
+}
+
+/** Whether the emergency switch-off applies: the policy is approved and not yet off. */
+export function canEmergencyDeactivate(p: Pick<PlatformFeePolicyView, 'effectiveStatus'>): boolean {
+  return (
+    p.effectiveStatus === 'ACTIVE' ||
+    p.effectiveStatus === 'SCHEDULED' ||
+    p.effectiveStatus === 'EXHAUSTED'
+  );
+}
+
+/** Which way buyers' booking fees move if the pending decision is approved, in words. */
+export function impactDirectionLabel(direction: FeePolicyImpact['direction']): string {
+  switch (direction) {
+    case 'INCREASE':
+      return 'Buyers would pay MORE in booking fees.';
+    case 'DECREASE':
+      return 'Buyers would pay LESS in booking fees.';
+    case 'MIXED':
+      return 'Some buyers would pay more and some less.';
+    default:
+      return 'No recent order would pay a different booking fee.';
+  }
 }
 
 /* ── The form ────────────────────────────────────────────────────────────────────── */

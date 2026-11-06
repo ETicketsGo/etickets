@@ -48,6 +48,7 @@ describe('integration-real-postgres: platform fee policies on the booking path',
   let policies: PlatformFeePoliciesService;
   let pricing: PricingService;
   let adminId = '';
+  let approverId = '';
   let orgId = '';
   let venueId = '';
   let buyerSeq = 0;
@@ -111,9 +112,24 @@ describe('integration-real-postgres: platform fee policies on the booking path',
         startsAt: new Date(Date.now() - 60_000),
         reason: 'Integration test policy row',
         createdByUserId: adminId,
+        approvedByUserId: approverId,
+        approvedAt: new Date(),
         ...data,
       } as never,
     });
+  }
+
+  /*
+    Maker-checker (AR-10): a policy prices nothing until a second administrator approves it,
+    and is switched off by an approved request. `approverId` is that second person.
+  */
+  async function livePolicy(i: Parameters<PlatformFeePoliciesService['create']>[1]) {
+    const p = await policies.create(adminId, i);
+    return policies.approve(approverId, p.id, { version: p.version });
+  }
+  async function switchOff(p: { id: string; version: number }, reason: string) {
+    const asked = await policies.deactivate(adminId, p.id, { reason, version: p.version });
+    return policies.approveDeactivation(approverId, p.id, { version: asked.version });
   }
 
   beforeAll(async () => {
@@ -145,6 +161,16 @@ describe('integration-real-postgres: platform fee policies on the booking path',
         data: {
           email: `admin-${tag}@test.invalid`,
           fullName: 'Fee Admin',
+          passwordHash: 'not-a-real-hash',
+          roles: ['ADMIN'],
+        },
+      })
+    ).id;
+    approverId = (
+      await db!.user.create({
+        data: {
+          email: `approver-${tag}@test.invalid`,
+          fullName: 'Fee Approver',
           passwordHash: 'not-a-real-hash',
           roles: ['ADMIN'],
         },
@@ -195,7 +221,7 @@ describe('integration-real-postgres: platform fee policies on the booking path',
         () => db!.event.deleteMany({ where: { organizationId: orgId } }),
         () => db!.venue.deleteMany({ where: { organizationId: orgId } }),
         () => db!.organization.deleteMany({ where: { id: orgId } }),
-        () => db!.user.deleteMany({ where: { id: adminId } }),
+        () => db!.user.deleteMany({ where: { id: { in: [adminId, approverId] } } }),
       ];
       for (const step of steps) await step().catch(() => undefined);
       await db.$disconnect();
@@ -220,7 +246,7 @@ describe('integration-real-postgres: platform fee policies on the booking path',
       const before = await bookings.quote(input(e));
       expect(before.fees.bookingFeeMinor).toBe(1_500); // the schedule, no policy yet
 
-      const created = await policies.create(adminId, {
+      const created = await livePolicy({
         scope: 'ORGANIZATION',
         organizationId: orgId,
         kind: 'WAIVE',
@@ -246,15 +272,12 @@ describe('integration-real-postgres: platform fee policies on the booking path',
       expect(row.payment!.amountMinor).toBe(51_000);
       expect(row.feePolicyId).toBe(created.id);
       expect(row.feePolicyKind).toBe('WAIVE');
-      expect(row.feePolicyVersion).toBe(1);
+      expect(row.feePolicyVersion).toBe(2); // 1 created, 2 approved
       expect(row.baseBookingFeeMinor).toBe(1_500);
       expect(row.feeWaivedMinor).toBe(1_500);
 
       // Deactivating the policy changes the NEXT sale and leaves this booking exactly as it was.
-      await policies.deactivate(adminId, created.id, {
-        reason: 'Pilot ended, back to the schedule',
-        version: created.version,
-      });
+      await switchOff(created, 'Pilot ended, back to the schedule');
       const after = await db!.booking.findUniqueOrThrow({ where: { id: booked.id } });
       expect(after.bookingFeeMinor).toBe(0);
       expect(after.totalMinor).toBe(51_000);
@@ -262,7 +285,12 @@ describe('integration-real-postgres: platform fee policies on the booking path',
       expect((await bookings.quote(input(e))).fees.bookingFeeMinor).toBe(1_500);
 
       const history = await policies.detail(created.id);
-      expect(history.history.map((h) => h.action)).toEqual(['CREATED', 'DEACTIVATED']);
+      expect(history.history.map((h) => h.action)).toEqual([
+        'CREATED',
+        'APPROVED',
+        'DEACTIVATION_REQUESTED',
+        'DEACTIVATED',
+      ]);
       expect(history.effectiveStatus).toBe('INACTIVE');
     },
   );
@@ -302,7 +330,8 @@ describe('integration-real-postgres: platform fee policies on the booking path',
 
     await db!.platformFeePolicy.update({
       where: { id: orgWaive.id },
-      data: { status: 'INACTIVE' },
+      // The emergency path is the only way off without a second person.
+      data: { status: 'INACTIVE', deactivatedByUserId: adminId, emergencyDeactivation: true },
     });
   });
 
@@ -315,7 +344,7 @@ describe('integration-real-postgres: platform fee policies on the booking path',
     'an unpaid hold keeps the price it was quoted after the policy is switched off',
     async () => {
       const e = await event({ priceMinor: 50_000 });
-      const created = await policies.create(adminId, {
+      const created = await livePolicy({
         scope: 'EVENT',
         eventId: e.eventId,
         kind: 'WAIVE',
@@ -329,10 +358,7 @@ describe('integration-real-postgres: platform fee policies on the booking path',
       expect(before.status).toBe('PENDING_PAYMENT');
       expect(before.bookingFeeMinor).toBe(0);
 
-      await policies.deactivate(adminId, created.id, {
-        reason: 'Switched off while a hold is open',
-        version: created.version,
-      });
+      await switchOff(created, 'Switched off while a hold is open');
       // A new quote is back on the schedule...
       expect((await bookings.quote(input(e))).fees.bookingFeeMinor).toBe(1_500);
       // ...and the open hold still owes exactly what it was quoted, with its payment unchanged.
@@ -450,7 +476,7 @@ describe('integration-real-postgres: platform fee policies on the booking path',
       // Priced with no policy at all.
       const plain = await book(input(e));
       // A waiver created afterwards must not reach it through a re-price.
-      const waiver = await policies.create(adminId, {
+      const waiver = await livePolicy({
         scope: 'EVENT',
         eventId: e.eventId,
         kind: 'WAIVE',
@@ -466,10 +492,7 @@ describe('integration-real-postgres: platform fee policies on the booking path',
       expect(plainRow.feePolicyId).toBeNull();
 
       // And one priced under the waiver keeps it after the waiver is switched off.
-      await policies.deactivate(adminId, waiver.id, {
-        reason: 'Charity show moved to a new date',
-        version: waiver.version,
-      });
+      await switchOff(waiver, 'Charity show moved to a new date');
       await bookings.applyCoupon(null, waivedBooking.id, code, { guestSessionVerified: true });
       const waivedRow = await db!.booking.findUniqueOrThrow({
         where: { id: waivedBooking.id },
@@ -532,7 +555,7 @@ describe('integration-real-postgres: platform fee policies on the booking path',
     expect(preview.withPolicy.bookingFeeMinor).toBe(500);
     expect(preview.feeWaivedMinor).toBe(1_000);
     expect(preview.appliesToBasket).toBe(true);
-    await policies.create(adminId, {
+    await livePolicy({
       scope: 'EVENT',
       eventId: e.eventId,
       kind: 'PERCENT',

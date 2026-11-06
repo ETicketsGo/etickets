@@ -1,3 +1,5 @@
+import { runtimeValue } from '@eticketsgo/web-kit/runtime-config';
+
 /**
  * Where the storefront is, seen from the organizer console.
  *
@@ -25,7 +27,10 @@
  */
 export function storefrontOrigin(
   location: { protocol: string; hostname: string } | undefined,
-  configured: string | undefined = process.env.NEXT_PUBLIC_STOREFRONT_URL,
+  configured: string | undefined = runtimeValue(
+    'STOREFRONT_URL',
+    process.env.NEXT_PUBLIC_STOREFRONT_URL,
+  ),
 ): string | null {
   if (configured && configured.trim()) return configured.trim().replace(/\/+$/, '');
   if (!location) return null;

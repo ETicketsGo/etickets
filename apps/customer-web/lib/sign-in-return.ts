@@ -1,4 +1,5 @@
 import { safeNextPath } from '@eticketsgo/web-kit';
+import { runtimeValue } from '@eticketsgo/web-kit/runtime-config';
 
 /**
  * Where somebody goes after signing in or creating an account on the storefront.
@@ -53,7 +54,7 @@ export function signInHref(here: string | null | undefined): string {
  */
 export function adminConsoleOrigin(
   location: { protocol: string; hostname: string } | undefined,
-  configured: string | undefined = process.env.NEXT_PUBLIC_ADMIN_URL,
+  configured: string | undefined = runtimeValue('ADMIN_URL', process.env.NEXT_PUBLIC_ADMIN_URL),
 ): string | null {
   if (configured && configured.trim()) return configured.trim().replace(/\/+$/, '');
   if (!location) return null;

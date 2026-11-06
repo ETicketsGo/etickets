@@ -37,6 +37,14 @@ export class OpsController {
     return this.ops.health();
   }
 
+  @Get('database')
+  @ApiOperation({
+    summary: 'Postgres connection budget: max_connections, connections by client, this pool.',
+  })
+  database() {
+    return this.ops.database();
+  }
+
   @Get('queues')
   @ApiOperation({ summary: 'Job counts + repeatable schedules for the holds queue.' })
   queues() {

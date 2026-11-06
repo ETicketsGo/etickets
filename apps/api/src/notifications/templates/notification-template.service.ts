@@ -669,10 +669,20 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     Names the person who may not approve it, like the bank-account queue.
   */
   [NotificationType.FEE_SCHEDULE_AWAITING_APPROVAL]: (l, p) => {
-    const kind = str(p, 'kind') === 'EMERGENCY_ROLLBACK' ? 'rollback' : 'submitted';
+    const kind =
+      (
+        {
+          EMERGENCY_ROLLBACK: 'rollback',
+          // Event and organizer fee overrides (platform fee policies) use the same queue.
+          POLICY_SUBMITTED: 'policySubmitted',
+          POLICY_DEACTIVATION: 'policyDeactivation',
+          POLICY_EMERGENCY_DEACTIVATED: 'policyEmergency',
+        } as Record<string, string>
+      )[str(p, 'kind')] ?? 'submitted';
     const note = str(p, 'note');
     const values = {
       currency: str(p, 'currency'),
+      target: str(p, 'target', t(l, 'emails.fragments.notProvided')),
       actor: str(p, 'actorEmail', t(l, 'emails.fragments.notProvided')),
       version: str(p, 'version', ''),
       restored: str(p, 'restoredVersion', ''),
@@ -685,10 +695,24 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
   },
 
   [NotificationType.FEE_SCHEDULE_DECIDED]: (l, p) => {
-    const decision = str(p, 'decision') === 'APPROVED' ? 'approved' : 'rejected';
+    const approved = str(p, 'decision') === 'APPROVED';
+    const subject = str(p, 'subject');
+    const decision =
+      subject === 'POLICY'
+        ? approved
+          ? 'policyApproved'
+          : 'policyRejected'
+        : subject === 'POLICY_DEACTIVATION'
+          ? approved
+            ? 'deactivationApproved'
+            : 'deactivationRejected'
+          : approved
+            ? 'approved'
+            : 'rejected';
     const note = str(p, 'note');
     const values = {
       currency: str(p, 'currency'),
+      target: str(p, 'target', t(l, 'emails.fragments.notProvided')),
       decider: str(p, 'deciderEmail', t(l, 'emails.fragments.notProvided')),
       version: str(p, 'version', ''),
       note: note ? t(l, 'emails.FEE_SCHEDULE_DECIDED.note', { note }) : '',

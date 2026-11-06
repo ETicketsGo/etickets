@@ -1,12 +1,26 @@
 import { api as wk, consoleHandoffUrl } from '@eticketsgo/web-kit';
+import { runtimeValue } from '@eticketsgo/web-kit/runtime-config';
 
-/** Where the organizer console lives. The one source every storefront link to it reads. */
+/** Where the organizer console lives, as this BUILD was told (`NEXT_PUBLIC_ORGANIZER_URL`). */
 export const ORGANIZER_URL = (
   process.env.NEXT_PUBLIC_ORGANIZER_URL ?? 'http://localhost:3001'
 ).replace(/\/+$/, '');
 
-/** The console's own sign-in, for when a handoff cannot be made. */
+/** The console's own sign-in, as this build was told. */
 export const ORGANIZER_LOGIN_URL = `${ORGANIZER_URL}/login`;
+
+/**
+ * Where the organizer console lives for the environment the storefront is RUNNING in
+ * (runtime-config.ts), else the build's. The one source every storefront link to it reads.
+ */
+export function organizerUrl(): string {
+  return (runtimeValue('ORGANIZER_URL', ORGANIZER_URL) ?? ORGANIZER_URL).replace(/\/+$/, '');
+}
+
+/** The console's own sign-in, for when a handoff cannot be made. */
+export function organizerLoginUrl(): string {
+  return `${organizerUrl()}/login`;
+}
 
 /**
  * Open the organizer console as the account signed in HERE, without signing in again.
@@ -27,10 +41,10 @@ export const ORGANIZER_LOGIN_URL = `${ORGANIZER_URL}/login`;
 export async function openOrganizerConsole(
   navigate: (url: string) => void = (url) => window.location.assign(url),
 ): Promise<string> {
-  let target = ORGANIZER_LOGIN_URL;
+  let target = organizerLoginUrl();
   try {
     const { code } = await wk.auth.createHandoff('organizer');
-    target = consoleHandoffUrl(ORGANIZER_URL, code);
+    target = consoleHandoffUrl(organizerUrl(), code);
   } catch {
     // Fall back to signing in on the console: never a dead click.
   }

@@ -40,7 +40,15 @@ import {
 
 export type FeePolicyScope = 'EVENT' | 'ORGANIZATION';
 export type FeePolicyKind = 'WAIVE' | 'FIXED' | 'PERCENT' | 'COMBINED' | 'FIXED_PER_TICKET';
-export type FeePolicyStatus = 'ACTIVE' | 'INACTIVE' | 'EXPIRED' | 'EXHAUSTED';
+export type FeePolicyStatus =
+  | 'ACTIVE'
+  | 'INACTIVE'
+  | 'EXPIRED'
+  | 'EXHAUSTED'
+  /** Maker-checker: none of these three ever prices a sale (`feePolicyApplies`). */
+  | 'PENDING_APPROVAL'
+  | 'REJECTED'
+  | 'WITHDRAWN';
 
 /** The terms of a policy, as stored. */
 export interface FeePolicyTerms {
@@ -272,8 +280,20 @@ export function currenciesCollide(a: string | null, b: string | null): boolean {
 export function effectiveFeePolicyStatus(
   p: Pick<FeePolicyRow, 'status' | 'startsAt' | 'endsAt' | 'maxOrders' | 'usedOrders'>,
   now: Date,
-): 'ACTIVE' | 'SCHEDULED' | 'EXPIRED' | 'EXHAUSTED' | 'INACTIVE' {
+):
+  | 'ACTIVE'
+  | 'SCHEDULED'
+  | 'EXPIRED'
+  | 'EXHAUSTED'
+  | 'INACTIVE'
+  | 'PENDING_APPROVAL'
+  | 'REJECTED'
+  | 'WITHDRAWN' {
   if (p.status === 'INACTIVE') return 'INACTIVE';
+  // Never approved: these say so whatever their window, because they never priced anything.
+  if (p.status === 'PENDING_APPROVAL' || p.status === 'REJECTED' || p.status === 'WITHDRAWN') {
+    return p.status;
+  }
   if (p.endsAt && p.endsAt.getTime() <= now.getTime()) return 'EXPIRED';
   if (p.status === 'EXPIRED') return 'EXPIRED';
   if (p.status === 'EXHAUSTED' || (p.maxOrders != null && p.usedOrders >= p.maxOrders)) {

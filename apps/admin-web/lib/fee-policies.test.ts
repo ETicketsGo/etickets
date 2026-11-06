@@ -4,11 +4,13 @@ import {
   BLANK_DRAFT,
   bpsToPercent,
   canDeactivate,
+  canEmergencyDeactivate,
   conflictingPolicyId,
   currencyRequired,
   draftToCreateBody,
   draftToTerms,
   feePolicyApi,
+  impactDirectionLabel,
   isConflict,
   ordersLabel,
   percentToBps,
@@ -104,6 +106,30 @@ describe('the terms in words', () => {
     expect(canDeactivate({ effectiveStatus: 'EXPIRED' })).toBe(false);
     expect(canDeactivate({ effectiveStatus: 'EXHAUSTED' })).toBe(false);
     expect(canDeactivate({ effectiveStatus: 'INACTIVE' })).toBe(false);
+  });
+
+  it('never offers a switch-off for a policy nobody approved, or one already requested', () => {
+    expect(canDeactivate({ effectiveStatus: 'PENDING_APPROVAL' })).toBe(false);
+    expect(canDeactivate({ effectiveStatus: 'REJECTED' })).toBe(false);
+    expect(canDeactivate({ effectiveStatus: 'WITHDRAWN' })).toBe(false);
+    const asked = {
+      requestedByUserId: 'u1',
+      requestedByName: 'A',
+      requestedAt: null,
+      reason: 'done',
+    };
+    expect(canDeactivate({ effectiveStatus: 'ACTIVE', deactivationRequest: asked })).toBe(false);
+    expect(canEmergencyDeactivate({ effectiveStatus: 'EXHAUSTED' })).toBe(true);
+    expect(canEmergencyDeactivate({ effectiveStatus: 'PENDING_APPROVAL' })).toBe(false);
+    expect(canEmergencyDeactivate({ effectiveStatus: 'INACTIVE' })).toBe(false);
+  });
+
+  it('says which way buyers fees move, in plain ASCII', () => {
+    for (const d of ['INCREASE', 'DECREASE', 'MIXED', 'NONE'] as const) {
+      expect(impactDirectionLabel(d)).toMatch(/^[ -~]+$/);
+    }
+    expect(impactDirectionLabel('INCREASE')).toContain('MORE');
+    expect(impactDirectionLabel('DECREASE')).toContain('LESS');
   });
 });
 
