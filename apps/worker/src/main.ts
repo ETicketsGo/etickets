@@ -3,7 +3,6 @@ import { createServer } from 'node:http';
 import { NestFactory } from '@nestjs/core';
 import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
-import * as Sentry from '@sentry/node';
 import {
   AppModule,
   AuthService,
@@ -35,6 +34,8 @@ import {
   bullPrefix,
   CampaignDispatchService,
   campaignSendingConfig,
+  initSentry,
+  captureException as captureToSentry,
 } from '@eticketsgo/api';
 import { metricsAccess } from '@eticketsgo/shared-types';
 import { renderWorkerMetrics, sampleQueueMetrics } from './metrics';
@@ -161,71 +162,21 @@ const RAW_CAMPAIGN_TICK_MS = Number(process.env.CAMPAIGN_TICK_INTERVAL_MS ?? 15_
 const CAMPAIGN_TICK_MS =
   Number.isFinite(RAW_CAMPAIGN_TICK_MS) && RAW_CAMPAIGN_TICK_MS > 0 ? RAW_CAMPAIGN_TICK_MS : 15_000;
 
-// Error tracking — a complete no-op unless SENTRY_DSN is set. Manual capture only.
-const SENTRY_ENABLED = Boolean(process.env.SENTRY_DSN);
-if (SENTRY_ENABLED) {
-  Sentry.init({
-    dsn: process.env.SENTRY_DSN,
-    // APP_ENV before NODE_ENV: QA and UAT run NODE_ENV=production, and their worker errors were
-    // filed under `production`. Same order as resolveSentryEnvironment in the API.
-    environment:
-      process.env.SENTRY_ENVIRONMENT?.trim() ||
-      process.env.APP_ENV?.trim().toLowerCase() ||
-      process.env.NODE_ENV?.trim() ||
-      'development',
-    // Fall back to the commit SHA the platform injects (Railway sets RAILWAY_GIT_COMMIT_SHA)
-    // so worker errors are attributable to a deploy without setting a variable by hand.
-    release: process.env.SENTRY_RELEASE || process.env.RAILWAY_GIT_COMMIT_SHA || undefined,
-    tracesSampleRate: 0,
-    sendDefaultPii: false,
-    // Drop consecutive identical errors client-side (node has no default dedupe).
-    integrations: [Sentry.dedupeIntegration()],
-    // Belt-and-suspenders PII scrub: strip request cookies/body/query, auth/cookie
-    // headers, and any user identity from every outgoing event. Never throws.
-    beforeSend(event) {
-      try {
-        /*
-          Some API routes carry a credential in the path (webhook secrets, invitation and share
-          tokens), and a URL or transaction name can ship it to Sentry. The API redacts those
-          segments with redactSecretSegments; the worker cannot import it (the API package
-          exports only its index), and it serves no such route and records no HTTP
-          transactions -- so both are dropped outright rather than copying the route list here.
-        */
-        delete event.transaction;
-        if (event.request) {
-          delete event.request.url;
-          delete event.request.cookies;
-          delete event.request.data;
-          delete event.request.query_string;
-          const headers = event.request.headers;
-          if (headers)
-            for (const key of Object.keys(headers)) {
-              const k = key.toLowerCase();
-              if (k === 'authorization' || k === 'cookie' || k === 'set-cookie')
-                delete headers[key];
-            }
-        }
-        delete event.user;
-      } catch {
-        /* best-effort */
-      }
-      return event;
-    },
-  });
-}
+/*
+  Error tracking - a complete no-op unless SENTRY_DSN is set. ONE initialisation and ONE scrub
+  for the api and the worker (apps/api/src/observability/sentry.ts): environment from APP_ENV,
+  release from SENTRY_RELEASE / GIT_SHA / RAILWAY_GIT_COMMIT_SHA, SENTRY_TRACES_SAMPLE_RATE, and
+  the same redaction of messages, breadcrumbs, extra and contexts. The worker used to carry its
+  own copy, which scrubbed less (no bot-check headers, no free text). Events are tagged
+  service=worker. API services running inside this process (webhook processors, the outbox,
+  ops alerts) report through the same client.
+*/
+const SENTRY_ENABLED = initSentry({ service: 'worker' });
 
 /** Capture to Sentry when enabled; otherwise a no-op. Never throws. */
 function capture(error: unknown, tags?: Record<string, string>): void {
   if (!SENTRY_ENABLED) return;
-  try {
-    Sentry.withScope((scope) => {
-      scope.setTag('service', 'worker');
-      if (tags) for (const [k, v] of Object.entries(tags)) scope.setTag(k, v);
-      Sentry.captureException(error);
-    });
-  } catch {
-    /* best-effort */
-  }
+  captureToSentry(error, tags);
 }
 
 /**
@@ -1002,7 +953,10 @@ async function main(): Promise<void> {
       jobName: job?.name,
       error: err.name,
     });
-    if (job?.name !== 'campaign-send')
+    // A single send is retried, so report it only once its retries are spent: then a person did
+    // not get a message they were promised. Everything else is reported on every failure.
+    const spent = (job?.attemptsMade ?? 0) >= (job?.opts?.attempts ?? 1);
+    if (job?.name !== 'campaign-send' || spent)
       capture(err, { jobId: job?.id ?? '-', jobName: job?.name ?? '-' });
   });
 

@@ -40,3 +40,11 @@ export {
   redisEnvRoot,
 } from './common/redis-namespace';
 export type { BullConnectionOptions } from './common/redis-namespace';
+// One Sentry initialisation and scrub for the api and the worker.
+export {
+  initSentry,
+  captureException,
+  captureOperationalEvent,
+  scrubSensitiveData,
+  scrubBreadcrumb,
+} from './observability/sentry';

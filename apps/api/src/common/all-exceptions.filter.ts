@@ -144,6 +144,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
         method: req.method,
         // The redacted path, not the raw one: this leaves the estate entirely.
         path,
+        // Which money path failed, so alert rules can page on checkout and payments alone.
+        area: requestArea(path),
+        status: String(status),
+        ...(exception instanceof PaymentProviderError
+          ? { provider: exception.provider, provider_reason: exception.code }
+          : {}),
       });
     } else {
       this.logger.warn(`[${correlationId}] ${req.method} ${path} -> ${status} ${body.code}`);
@@ -151,6 +157,23 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     res.status(status).json(body);
   }
+}
+
+/**
+ * The product area of a request path, for grouping and alert routing in Sentry. Checked most
+ * specific first; anything else is `other`. Paths arrive already redacted and without a query.
+ */
+export function requestArea(path: string): string {
+  const p = path.replace(/^\/api(\/v\d+)?/, '');
+  if (/^\/payments\/webhooks\//.test(p)) return 'payments.webhook';
+  if (/^\/(refunds|bookings\/[^/]+\/refund)/.test(p) || /\/refunds?(\/|$)/.test(p))
+    return 'refunds';
+  if (/^\/payments\//.test(p)) return 'payments';
+  if (/^\/(bookings|checkout|holds)(\/|$)/.test(p)) return 'checkout';
+  if (/^\/(payouts|admin\/payouts|settlements)(\/|$)/.test(p)) return 'payouts';
+  if (/^\/auth(\/|$)/.test(p)) return 'auth';
+  if (/^\/admin(\/|$)/.test(p)) return 'admin';
+  return 'other';
 }
 
 /** Maps a normalized payment error to an HTTP status + safe client envelope. */
