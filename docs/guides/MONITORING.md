@@ -121,12 +121,12 @@ changes.** When set:
 
 Environment:
 
-| Env                         | Purpose                                                      |
-| --------------------------- | ------------------------------------------------------------ |
-| `SENTRY_DSN`                | Enables Sentry. Unset ⇒ complete no-op.                      |
-| `SENTRY_ENVIRONMENT`        | Environment tag (falls back to `NODE_ENV`).                  |
-| `SENTRY_RELEASE`            | Release/version tag for regression tracking.                 |
-| `SENTRY_TRACES_SAMPLE_RATE` | Perf tracing sample rate; default `0` (error tracking only). |
+| Env                         | Purpose                                                       |
+| --------------------------- | ------------------------------------------------------------- |
+| `SENTRY_DSN`                | Enables Sentry. Unset ⇒ complete no-op.                       |
+| `SENTRY_ENVIRONMENT`        | Environment tag (falls back to `APP_ENV`, then `NODE_ENV`).   |
+| `SENTRY_RELEASE`            | Release tag. Unset: `GIT_SHA`, then `RAILWAY_GIT_COMMIT_SHA`. |
+| `SENTRY_TRACES_SAMPLE_RATE` | Perf tracing sample rate; default `0` (error tracking only).  |
 
 ---
 
