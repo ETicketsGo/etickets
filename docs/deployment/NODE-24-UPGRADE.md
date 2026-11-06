@@ -13,6 +13,35 @@ Status: on branch `chore/node-24-runtime`. Not deployed.
   so the mobile-ci verify job on Node 20 was out of range.
 - Versions had drifted: images and CI on 20, the EAS submit job on 22, developer machines on 24.
 
+## Time zones: the runtime's tz database is behaviour (found by CI)
+
+Node bundles the IANA time-zone database. The first CI run of this branch failed one test
+that passed locally: CI pulled Node 24.22.2 (tzdata **2026e**), the developer machine had
+24.14.1 (tzdata 2025c). tzdata 2026e records British Columbia staying on UTC-7 from November
+2026, so `America/Vancouver` and `America/Whitehorse` now keep the same clock.
+
+The same instant, `2026-11-14T03:30Z`, reads in Vancouver as:
+
+| Runtime                         | tzdata | Vancouver     |
+| ------------------------------- | ------ | ------------- |
+| Node 20.20.2 (production today) | 2025c  | 7:30 PM GMT-8 |
+| Node 24.22.2 (this branch)      | 2026e  | 8:30 PM GMT-7 |
+
+So **production on Node 20 is one hour apart from tzdata 2026e for British Columbia from
+November 2026**, and browsers with newer data will disagree with the server. Any BC
+(America/Vancouver) event should be checked after this ships. Two consequences here:
+
+- The exact version is now pinned: `node:24.22.2-alpine`, `setup-node: 24.22.2`, `.nvmrc`
+  24.22.2. A floating `24-alpine` tag let two builds of one commit carry different tz data.
+  Bump it on purpose, and read the tzdata changes when you do.
+- The test now uses a pair that differs under every tzdata version (Los Angeles and Phoenix),
+  and passes on both 2025c and 2026e. The zone label for America/Vancouver still says
+  "Pacific time"; whether BC's permanent UTC-7 should be labelled differently is a product
+  decision (open).
+
+Postgres has its own tz database. The API converts times in JavaScript, but any SQL
+`AT TIME ZONE` uses the database's copy, which updates with the Postgres image.
+
 ## What changed
 
 | Place                                           | Before           | After                      |

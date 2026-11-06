@@ -87,7 +87,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 24.22.2
           cache: npm
       - run: npm ci
       # Shared packages publish compiled `dist`; the mobile typecheck reads their types.
@@ -188,7 +188,7 @@ jobs:
       # is pinned to the job that has it.
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 24.22.2
           cache: npm
       - name: Guard — EXPO_TOKEN present
         id: guard

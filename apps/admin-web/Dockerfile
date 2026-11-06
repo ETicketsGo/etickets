@@ -9,7 +9,7 @@
 ARG NEXT_PUBLIC_API_URL=http://localhost:4000/api
 
 # ---------- Stage 1: deps ----------
-FROM node:24-alpine AS deps
+FROM node:24.22.2-alpine AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
@@ -38,7 +38,7 @@ COPY . .
 RUN npx turbo run build --filter=@eticketsgo/admin-web
 
 # ---------- Stage 3: runtime (standalone) ----------
-FROM node:24-alpine AS runtime
+FROM node:24.22.2-alpine AS runtime
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
