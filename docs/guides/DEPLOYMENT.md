@@ -66,7 +66,7 @@ context) in three stages:
    changes).
 2. **build** — build shared packages, then the target app. The API stage also runs
    `prisma generate` (Prisma engines compiled for `linux-musl` on alpine).
-3. **runtime** — `node:20-alpine`, **non-root** (`USER node`), only the artifacts
+3. **runtime** — `node:24-alpine`, **non-root** (`USER node`), only the artifacts
    needed to run, with a container `HEALTHCHECK`.
 
 - Web images use Next.js **standalone** output (`.next/standalone` + `.next/static`)
