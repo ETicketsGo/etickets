@@ -33,7 +33,9 @@ const base = baseIdx >= 0 ? args[baseIdx + 1] : null;
 const filesIdx = args.indexOf('--files');
 const explicit = filesIdx >= 0 ? args[filesIdx + 1].split(',').filter(Boolean) : null;
 if (!all && !base && !explicit) {
-  console.error('Pass --base <git ref> (new migrations since that ref), --files a.sql,b.sql or --all.');
+  console.error(
+    'Pass --base <git ref> (new migrations since that ref), --files a.sql,b.sql or --all.',
+  );
   process.exit(2);
 }
 
