@@ -57,6 +57,20 @@ export const TEMPLATE_CONTRACTS: Partial<Record<NotificationType, TemplateContra
   },
 
   /*
+    The approvers' copy of a fee-schedule step: which currency, what happened (submitted, or an
+    emergency rollback to review), and who did it - the one person who may not approve it.
+  */
+  [NotificationType.FEE_SCHEDULE_AWAITING_APPROVAL]: {
+    required: ['kind', 'currency', 'actorEmail'],
+    optional: ['draftId', 'decisionId', 'note', 'version', 'restoredVersion'],
+  },
+  /* The submitter's copy of the checker's decision, with the checker's reason. */
+  [NotificationType.FEE_SCHEDULE_DECIDED]: {
+    required: ['decision', 'currency'],
+    optional: ['draftId', 'decisionId', 'deciderEmail', 'note', 'version'],
+  },
+
+  /*
     The ticket. `reference` is what a customer reads down a phone to support, and the event
     and time are how they recognise which booking this is among several.
   */

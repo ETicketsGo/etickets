@@ -148,24 +148,24 @@ describe('no duplicate error toasts', () => {
   });
 });
 
-describe('publish request', () => {
+describe('approve request', () => {
   afterEach(() => vi.unstubAllGlobals());
   const reply = (status: number, body: unknown) =>
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-  it('one failed publish is one request and one error', async () => {
+  it('one failed approval is one request and one error', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(
         reply(409, { code: 'FEE_SCHEDULE_STALE', message: 'Changed.', details: {} }),
       );
     vi.stubGlobal('fetch', fetchMock);
-    await expect(api.admin.feeSchedules.publish('d1')).rejects.toMatchObject({
+    await expect(api.admin.feeSchedules.approve('d1')).rejects.toMatchObject({
       code: 'FEE_SCHEDULE_STALE',
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0][0])).toMatch(
-      /\/admin\/fee-schedules\/drafts\/d1\/publish$/,
+      /\/admin\/fee-schedules\/drafts\/d1\/approve$/,
     );
   });
 });

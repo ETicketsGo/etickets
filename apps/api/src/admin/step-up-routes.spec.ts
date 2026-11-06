@@ -48,7 +48,11 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
     PlatformFeePoliciesController,
     ['createPlatformFeePolicy', 'deactivatePlatformFeePolicy'],
   ],
-  ['fee schedule publish', FeeSchedulesController, ['publishFeeSchedule']],
+  [
+    'fee schedule approval and emergency rollback',
+    FeeSchedulesController,
+    ['approve', 'emergencyRollback', 'publishFeeSchedule'],
+  ],
   [
     'payment config',
     PaymentAdminController,
@@ -97,8 +101,21 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
 const NOT_STEP_UP: Array<[new (...a: never[]) => unknown, string[]]> = [
   [AdminController, ['feeRules', 'taxRules', 'cinemaPricingPolicies']],
   [PlatformFeePoliciesController, ['list', 'detail', 'preview']],
-  // Drafts change no price; only the publish does.
-  [FeeSchedulesController, ['overview', 'draft', 'createDraft', 'saveDraft', 'discardDraft']],
+  // Drafts, submissions and rejections change no price; only an approval (or rollback) does.
+  [
+    FeeSchedulesController,
+    [
+      'overview',
+      'draft',
+      'impact',
+      'createDraft',
+      'saveDraft',
+      'discardDraft',
+      'submit',
+      'withdraw',
+      'reject',
+    ],
+  ],
   [PaymentAdminController, ['overview', 'health']],
   [PaymentOutageController, ['status']],
   [AdminOrganizationsController, ['list', 'reviewSignals']],

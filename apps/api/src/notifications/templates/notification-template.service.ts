@@ -665,6 +665,41 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
   },
 
   /*
+    A fee schedule waits for a second person, or was rolled back alone and waits for review.
+    Names the person who may not approve it, like the bank-account queue.
+  */
+  [NotificationType.FEE_SCHEDULE_AWAITING_APPROVAL]: (l, p) => {
+    const kind = str(p, 'kind') === 'EMERGENCY_ROLLBACK' ? 'rollback' : 'submitted';
+    const note = str(p, 'note');
+    const values = {
+      currency: str(p, 'currency'),
+      actor: str(p, 'actorEmail', t(l, 'emails.fragments.notProvided')),
+      version: str(p, 'version', ''),
+      restored: str(p, 'restoredVersion', ''),
+      note: note ? t(l, 'emails.FEE_SCHEDULE_AWAITING_APPROVAL.note', { note }) : '',
+    };
+    return {
+      subject: t(l, `emails.FEE_SCHEDULE_AWAITING_APPROVAL.${kind}.subject`, values),
+      body: t(l, `emails.FEE_SCHEDULE_AWAITING_APPROVAL.${kind}.body`, values),
+    };
+  },
+
+  [NotificationType.FEE_SCHEDULE_DECIDED]: (l, p) => {
+    const decision = str(p, 'decision') === 'APPROVED' ? 'approved' : 'rejected';
+    const note = str(p, 'note');
+    const values = {
+      currency: str(p, 'currency'),
+      decider: str(p, 'deciderEmail', t(l, 'emails.fragments.notProvided')),
+      version: str(p, 'version', ''),
+      note: note ? t(l, 'emails.FEE_SCHEDULE_DECIDED.note', { note }) : '',
+    };
+    return {
+      subject: t(l, `emails.FEE_SCHEDULE_DECIDED.${decision}.subject`, values),
+      body: t(l, `emails.FEE_SCHEDULE_DECIDED.${decision}.body`, values),
+    };
+  },
+
+  /*
     The reason is the admin's own words and is the whole point of the message: "paused" alone
     sends the organizer straight to support to ask why. It is required by the console, but an
     older caller may omit it, so it is optional here like the rejection note.
