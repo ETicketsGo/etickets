@@ -143,6 +143,12 @@ For each: **New → GitHub Repo** → this repository → then set three things.
 > `preDeployCommand: npx prisma migrate deploy`. Leave it unset on `worker` and you have
 > created a _second migration executor_ and pointed the worker at the API's Dockerfile.
 > After creating each service, confirm **Settings → Config-as-code** shows the path above.
+>
+> **2026-11-06: superseded for migrated environments.** The root `railway.json` is deleted
+> (Railway stops reading config files on 2026-12-01) and services move to
+> `.railway/railway.ts` with an EMPTY config path. See
+> [RAILWAY-IAC-MIGRATION.md](RAILWAY-IAC-MIGRATION.md). Do not recreate the root file: on QA it
+> overrode the IaC settings exactly as described above.
 
 > **Root Directory must stay empty.** Every Dockerfile builds from the repository root and
 > `COPY`s each workspace manifest (`packages/*/package.json`, `apps/*/package.json`) before

@@ -7,7 +7,7 @@
  * migration racing across replicas, a live key committed to a template) are ones that
  * otherwise surface as a broken production deploy at the worst possible moment.
  *
- * Checks, per Railway service config under deploy/railway/ plus the root railway.json:
+ * Checks, per Railway service config under deploy/railway/ and in .railway/railway.ts (IaC):
  *   - the referenced Dockerfile exists
  *   - the start command resolves against that Dockerfile's WORKDIR
  *   - a health-check path is declared and matches a route the service actually serves
@@ -26,7 +26,7 @@
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const RAILWAY_DIR = join(ROOT, 'deploy/railway');
@@ -736,34 +736,160 @@ function validateNoStrayConfigs() {
   }
 }
 
-/** The root railway.json is the fallback for a service with no config path set. */
-function validateRootConfig() {
-  const where = 'railway.json';
-  const path = join(ROOT, 'railway.json');
-  if (!check(existsSync(path), where, 'root fallback config is missing')) return;
-  const cfg = JSON.parse(readFileSync(path, 'utf8'));
-  const deploy = cfg.deploy ?? {};
-  check(
-    !/prisma\s+migrate/.test(deploy.startCommand ?? ''),
-    where,
-    'migrations must not run from startCommand',
-  );
-  check(
-    /prisma\s+migrate\s+deploy/.test(deploy.preDeployCommand ?? ''),
-    where,
-    'should run `prisma migrate deploy` as preDeployCommand',
-  );
-  check(
-    deploy.startCommand === 'node dist/main.js',
-    where,
-    'startCommand must resolve against the API image WORKDIR (/app/apps/api)',
-  );
-  for (const d of DESTRUCTIVE) {
+/**
+ * There must be NO repository-root railway.json.
+ *
+ * Railway reads the root file for any service whose Config File path is empty, and it WINS over
+ * the service's own settings - including settings written by Infrastructure as Code. Observed
+ * on QA 2026-11-06 while migrating to .railway/railway.ts: with the path cleared, worker,
+ * db-seed, organizer-web and admin-web were all built from apps/api/Dockerfile and started as a
+ * second API (the root file described the API), and the api lost its second replica. Every
+ * service now either names its own deploy/railway/*.railway.json (legacy, until 2026-12-01) or
+ * is owned by .railway/railway.ts, so the fallback has no legitimate user left.
+ */
+function validateNoRootConfig() {
+  for (const name of ['railway.json', 'railway.toml']) {
     check(
-      !d.pattern.test(`${deploy.preDeployCommand ?? ''} ${deploy.startCommand ?? ''}`),
-      where,
-      `deploy command contains ${d.name}`,
+      !existsSync(join(ROOT, name)),
+      name,
+      'must not exist: a service with no Config File path falls back to it, overriding IaC settings',
     );
+  }
+}
+
+/**
+ * Infrastructure as Code (.railway/railway.ts), compiled offline for every environment.
+ *
+ * Asserts the rules the legacy files carried, so the move to IaC cannot drop one silently:
+ * single migration executor, Dockerfile builds, health checks, db-seed never restarting,
+ * databases never declared (a stock postgres()/redis() helper planned postgres-ssl:16 ->
+ * postgres:18), no variable VALUE in source, and - while UAT/PROD still read the legacy
+ * files - identical commands and health checks in both places.
+ */
+/** Railway's defaults, as the platform normalises them (a default is stored as null). */
+function railwayDefaults(deploy) {
+  const out = { ...deploy };
+  if ((out.restartPolicyType ?? 'ON_FAILURE') === 'ON_FAILURE') {
+    out.restartPolicyType = 'ON_FAILURE';
+    out.restartPolicyMaxRetries = out.restartPolicyMaxRetries ?? 10;
+  }
+  return out;
+}
+
+async function validateIac() {
+  const where = '.railway/railway.ts';
+  const file = join(ROOT, '.railway', 'railway.ts');
+  if (!check(existsSync(file), where, 'IaC file is missing')) return;
+  let sdk;
+  let mod;
+  try {
+    sdk = await import('railway/iac');
+    mod = await import(pathToFileURL(file).href);
+  } catch (err) {
+    fail(where, `cannot be evaluated: ${err.message}`);
+    return;
+  }
+  check(mod.partial === 'apps', where, 'must export partial = "apps" (ownership boundary)');
+  const expected = new Map(SERVICES.map((s) => [s.file.replace('.railway.json', ''), s]));
+  for (const envName of ['QA', 'UAT', 'PROD']) {
+    const at = `${where} [${envName}]`;
+    let graph;
+    try {
+      graph = await mod.default(
+        sdk.createRailwayContext({ environment: envName, environmentName: envName }),
+        sdk.project,
+      );
+    } catch (err) {
+      fail(at, `does not compile: ${err.message}`);
+      continue;
+    }
+    const resources = graph.resources ?? [];
+    check(
+      !resources.some((r) => r.type === 'database'),
+      at,
+      'must not declare databases (Postgres/Redis stay unmanaged; stock helpers change their image)',
+    );
+    const services = resources.filter((r) => r.type === 'service');
+    check(
+      JSON.stringify(services.map((r) => r.name).sort()) ===
+        JSON.stringify([...expected.keys()].sort()),
+      at,
+      `must declare exactly the services ${[...expected.keys()].join(', ')}`,
+    );
+    const migrators = services.filter((r) => (r.deploy?.preDeployCommand ?? []).length > 0);
+    check(
+      migrators.length === 1 && migrators[0].name === 'api',
+      at,
+      'exactly one service (api) may have a pre-deploy command',
+    );
+    for (const r of services) {
+      const svc = expected.get(r.name);
+      if (!svc) continue;
+      const s = `${at} ${r.name}`;
+      const deploy = r.deploy ?? {};
+      check(r.build?.builder === 'DOCKERFILE', s, 'build.builder must be DOCKERFILE');
+      check(
+        r.build?.dockerfilePath === svc.dockerfile,
+        s,
+        `dockerfilePath must be ${svc.dockerfile}`,
+      );
+      check(existsSync(join(ROOT, r.build?.dockerfilePath ?? '')), s, 'Dockerfile does not exist');
+      check(deploy.startCommand === svc.start, s, `startCommand must be ${svc.start}`);
+      check(
+        (deploy.healthcheckPath ?? undefined) === svc.health,
+        s,
+        `healthcheckPath must be ${svc.health}`,
+      );
+      if (svc.expectMigrations) {
+        check(
+          JSON.stringify(deploy.preDeployCommand) === JSON.stringify(['npx prisma migrate deploy']),
+          s,
+          'pre-deploy must be exactly `npx prisma migrate deploy`',
+        );
+      }
+      if (svc.oneShot) {
+        check(deploy.restartPolicyType === 'NEVER', s, 'a one-shot job must never restart');
+      }
+      if (envName === 'PROD') check(deploy.sleepApplication !== true, s, 'nothing sleeps in PROD');
+      if (r.name === 'worker') {
+        check(!Object.keys(r.networking?.customDomains ?? {}).length, s, 'worker is internal-only');
+      }
+      for (const d of DESTRUCTIVE) {
+        check(
+          !d.pattern.test(
+            `${(deploy.preDeployCommand ?? []).join(' ')} ${deploy.startCommand ?? ''}`,
+          ),
+          s,
+          `deploy command contains ${d.name}`,
+        );
+      }
+      for (const [k, v] of Object.entries(r.variables ?? {})) {
+        check(
+          v && typeof v === 'object' && v.type === 'preserve',
+          s,
+          `variable ${k} must be preserve(), never a value`,
+        );
+      }
+      // Same settings as the legacy file, while UAT/PROD still read it. Railway defaults
+      // (restart ON_FAILURE x10, no sleep) are dropped from the IaC output on purpose.
+      const legacyPath = join(RAILWAY_DIR, svc.file);
+      if (existsSync(legacyPath)) {
+        const legacy = railwayDefaults(JSON.parse(readFileSync(legacyPath, 'utf8')).deploy ?? {});
+        const next = railwayDefaults(deploy);
+        for (const k of [
+          'restartPolicyType',
+          'restartPolicyMaxRetries',
+          'healthcheckTimeout',
+          'cronSchedule',
+        ]) {
+          check(
+            (legacy[k] ?? null) === (next[k] ?? null),
+            s,
+            `${k} differs from deploy/railway/${svc.file} (${legacy[k] ?? null} vs ${next[k] ?? null})`,
+          );
+        }
+      }
+    }
   }
 }
 
@@ -914,7 +1040,8 @@ function validateVariableWritesNeverDeploy() {
 
 validateDestructiveSurfaces();
 validateNoStrayConfigs();
-validateRootConfig();
+validateNoRootConfig();
+await validateIac();
 SERVICES.forEach(validateServiceConfig);
 ENV_TEMPLATES.forEach(validateEnvTemplate);
 validateNextPublicBuildArgs();
