@@ -7,7 +7,7 @@
 # ─────────────────────────────────────────────────────────────
 
 # ---------- Stage 1: deps ----------
-FROM node:20-alpine AS deps
+FROM node:24.22.2-alpine AS deps
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 
@@ -37,7 +37,7 @@ RUN npm run packages:build \
 RUN npm prune --omit=dev
 
 # ---------- Stage 3: runtime ----------
-FROM node:20-alpine AS runtime
+FROM node:24.22.2-alpine AS runtime
 RUN apk add --no-cache openssl wget
 ENV NODE_ENV=production
 WORKDIR /app

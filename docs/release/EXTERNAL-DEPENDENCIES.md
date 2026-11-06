@@ -11,7 +11,7 @@ committed files, never to the browser.
 | ------------------------ | ----------------------------------------------------------- | -------------- | ------------------------------------------------------------------ |
 | **PostgreSQL 16**        | System of record                                            | `DATABASE_URL` | Managed instance with PITR/backups; run `prisma migrate deploy`.   |
 | **Redis 7**              | Cache, BullMQ queue (holds/notifications), maintenance flag | `REDIS_URL`    | Fail-open for cache/maintenance; queue/worker resume on reconnect. |
-| **Node.js 20.x runtime** | API + worker + web servers                                  | `.nvmrc`       | Build images with `npm ci` against the committed lockfile.         |
+| **Node.js 24.x runtime** | API + worker + web servers                                  | `.nvmrc`       | Build images with `npm ci` against the committed lockfile.         |
 | **TLS / reverse proxy**  | HTTPS termination                                           | infra          | Required for HSTS, secure cookies, camera/secure-context features. |
 
 ## Conditional — payments (only if accepting real payments)

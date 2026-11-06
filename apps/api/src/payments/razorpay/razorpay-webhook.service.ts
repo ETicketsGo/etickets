@@ -8,6 +8,7 @@ import { PaymentProviderResolver } from '../provider/payment-provider.resolver';
 import { RazorpayWebhookProcessor } from './razorpay-webhook.processor';
 import { OpsAlertService } from '../../ops/alerts/ops-alert.service';
 import { webhookSignatureAlert } from '../../ops/alerts/ops-alert-messages';
+import { isUniqueViolation } from '../../events/request-key';
 
 const PROVIDER = 'razorpay';
 
@@ -99,16 +100,32 @@ export class RazorpayWebhookService {
             payload: data as object,
           },
         })
-      : await this.prisma.webhookEvent.create({
-          data: {
-            provider: PROVIDER,
-            providerEventId,
-            eventType: envelope.type,
-            payloadHash,
-            payload: data as object,
-            processingStatus: WebhookProcessingStatus.RECEIVED,
-          },
-        });
+      : await this.prisma.webhookEvent
+          .create({
+            data: {
+              provider: PROVIDER,
+              providerEventId,
+              eventType: envelope.type,
+              payloadHash,
+              payload: data as object,
+              processingStatus: WebhookProcessingStatus.RECEIVED,
+            },
+          })
+          .catch((err: unknown) => {
+            /*
+              The same event delivered twice AT ONCE (Razorpay and Stripe both retry, and with
+              two API replicas each copy can land on a different one): both read "no row", and
+              the second insert hits the (provider, providerEventId) unique key. The first insert
+              won and will be processed; this copy is a duplicate, not an error. Answering 500
+              here made the provider retry and raised a false alarm. Anything else rethrows.
+            */
+            if (isUniqueViolation(err)) return null;
+            throw err;
+          });
+    if (!record) {
+      this.metrics.recordPaymentWebhook?.(PROVIDER, 'duplicate');
+      return { received: true, duplicate: true };
+    }
 
     this.metrics.recordPaymentWebhook?.(PROVIDER, envelope.type);
 

@@ -19,7 +19,7 @@ import {
   type FeeScheduleIssue,
 } from '@eticketsgo/web-kit';
 import { feeBandLabel } from '@eticketsgo/shared-types';
-import { NO_READ_ACCESS, READ_ONLY_NOTE, useConfigAccess } from '@/lib/capabilities';
+import { NO_READ_ACCESS, READ_ONLY_NOTE, useConfigAccess, useHolds } from '@/lib/capabilities';
 import { describeCharge } from '@/lib/fee-bands';
 import {
   bandFromRow,
@@ -34,8 +34,10 @@ import {
 } from '@/lib/fee-schedule-draft';
 
 /**
- * Change a market's booking-fee schedule as a draft, check it as a whole, and publish it in one
- * step. See FeeSchedulesService (API) for the rules. User copy is ASCII plain English.
+ * Change a market's booking-fee schedule as a draft, check it as a whole, and submit it for
+ * approval. Another administrator who holds FEE_SCHEDULE_APPROVE and did not work on the draft
+ * approves it, which publishes it in one step. See FeeSchedulesService (API) for the rules.
+ * User copy is ASCII plain English.
  */
 
 const CURRENCIES = Array.from(new Set(MARKETS.map((m) => m.currency))).sort();
@@ -62,7 +64,11 @@ export default function FeeScheduleDraftPage() {
   // True once a row changed after the last save: the check below is then out of date.
   const [dirty, setDirty] = useState(false);
   const [publishIssues, setPublishIssues] = useState<FeeScheduleIssue[] | null>(null);
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, setConfirming] = useState<null | 'submit' | 'approve' | 'reject'>(null);
+  const [note, setNote] = useState('');
+  const [rollback, setRollback] = useState<number | null>(null);
+  const [rollbackReason, setRollbackReason] = useState('');
+  const mayApprove = useHolds('FEE_SCHEDULE_APPROVE');
 
   // The settings page links here with ?currency=USD. Read once, without a suspense boundary.
   useEffect(() => {
@@ -138,24 +144,98 @@ export default function FeeScheduleDraftPage() {
     },
     onError: (err) => toast.push(failureMessage(err, 'discard the draft'), 'error'),
   });
-  const publish = useMutation({
-    mutationFn: () => api.admin.feeSchedules.publish(draft!.id),
+  const refreshLive = () => {
+    void qc.invalidateQueries({ queryKey: ['admin', 'fee-schedule', currency] });
+    void qc.invalidateQueries({ queryKey: ['admin', 'fee-rules'] });
+  };
+  const closeDialog = () => {
+    setConfirming(null);
+    setNote('');
+  };
+  const submit = useMutation({
+    mutationFn: () => api.admin.feeSchedules.submit(draft!.id, note.trim() || undefined),
+    onSuccess: (d) => {
+      closeDialog();
+      load(d);
+      toast.push(
+        'Submitted. Nothing changes for buyers until another administrator approves it.',
+        'success',
+      );
+      refreshLive();
+    },
+    onError: (err) => {
+      closeDialog();
+      setPublishIssues(issuesFromError(err));
+      toast.push(failureMessage(err, 'submit the schedule'), 'error');
+    },
+  });
+  const withdraw = useMutation({
+    mutationFn: () => api.admin.feeSchedules.withdraw(draft!.id),
+    onSuccess: (d) => {
+      load(d);
+      toast.push('Withdrawn. The draft is open for changes again.', 'success');
+      refreshLive();
+    },
+    onError: (err) => toast.push(failureMessage(err, 'withdraw the draft'), 'error'),
+  });
+  const approve = useMutation({
+    mutationFn: () => api.admin.feeSchedules.approve(draft!.id, note.trim() || undefined),
     onSuccess: (r) => {
-      setConfirming(false);
+      closeDialog();
       setDraft(null);
       setRows([]);
       toast.push(
-        `Published. Version ${r.version} of the ${r.currency} schedule is now live for new orders.`,
+        `Approved. Version ${r.version} of the ${r.currency} schedule is now live for new orders.`,
         'success',
       );
-      void qc.invalidateQueries({ queryKey: ['admin', 'fee-schedule', currency] });
-      void qc.invalidateQueries({ queryKey: ['admin', 'fee-rules'] });
+      refreshLive();
     },
     onError: (err) => {
-      setConfirming(false);
+      closeDialog();
       setPublishIssues(issuesFromError(err));
-      toast.push(failureMessage(err, 'publish the schedule'), 'error');
+      toast.push(failureMessage(err, 'approve the schedule'), 'error');
     },
+  });
+  const reject = useMutation({
+    mutationFn: () => api.admin.feeSchedules.reject(draft!.id, note.trim()),
+    onSuccess: (d) => {
+      closeDialog();
+      load(d);
+      toast.push(
+        'Rejected. The draft went back to its maker. Nothing changed for buyers.',
+        'success',
+      );
+      refreshLive();
+    },
+    onError: (err) => {
+      closeDialog();
+      toast.push(failureMessage(err, 'reject the schedule'), 'error');
+    },
+  });
+  const restore = useMutation({
+    mutationFn: () =>
+      api.admin.feeSchedules.emergencyRollback(currency, rollback!, rollbackReason.trim()),
+    onSuccess: (r) => {
+      setRollback(null);
+      setRollbackReason('');
+      setDraft(null);
+      setRows([]);
+      toast.push(
+        `Rolled back. Version ${r.version} is live and charges what version ${r.restoredVersion} charged. The other approvers were told.`,
+        'success',
+      );
+      refreshLive();
+    },
+    onError: (err) => {
+      setRollback(null);
+      toast.push(failureMessage(err, 'roll back the schedule'), 'error');
+    },
+  });
+  const pending = draft?.status === 'PENDING_APPROVAL';
+  const impact = useQuery({
+    queryKey: ['admin', 'fee-schedule-impact', draft?.id, draft?.updatedAt],
+    queryFn: () => api.admin.feeSchedules.impact(draft!.id),
+    enabled: !!draft && !dirty && (draft.status === 'OPEN' || pending),
   });
 
   const update = (key: string, patch: Partial<DraftRow>) => {
@@ -167,8 +247,16 @@ export default function FeeScheduleDraftPage() {
   const issues = publishIssues ?? draft?.validation.issues ?? [];
   const errors = issues.filter((i) => i.severity === 'error');
   const flagged = new Set(errors.flatMap((i) => i.bandKeys));
-  const mayPublish =
-    !!draft && !dirty && !draft.stale && draft.validation.valid && !publish.isPending;
+  const editable = access.mayEdit && draft?.status === 'OPEN';
+  const maySubmit =
+    !!draft &&
+    draft.status === 'OPEN' &&
+    !dirty &&
+    !draft.stale &&
+    draft.validation.valid &&
+    !submit.isPending;
+  const mayDecide = pending && mayApprove && !!draft?.viewer?.mayDecide;
+  const isMaker = pending && !!draft?.viewer?.independenceBlock;
 
   if (!access.known || !access.mayRead) {
     return (
@@ -188,7 +276,7 @@ export default function FeeScheduleDraftPage() {
     <div className="space-y-6">
       <PageHeader
         title="Change a fee schedule"
-        description="Edit a copy of the booking fees for one market, check it, then publish it in one step. Nothing changes for buyers until you publish."
+        description="Edit a copy of the booking fees for one market, check it, and submit it. Another administrator approves it, and then it goes live in one step. Nothing changes for buyers until it is approved."
         action={
           <ButtonLink href="/admin/settings" variant="outline">
             Back to booking fees
@@ -217,7 +305,15 @@ export default function FeeScheduleDraftPage() {
               {live.live.filter((b) => b.active).length} active bands.
             </p>
           )}
-          {access.mayEdit && !draft && (
+          {!draft && live?.pendingDraft && (
+            <Button
+              loading={openExisting.isPending}
+              onClick={() => openExisting.mutate(live.pendingDraft!.id)}
+            >
+              Review the draft waiting for approval
+            </Button>
+          )}
+          {access.mayEdit && !draft && !live?.pendingDraft && (
             <Button
               loading={start.isPending || openExisting.isPending}
               onClick={() =>
@@ -237,8 +333,75 @@ export default function FeeScheduleDraftPage() {
             <Card>
               <p className="text-sm text-status-error" role="alert">
                 The live {draft.currency} schedule was changed after this draft was started. This
-                draft cannot be published. Discard it and start a new one from the live schedule.
+                draft cannot be approved.{' '}
+                {pending
+                  ? 'Reject or withdraw it, then start a new one from the live schedule.'
+                  : 'Discard it and start a new one from the live schedule.'}
               </p>
+            </Card>
+          )}
+
+          {draft.status === 'OPEN' && draft.lastRejectionNote && (
+            <Card>
+              <p className="text-sm text-text-primary" role="status">
+                This draft was not approved. Reason: {draft.lastRejectionNote}
+              </p>
+            </Card>
+          )}
+
+          {pending && (
+            <Card title="Waiting for approval">
+              <div className="space-y-2 text-sm" data-testid="fee-schedule-approval">
+                <p>
+                  Submitted by {draft.submittedBy?.email ?? 'an administrator'}
+                  {draft.submittedAt ? ` on ${new Date(draft.submittedAt).toLocaleString()}` : ''}.
+                  It is not live. It cannot be changed while it waits.
+                </p>
+                {draft.submissionNote && <p>Note from the maker: {draft.submissionNote}</p>}
+                <p className="text-text-secondary">
+                  Takes effect: at once, when it is approved. Bookings already made keep the fee
+                  they were charged.
+                </p>
+                <p className="text-text-secondary">
+                  Worked on by: {(draft.contributors ?? []).map((c) => c.email).join(', ') || '-'}.
+                  None of these people can approve it.
+                </p>
+                {!mayApprove && (
+                  <p className="text-text-secondary">
+                    You do not hold the duty to approve fee changes.
+                  </p>
+                )}
+                {mayApprove && !draft.viewer?.mayDecide && (
+                  <p className="text-status-error">
+                    You worked on this draft, so you cannot approve or reject it. Another
+                    administrator must decide.
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2 pt-2">
+                  {mayDecide && (
+                    <>
+                      <Button
+                        onClick={() => setConfirming('approve')}
+                        disabled={draft.stale || !draft.validation.valid}
+                      >
+                        Approve and publish
+                      </Button>
+                      <Button variant="outline" onClick={() => setConfirming('reject')}>
+                        Reject
+                      </Button>
+                    </>
+                  )}
+                  {isMaker && access.mayEdit && (
+                    <Button
+                      variant="secondary"
+                      loading={withdraw.isPending}
+                      onClick={() => withdraw.mutate()}
+                    >
+                      Withdraw to edit
+                    </Button>
+                  )}
+                </div>
+              </div>
             </Card>
           )}
 
@@ -256,6 +419,7 @@ export default function FeeScheduleDraftPage() {
                 return (
                   <fieldset
                     key={row.key}
+                    disabled={!editable}
                     className={`rounded-md border p-3 ${flagged.has(row.key) || problems.length ? 'border-status-error' : 'border-border'}`}
                   >
                     <legend className="px-1 text-sm font-medium">
@@ -361,7 +525,7 @@ export default function FeeScheduleDraftPage() {
                         Charges {describeCharge(parsed, draft.currency)}.
                       </p>
                     )}
-                    {access.mayEdit && (
+                    {editable && (
                       <div className="mt-2 flex gap-2">
                         <Button
                           size="sm"
@@ -391,7 +555,7 @@ export default function FeeScheduleDraftPage() {
                 </p>
               )}
             </div>
-            {access.mayEdit && (
+            {editable && (
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button
                   variant="secondary"
@@ -443,7 +607,7 @@ export default function FeeScheduleDraftPage() {
               ) : (
                 <p className="text-sm text-status-error">
                   {errors.length === 1 ? '1 problem' : `${errors.length} problems`} to fix before
-                  you can publish:
+                  you can submit it:
                 </p>
               )}
               {!dirty && issues.length > 0 && (
@@ -473,7 +637,7 @@ export default function FeeScheduleDraftPage() {
               </p>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <caption className="sr-only">Booking fee now and after publish</caption>
+                  <caption className="sr-only">Booking fee now and after approval</caption>
                   <thead>
                     <tr className="text-left text-text-secondary">
                       <th scope="col" className="py-1 pr-4">
@@ -486,7 +650,7 @@ export default function FeeScheduleDraftPage() {
                         Fee now
                       </th>
                       <th scope="col" className="py-1">
-                        Fee after publish
+                        Fee after approval
                       </th>
                     </tr>
                   </thead>
@@ -510,33 +674,166 @@ export default function FeeScheduleDraftPage() {
             </Card>
           )}
 
-          {access.mayEdit && (
+          {!dirty && impact.data && (
+            <Card title={`Financial impact - last ${impact.data.windowDays} days`}>
+              <div className="space-y-1 text-sm" data-testid="fee-schedule-impact">
+                {impact.data.orders === 0 ? (
+                  <p className="text-text-secondary">
+                    No confirmed {draft.currency} orders in this time, so there is nothing to
+                    compare.
+                  </p>
+                ) : (
+                  <>
+                    <p>
+                      {impact.data.orders} real orders paid{' '}
+                      {money(impact.data.liveFeeMinor, draft.currency)} in booking fees under the
+                      live schedule. Under this draft they would pay{' '}
+                      {money(impact.data.draftFeeMinor, draft.currency)} (
+                      {impact.data.deltaMinor >= 0 ? 'more by ' : 'less by '}
+                      {money(Math.abs(impact.data.deltaMinor), draft.currency)}).
+                    </p>
+                    <p className="text-text-secondary">
+                      {impact.data.higher} orders pay more (at most{' '}
+                      {money(impact.data.largestIncreaseMinor, draft.currency)} more),{' '}
+                      {impact.data.lower} pay less, {impact.data.unchanged} do not change.
+                    </p>
+                  </>
+                )}
+                <p className="text-xs text-text-muted">
+                  An estimate. Every order is priced as if it were in {impact.data.place}, so a band
+                  for one state or region is not shown here, and a fee policy for one event or
+                  organizer is left out. Orders already made keep the fee they were charged.
+                </p>
+              </div>
+            </Card>
+          )}
+
+          {editable && (
             <div className="flex justify-end">
-              <Button onClick={() => setConfirming(true)} disabled={!mayPublish}>
-                Publish this schedule
+              <Button onClick={() => setConfirming('submit')} disabled={!maySubmit}>
+                Submit for approval
               </Button>
             </div>
           )}
         </>
       )}
 
+      {live && live.history.length > 0 && (
+        <Card title={`Published versions - ${currencyName(currency)}`}>
+          <ul className="space-y-2 text-sm" data-testid="fee-schedule-history">
+            {live.history.map((h) => (
+              <li key={h.id} className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">Version {h.version}</span>
+                <span className="text-text-secondary">
+                  {h.publishedAt ? new Date(h.publishedAt).toLocaleString() : ''}
+                  {h.emergency
+                    ? ` - emergency rollback to version ${h.rollbackOfVersion} by ${h.publishedBy?.email ?? 'an administrator'}`
+                    : h.approvedBy
+                      ? ` - submitted by ${h.submittedBy?.email ?? '-'}, approved by ${h.approvedBy.email}`
+                      : ` - published by ${h.publishedBy?.email ?? 'an administrator'} (before approvals)`}
+                </span>
+                {h.approvalNote && <span className="text-text-muted">Note: {h.approvalNote}</span>}
+                {mayApprove && access.mayEdit && h.version < live.liveVersion && (
+                  <Button size="sm" variant="outline" onClick={() => setRollback(h.version)}>
+                    Emergency: roll back to this version
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
       <Dialog
-        open={confirming}
-        onClose={() => setConfirming(false)}
-        title="Publish the fee schedule"
-        description="New quotes and bookings use it at once. Bookings already made keep the fee they were charged."
+        open={confirming !== null}
+        onClose={closeDialog}
+        title={
+          confirming === 'approve'
+            ? 'Approve and publish the fee schedule'
+            : confirming === 'reject'
+              ? 'Reject the fee schedule'
+              : 'Submit the fee schedule for approval'
+        }
+        description={
+          confirming === 'approve'
+            ? 'New quotes and bookings use it at once. Bookings already made keep the fee they were charged.'
+            : confirming === 'reject'
+              ? 'The draft goes back to its maker with your reason. Nothing changes for buyers.'
+              : 'Another administrator must approve it. Nothing changes for buyers until then, and you cannot edit it while it waits.'
+        }
+      >
+        <div className="space-y-3">
+          {confirming === 'approve' && (
+            <p className="text-sm text-text-secondary">
+              All bands are changed together in one step. If someone changed the live schedule after
+              this draft was started, nothing is published.
+            </p>
+          )}
+          <Input
+            label={
+              confirming === 'reject'
+                ? 'Reason (required, the maker sees it)'
+                : 'Note (optional, kept with the decision)'
+            }
+            value={note}
+            maxLength={1000}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={closeDialog}>
+              Cancel
+            </Button>
+            {confirming === 'submit' && (
+              <Button loading={submit.isPending} onClick={() => submit.mutate()}>
+                Submit
+              </Button>
+            )}
+            {confirming === 'approve' && (
+              <Button loading={approve.isPending} onClick={() => approve.mutate()}>
+                Approve and publish
+              </Button>
+            )}
+            {confirming === 'reject' && (
+              <Button
+                loading={reject.isPending}
+                disabled={note.trim().length < 5}
+                onClick={() => reject.mutate()}
+              >
+                Reject
+              </Button>
+            )}
+          </div>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={rollback !== null}
+        onClose={() => setRollback(null)}
+        title={`Emergency: roll back to version ${rollback ?? ''}`}
+        description="Use this only when the live fees are wrong and cannot wait for a normal approval. The live schedule goes back to what this earlier version charged, at once, without a second approval."
       >
         <div className="space-y-3">
           <p className="text-sm text-text-secondary">
-            All bands are changed together in one step. If someone changed the live schedule after
-            this draft was started, nothing is published.
+            This makes a new version. It is recorded with your name and reason, and every other
+            approver is told to review it. Any draft that is open or waiting can no longer be
+            approved.
           </p>
+          <Input
+            label="Reason (at least 20 characters)"
+            value={rollbackReason}
+            maxLength={1000}
+            onChange={(e) => setRollbackReason(e.target.value)}
+          />
           <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => setConfirming(false)}>
+            <Button variant="secondary" onClick={() => setRollback(null)}>
               Cancel
             </Button>
-            <Button loading={publish.isPending} onClick={() => publish.mutate()}>
-              Publish
+            <Button
+              loading={restore.isPending}
+              disabled={rollbackReason.trim().length < 20}
+              onClick={() => restore.mutate()}
+            >
+              Roll back now
             </Button>
           </div>
         </div>
