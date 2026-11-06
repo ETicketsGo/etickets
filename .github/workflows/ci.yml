@@ -112,6 +112,15 @@ jobs:
       - name: Deployment configuration check
         run: npm run verify:deploy
 
+      # New migrations must leave the schema usable by the PREVIOUS release: a rollback runs
+      # the old image on the migrated database, and two replicas run old and new code at once.
+      # Pull requests only (it compares with the base branch). See check-migration-compat.mjs.
+      - name: Migration backward-compatibility check
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          node scripts/deploy/check-migration-compat.mjs --base FETCH_HEAD
+
       - name: Apply migrations & seed
         env:
           # The reset empties every table and refuses to run without this, so that pointing a
