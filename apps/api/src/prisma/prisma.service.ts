@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { MetricsService } from '../metrics/metrics.service';
+import { poolSetting, type PoolSetting } from './pool-url';
 
 /** Resolve the slow-query threshold (ms) from env, defaulting to 500. */
 export function resolveSlowQueryMs(raw: string | undefined = process.env.SLOW_QUERY_MS): number {
@@ -61,13 +62,25 @@ export class PrismaService
 {
   private readonly slowQueryLogger = new Logger('SlowQuery');
   private readonly slowQueryMs = resolveSlowQueryMs();
+  /** This process's connection pool and where its size came from (pool-url.ts, AR-05). */
+  readonly pool: PoolSetting;
 
   constructor(@Optional() private readonly metrics?: MetricsService) {
-    super({ log: [{ emit: 'event', level: 'query' }] });
+    const pool = poolSetting();
+    super({
+      log: [{ emit: 'event', level: 'query' }],
+      // Only when DATABASE_POOL_SIZE is set and DATABASE_URL names no pool size itself.
+      ...(pool.url ? { datasources: { db: { url: pool.url } } } : {}),
+    });
+    this.pool = pool;
   }
 
   async onModuleInit(): Promise<void> {
     this.registerSlowQueryListener();
+    new Logger('DatabasePool').log(
+      `connection pool ${this.pool.poolSize} (${this.pool.source})` +
+        (this.pool.poolTimeoutSeconds ? `, pool_timeout ${this.pool.poolTimeoutSeconds}s` : ''),
+    );
     await this.$connect();
   }
 

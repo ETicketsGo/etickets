@@ -71,6 +71,13 @@ const envSchema = z.object({
   // Slow-query reporting threshold (ms). Queries slower than this are logged
   // (duration + target only, no SQL/params) and counted in etg_slow_queries_total.
   SLOW_QUERY_MS: z.coerce.number().default(500),
+  /*
+    Prisma connection pool per process (AR-05, prisma/pool-url.ts). Unset = Prisma's default
+    (num_cpus * 2 + 1), as before. Keep (api replicas + worker + db-seed) x size well under the
+    database's max_connections; GET /admin/ops/database shows both.
+  */
+  DATABASE_POOL_SIZE: z.coerce.number().int().min(1).max(200).optional(),
+  DATABASE_POOL_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(300).optional(),
   // Error tracking (Sentry). No DSN ⇒ Sentry is never initialised.
   /*
     Bearer credential for GET /api/metrics, and for the worker's own :WORKER_PORT/metrics.
