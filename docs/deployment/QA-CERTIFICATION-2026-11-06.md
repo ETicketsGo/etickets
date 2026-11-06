@@ -14,7 +14,13 @@
 
 `7db8088d` = `main` at `84f6ec56` (#585-#589) plus #591 (fee override approval), #592 (web
 runtime config) and #593 (pool + QA replicas), merged on branch `qa/integration-2026-11-06`.
-Draft PR #594 ran the full CI on that exact commit: green. #591-#593 are NOT merged to `main`.
+Draft PR #594 ran the full CI on that exact commit: green (GitHub Actions runs `42209775696`
+verify, `42209775800` mobile gate, `42209775836` secret scan, dependency audit/review and
+migration drift). #594 was then closed unmerged.
+
+**Merged afterwards:** #591 `927110e5`, #592 `f1f0ea6a`, #593 `df69436a`. `git diff 7db8088d
+df69436a` touches only `docs/` (the register from #590), so `main` carries exactly the code
+that was certified here.
 `/api/health` reports `build.sha = 7db8088d...`. The images were built by Railway from source,
 so there is no registry digest (image promotion needs AR-20 first).
 
