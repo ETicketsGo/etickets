@@ -3,11 +3,11 @@
 # ETicketsGo API (NestJS + Prisma) — production image.
 # Build from the REPOSITORY ROOT (monorepo context):
 #   docker build -f apps/api/Dockerfile -t eticketsgo-api .
-# Multi-stage: deps → build → slim runtime (node:20-alpine, non-root).
+# Multi-stage: deps → build → slim runtime (node:24.22.2-alpine, non-root).
 # ─────────────────────────────────────────────────────────────
 
 # ---------- Stage 1: deps (full install, cached on manifests) ----------
-FROM node:20-alpine AS deps
+FROM node:24.22.2-alpine AS deps
 # openssl + libc6-compat: Prisma query-engine needs them on musl/alpine.
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
@@ -43,7 +43,7 @@ RUN npm run packages:build \
 # slim the image (the generated client under node_modules/.prisma survives prune).
 
 # ---------- Stage 3: runtime ----------
-FROM node:20-alpine AS runtime
+FROM node:24.22.2-alpine AS runtime
 # postgresql-client is here for ONE reason: `pg_dump`, so the db-seed service (which reuses
 # this image, because that is where prisma/ lives) can take a real recovery point before any
 # destructive operation. Railway's own volume backups need account-level credentials that a
