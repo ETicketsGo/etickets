@@ -6337,43 +6337,63 @@ enum PlatformFeePolicyStatus {
   EXPIRED
   /// Every order in `maxOrders` is taken. Goes back to ACTIVE if an unpaid hold is released.
   EXHAUSTED
+  /// Created, and waiting for a second administrator. Prices nothing. (Maker-checker, AR-10.)
+  PENDING_APPROVAL
+  /// A second administrator refused it. Final; it never priced anything.
+  REJECTED
+  /// Its maker took it back before a decision. Final; it never priced anything.
+  WITHDRAWN
 }
 
 model PlatformFeePolicy {
-  id                  String                  @id @default(cuid())
-  scope               PlatformFeePolicyScope
+  id                            String                  @id @default(cuid())
+  scope                         PlatformFeePolicyScope
   /// Set when scope is EVENT. No foreign key on purpose: a policy is a finance record and
   /// must outlive an event or organization that is later deleted.
-  eventId             String?
+  eventId                       String?
   /// Always set: the event's organization for an EVENT policy, the target for ORGANIZATION.
-  organizationId      String
-  kind                PlatformFeePolicyKind
+  organizationId                String
+  kind                          PlatformFeePolicyKind
   /// FIXED: the booking fee. COMBINED: the fixed part, charged once per paid ticket.
   /// FIXED_PER_TICKET: the fee for each paid ticket.
-  feeMinor            Int?
+  feeMinor                      Int?
   /// PERCENT: basis points (500 = 5%).
-  percentBps          Int?
-  minFeeMinor         Int?
-  maxFeeMinor         Int?
+  percentBps                    Int?
+  minFeeMinor                   Int?
+  maxFeeMinor                   Int?
   /// Required when an amount is stated (FIXED, or a PERCENT floor/ceiling). Null applies to
   /// any currency.
-  currency            String?
-  startsAt            DateTime
+  currency                      String?
+  startsAt                      DateTime
   /// Exclusive. Null means open-ended.
-  endsAt              DateTime?
+  endsAt                        DateTime?
   /// Null means unlimited. Counted when a hold is taken, released if it is not paid.
-  maxOrders           Int?
-  usedOrders          Int                     @default(0)
-  status              PlatformFeePolicyStatus @default(ACTIVE)
-  reason              String
-  approvalReference   String?
-  createdByUserId     String
-  deactivatedAt       DateTime?
-  deactivatedByUserId String?
-  deactivationReason  String?
-  version             Int                     @default(1)
-  createdAt           DateTime                @default(now())
-  updatedAt           DateTime                @updatedAt
+  maxOrders                     Int?
+  usedOrders                    Int                     @default(0)
+  status                        PlatformFeePolicyStatus @default(ACTIVE)
+  reason                        String
+  approvalReference             String?
+  createdByUserId               String
+  deactivatedAt                 DateTime?
+  deactivatedByUserId           String?
+  deactivationReason            String?
+  /// Maker-checker (AR-10). The approver is never the creator; a database trigger checks it.
+  approvedByUserId              String?
+  approvedAt                    DateTime?
+  approvalNote                  String?
+  rejectedByUserId              String?
+  rejectedAt                    DateTime?
+  rejectionNote                 String?
+  /// A request to switch a live policy off, waiting for a second administrator. While set,
+  /// the policy still prices sales.
+  deactivationRequestedByUserId String?
+  deactivationRequestedAt       DateTime?
+  deactivationRequestReason     String?
+  /// Switched off by one person through the emergency path, without a second approval.
+  emergencyDeactivation         Boolean                 @default(false)
+  version                       Int                     @default(1)
+  createdAt                     DateTime                @default(now())
+  updatedAt                     DateTime                @updatedAt
 
   bookings Booking[]
   events   PlatformFeePolicyEvent[]
@@ -6388,7 +6408,9 @@ model PlatformFeePolicyEvent {
   id          String            @id @default(cuid())
   policyId    String
   policy      PlatformFeePolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
-  /// CREATED | DEACTIVATED | EXHAUSTED | REOPENED
+  /// CREATED | APPROVED | REJECTED | WITHDRAWN | DEACTIVATION_REQUESTED |
+  /// DEACTIVATION_REJECTED | DEACTIVATION_WITHDRAWN | DEACTIVATED | EMERGENCY_DEACTIVATED |
+  /// EXHAUSTED | REOPENED. Rows are never updated (database trigger).
   action      String
   actorUserId String?
   reason      String?

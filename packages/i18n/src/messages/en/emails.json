@@ -179,7 +179,19 @@
       "subject": "Emergency fee rollback to review: {currency}",
       "body": "{actor} used the emergency rollback on the {currency} booking-fee schedule. Version {version} is now live and charges what version {restored} charged. This was done by one person, without a second approval.{note} Open Settings > Booking fees in the admin console to review it."
     },
-    "note": " Note: \"{note}\""
+    "note": " Note: \"{note}\"",
+    "policySubmitted": {
+      "subject": "Fee override waiting for approval: {target}",
+      "body": "{actor} created a booking-fee override for {target}. It is not live. Buyers pay the current fees until another administrator approves it.{note} You can approve it only if you did not create it: {actor} cannot. Open Fee policies in the admin console to see the terms and the estimated effect, and decide."
+    },
+    "policyDeactivation": {
+      "subject": "Fee override switch-off waiting for approval: {target}",
+      "body": "{actor} asked to switch off the booking-fee override for {target}. It is still live. When it is switched off, buyers pay the normal booking-fee schedule again.{note} You can approve this only if you did not ask for it: {actor} cannot. Open Fee policies in the admin console to decide."
+    },
+    "policyEmergency": {
+      "subject": "Emergency fee override switch-off to review: {target}",
+      "body": "{actor} used the emergency switch-off on the booking-fee override for {target}. Buyers now pay the normal booking-fee schedule. This was done by one person, without a second approval.{note} Open Fee policies in the admin console to review it."
+    }
   },
   "FEE_SCHEDULE_DECIDED": {
     "approved": {
@@ -190,7 +202,23 @@
       "subject": "Fee schedule not approved: {currency}",
       "body": "{decider} did not approve your {currency} booking-fee schedule. Nothing changed for buyers. The draft is open again so you can fix it and submit it again.{note}"
     },
-    "note": " Reason: \"{note}\""
+    "note": " Reason: \"{note}\"",
+    "policyApproved": {
+      "subject": "Fee override approved: {target}",
+      "body": "{decider} approved your booking-fee override for {target}. It is live from its start time. Bookings already made keep the fees they were charged.{note}"
+    },
+    "policyRejected": {
+      "subject": "Fee override not approved: {target}",
+      "body": "{decider} did not approve your booking-fee override for {target}. Nothing changed for buyers. To try again, create a new override.{note}"
+    },
+    "deactivationApproved": {
+      "subject": "Fee override switched off: {target}",
+      "body": "{decider} approved your request to switch off the booking-fee override for {target}. Buyers now pay the normal booking-fee schedule. Bookings already made keep the fees they were charged.{note}"
+    },
+    "deactivationRejected": {
+      "subject": "Fee override switch-off not approved: {target}",
+      "body": "{decider} did not approve your request to switch off the booking-fee override for {target}. It is still live and nothing changed for buyers.{note}"
+    }
   },
   "PAYOUT_ACCOUNT_UPDATED": {
     "saved": {

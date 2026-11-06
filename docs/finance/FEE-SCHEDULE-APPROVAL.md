@@ -98,34 +98,88 @@ waive fees for one event or organizer, use a WAIVE fee policy.
 3. An OPEN draft that exists at deploy time stays OPEN and is submitted normally. Drafts that
    were published before this change show "published by ... (before approvals)" in history.
 
-## Organizer and event fee overrides: permission and risk review
+## Organizer and event fee overrides (platform fee policies): maker-checker
 
 `PlatformFeePolicy` (admin console: Platform fee policies) overrides the schedule for one
 event or one organizer. Organizers cannot create one; they only choose who pays the fee
-(`Event.feeMode`).
+(`Event.feeMode`). Since `feat/fee-override-approval` (AR-10) every change to what a policy
+makes buyers pay needs two people.
 
-| Aspect                       | Today                                                                                    | Risk                                                      |
-| ---------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| Who can create or deactivate | One admin with `PLATFORM_CONFIG`, fresh MFA                                              | No second person                                          |
-| Terms after creation         | Immutable; change = deactivate + create; append-only `PlatformFeePolicyEvent` history    | Low                                                       |
-| Overlap                      | Refused under an advisory lock                                                           | Low                                                       |
-| Approval reference           | Free text, not enforced                                                                  | Medium                                                    |
-| Ceiling vs the schedule      | **None**: a FIXED, PERCENT or per-ticket policy may charge buyers MORE than the schedule | **High**: one admin can raise one event's buyer fee alone |
-| Existing bookings            | Keep their snapshot and the policy version they name                                     | Low                                                       |
+### Correction to the first review
 
-**Recommendation (not built in this change):** route policy creation through the same
-maker-checker. A minimal, safe version: a policy whose terms could charge more than the live
-schedule for any order needs `FEE_SCHEDULE_APPROVE` from a second person; a WAIVE or a
-reduction can stay one-person (it only lowers what buyers pay, and lowers platform revenue,
-which finance reviews). This needs an owner decision on whether reductions also need a second
-person.
+The first version of this review said a FIXED, PERCENT or per-ticket policy could charge buyers
+MORE than the schedule. **That was wrong.** Every pricing path (`PricingService.quote`,
+`AdvertisedPriceService`, and the admin preview) goes through `calculateFeesWithPolicy`, which
+keeps the schedule's fee whenever the policy's would be higher (`pricing/fee-policy.ts`). So an
+override can only lower or keep a buyer's booking fee. Buyers' fees go UP in two ways:
+
+- **switching a live policy off** (sales return to the schedule), and
+- **raising the schedule** above a policy, which then starts to act as a ceiling.
+
+The second is the schedule's own maker-checker. The first is now approved like a creation.
+
+### The rules
+
+| Step                                    | Who                                                                                                                                                                     | Prices sales?            |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| Create (PENDING_APPROVAL)               | `PLATFORM_CONFIG`, fresh MFA                                                                                                                                            | No                       |
+| Approve (-> ACTIVE)                     | `FEE_SCHEDULE_APPROVE`, fresh MFA, **not the creator** (super admin too)                                                                                                | Yes, from its start time |
+| Reject (-> REJECTED, final)             | `FEE_SCHEDULE_APPROVE`, not the creator, a reason of 5+ characters                                                                                                      | Never did                |
+| Withdraw (-> WITHDRAWN, final)          | The creator only                                                                                                                                                        | Never did                |
+| Ask to switch off (request)             | `PLATFORM_CONFIG`, fresh MFA                                                                                                                                            | Yes, until approved      |
+| Approve switch-off (-> INACTIVE, final) | `FEE_SCHEDULE_APPROVE`, fresh MFA, **not the requester**                                                                                                                | No                       |
+| Reject / withdraw the switch-off        | Approver (not the requester) / the requester only                                                                                                                       | Yes, unchanged           |
+| Emergency switch-off (-> INACTIVE)      | One person holding `PLATFORM_CONFIG` AND `FEE_SCHEDULE_APPROVE`, fresh MFA, reason of 20+ characters; recorded as an emergency, every other approver notified to review | No                       |
+
+- **Pending prices nothing**, at three independent layers: the resolver only reads `ACTIVE`
+  rows, `feePolicyApplies` refuses any other status, and the hold-time reserve SQL matches
+  `status = 'ACTIVE'` only.
+- **Concurrency.** Approve takes the same per-target advisory lock as create, re-checks the
+  state, the version the approver read, the independence rule, the window, and that no other
+  approved policy overlaps now. Every decision is a conditional update on `(id, version,
+state)`, so of two simultaneous decisions exactly one commits; the other gets 409.
+- **Start time.** A start that passed while the policy waited moves to the approval time.
+  Nothing is re-priced. A policy whose end passed while it waited cannot be approved.
+- **Overlap.** A pending policy counts when a new one is created for the same target and time,
+  so two overlapping policies cannot both be approved later.
+- **Database guard** (`platform_fee_policy_guard`): refuses an INSERT that is not
+  PENDING_APPROVAL unless it names an approver other than its creator; any change to the terms,
+  target, window end, order limit, creator or reason; a start that moves after approval; a
+  changed approver; leaving a final state; ACTIVE from PENDING_APPROVAL without an independent
+  approver; and INACTIVE that did not come through an approved request (approver != requester)
+  or the emergency flag. `PlatformFeePolicyEvent` refuses UPDATE (DELETE stays possible for
+  test harnesses, as with `AuditLog`, AR-12).
+- **Impact.** `GET /admin/platform-fee-policies/:id/impact?days=30` re-prices the target's
+  confirmed orders of the last N days (up to 5,000) on today's schedule, with and without the
+  pending decision, per currency, with the direction (INCREASE / DECREASE / MIXED / NONE).
+- **Audit.** `PLATFORM_FEE_POLICY_{CREATED, APPROVED, REJECTED, WITHDRAWN,
+DEACTIVATION_REQUESTED, DEACTIVATION_REJECTED, DEACTIVATION_WITHDRAWN, DEACTIVATED,
+EMERGENCY_DEACTIVATED, APPROVAL_REFUSED}`, each written in the same transaction as the change
+  (the refusal is written on its own, before the 403).
+- **Notifications** reuse the fee-schedule types: `FEE_SCHEDULE_AWAITING_APPROVAL` with kind
+  `POLICY_SUBMITTED`, `POLICY_DEACTIVATION` or `POLICY_EMERGENCY_DEACTIVATED` to every
+  `FEE_SCHEDULE_APPROVE` holder except the actor and the creator; `FEE_SCHEDULE_DECIDED` with
+  subject `POLICY` or `POLICY_DEACTIVATION` back to the maker.
+
+### Rollout notes
+
+1. Additive migration (`20261106120000_fee_policy_approval`): three enum values, nullable
+   columns, one boolean with a default, two triggers. Existing ACTIVE policies are untouched
+   and keep pricing; they show no approver ("before approvals").
+2. **Rolling back the API to the previous release** after this migration: the old code inserts
+   policies as ACTIVE with no approver, which the guard refuses, so creating a policy fails
+   closed (500, nothing is priced). The old deactivate writes INACTIVE without a request and is
+   refused the same way. Pricing, holds, payments and refunds are unaffected. Fix forward, or
+   drop the two triggers by hand if a rollback must last.
+3. The same staffing rule as schedules: each environment needs one `PLATFORM_CONFIG` holder and
+   a different person with `FEE_SCHEDULE_APPROVE` (or a second super admin), or no override can
+   go live and none can be switched off except by the emergency path.
 
 ## Not done (extension points)
 
 - **Scheduled effective date.** Approval publishes immediately. A future `effectiveFrom` needs
   a worker step that re-checks the fingerprint and validation at activation time. The
   `effective` field in the draft response is where that would surface.
-- **Maker-checker on fee policies** (above).
 - **Append-only `AuditLog` at the database level.** The audit log is append-only by
   convention only. The trigger pattern used here could be applied to it, but test harnesses
   delete audit rows today, so that is its own change.

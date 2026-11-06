@@ -60,6 +60,7 @@ describe('integration-real-postgres: COMBINED platform fee on the booking path',
   let policies: PlatformFeePoliciesService;
   let refunds: RefundsService;
   let adminId = '';
+  let approverId = '';
   const orgs: string[] = [];
   let seq = 0;
 
@@ -169,6 +170,15 @@ describe('integration-real-postgres: COMBINED platform fee on the booking path',
     return ids;
   }
 
+  /*
+    Maker-checker (AR-10): a policy prices nothing until a second administrator approves it,
+    and is switched off by an approved request. `approverId` is that second person.
+  */
+  async function livePolicy(i: Parameters<PlatformFeePoliciesService['create']>[1]) {
+    const p = await policies.create(adminId, i);
+    return policies.approve(approverId, p.id, { version: p.version });
+  }
+
   beforeAll(async () => {
     if (!url) {
       // eslint-disable-next-line no-console
@@ -202,6 +212,16 @@ describe('integration-real-postgres: COMBINED platform fee on the booking path',
         },
       })
     ).id;
+    approverId = (
+      await db!.user.create({
+        data: {
+          email: `approver-${tag}@test.invalid`,
+          fullName: 'Fee Approver',
+          passwordHash: 'not-a-real-hash',
+          roles: ['ADMIN'],
+        },
+      })
+    ).id;
   }, 180_000);
 
   afterAll(async () => {
@@ -230,7 +250,7 @@ describe('integration-real-postgres: COMBINED platform fee on the booking path',
         () => db!.venue.deleteMany({ where: { organizationId: { in: orgs } } }),
         () => db!.organization.deleteMany({ where: { id: { in: orgs } } }),
         () => db!.feeRule.deleteMany({ where: { region: REGION } }),
-        () => db!.user.deleteMany({ where: { id: adminId } }),
+        () => db!.user.deleteMany({ where: { id: { in: [adminId, approverId] } } }),
       ];
       for (const step of steps) await step().catch(() => undefined);
       await db.$disconnect();
@@ -351,7 +371,7 @@ describe('integration-real-postgres: COMBINED platform fee on the booking path',
     // A fresh organizer on the national schedule (Rs 20 on a Rs 1,000 order).
     const o = await org(null);
     const e = await event(o, [RS(1_000)]);
-    await policies.create(adminId, {
+    await livePolicy({
       scope: 'ORGANIZATION',
       organizationId: o.orgId,
       kind: 'FIXED',
@@ -359,7 +379,7 @@ describe('integration-real-postgres: COMBINED platform fee on the booking path',
       currency: 'INR',
       reason: 'Organizer-wide reduced fee for the test',
     });
-    await policies.create(adminId, {
+    await livePolicy({
       scope: 'EVENT',
       eventId: e.eventId,
       kind: 'COMBINED',

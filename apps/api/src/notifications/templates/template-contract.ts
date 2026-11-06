@@ -61,13 +61,33 @@ export const TEMPLATE_CONTRACTS: Partial<Record<NotificationType, TemplateContra
     emergency rollback to review), and who did it - the one person who may not approve it.
   */
   [NotificationType.FEE_SCHEDULE_AWAITING_APPROVAL]: {
-    required: ['kind', 'currency', 'actorEmail'],
-    optional: ['draftId', 'decisionId', 'note', 'version', 'restoredVersion'],
+    // `currency` may be empty for a fee policy that applies in any currency.
+    required: ['kind', 'actorEmail'],
+    optional: [
+      'currency',
+      'draftId',
+      'policyId',
+      'target',
+      'decisionId',
+      'note',
+      'version',
+      'restoredVersion',
+    ],
   },
   /* The submitter's copy of the checker's decision, with the checker's reason. */
   [NotificationType.FEE_SCHEDULE_DECIDED]: {
-    required: ['decision', 'currency'],
-    optional: ['draftId', 'decisionId', 'deciderEmail', 'note', 'version'],
+    required: ['decision'],
+    optional: [
+      'currency',
+      'subject',
+      'draftId',
+      'policyId',
+      'target',
+      'decisionId',
+      'deciderEmail',
+      'note',
+      'version',
+    ],
   },
 
   /*
