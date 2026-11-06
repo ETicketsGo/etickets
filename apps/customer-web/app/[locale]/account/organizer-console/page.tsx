@@ -8,7 +8,7 @@ import { Link, useRouter } from '@/i18n/navigation';
 import { ApiRequestError } from '@/lib/api';
 import { ACCOUNT_PANEL, AccountPage } from '@/components/account-brand';
 import { BRAND_LINK } from '@/components/booking-brand';
-import { ORGANIZER_URL } from '@/lib/organizer-console';
+import { organizerUrl } from '@/lib/organizer-console';
 
 /**
  * "Continue with your ETicketsGo account", seen from the organizer console's sign-in page.
@@ -36,7 +36,7 @@ export default function OrganizerConsoleHandoffPage() {
     }
     wk.auth
       .createHandoff('organizer')
-      .then(({ code }) => window.location.replace(consoleHandoffUrl(ORGANIZER_URL, code)))
+      .then(({ code }) => window.location.replace(consoleHandoffUrl(organizerUrl(), code)))
       .catch((err: unknown) =>
         setError(err instanceof ApiRequestError ? err.message : t('emailFailed')),
       );

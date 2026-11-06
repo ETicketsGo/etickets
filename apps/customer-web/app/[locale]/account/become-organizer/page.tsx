@@ -24,7 +24,7 @@ import { BRAND_LINK } from '@/components/booking-brand';
 import { Link } from '@/i18n/navigation';
 import { useMounted } from '@/lib/use-mounted';
 
-import { ORGANIZER_LOGIN_URL, openOrganizerConsole } from '@/lib/organizer-console';
+import { openOrganizerConsole, organizerLoginUrl } from '@/lib/organizer-console';
 import { OrganizerEmailStep } from '@/components/organizer-email-step';
 
 /**
@@ -112,7 +112,7 @@ export default function BecomeOrganizerPage() {
       ),
   });
 
-  const consoleHref = `${ORGANIZER_LOGIN_URL}${
+  const consoleHref = `${organizerLoginUrl()}${
     user?.email ? `?email=${encodeURIComponent(user.email)}` : ''
   }`;
   const [opening, setOpening] = useState(false);

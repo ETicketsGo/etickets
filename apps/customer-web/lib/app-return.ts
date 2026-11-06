@@ -1,3 +1,5 @@
+import { runtimeValue } from '@eticketsgo/web-kit/runtime-config';
+
 /**
  * Where a hosted checkout opened from the native app sends the buyer back to.
  *
@@ -15,7 +17,10 @@ const BOOKING_ID = /^[A-Za-z0-9_-]{1,64}$/;
 export function appReturnUrl(
   params: { get(name: string): string | null },
   kind: 'return' | 'cancel',
-  scheme: string | undefined = process.env.NEXT_PUBLIC_APP_RETURN_SCHEME,
+  scheme: string | undefined = runtimeValue(
+    'APP_RETURN_SCHEME',
+    process.env.NEXT_PUBLIC_APP_RETURN_SCHEME,
+  ),
 ): string | null {
   if (params.get('via') !== 'app' || !scheme || !APP_SCHEMES.has(scheme)) return null;
   const booking = params.get('booking');

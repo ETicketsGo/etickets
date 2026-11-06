@@ -1,3 +1,4 @@
+import { runtimeValue } from './runtime-config';
 import type {
   SpaceKind,
   EventSaleState,
@@ -113,9 +114,19 @@ import type {
   CrmTeam,
 } from './crm-types';
 
+/**
+ * The API base this BUILD was given (`NEXT_PUBLIC_API_URL`, inlined by Next). Kept for callers
+ * that need a constant; requests use `apiUrl()`, which prefers the value of the environment the
+ * app is RUNNING in (see runtime-config.ts), so one image can move between environments.
+ */
 export const API_URL =
   (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_API_URL) ||
   'http://localhost:4000/api';
+
+/** The API base for a request now: the running environment's, else the build's. */
+export function apiUrl(): string {
+  return runtimeValue('API_URL', API_URL) ?? API_URL;
+}
 
 const ACCESS_KEY = 'etg_access';
 const REFRESH_KEY = 'etg_refresh';
@@ -254,7 +265,7 @@ export function errorMessage(err: unknown): string {
  * it on — the same event is served to the storefront, the organizer console and the app.
  */
 export function apiAssetUrl(path: string | null | undefined): string | null {
-  return path ? `${API_URL}${path}` : null;
+  return path ? `${apiUrl()}${path}` : null;
 }
 
 /** The API's code for a session that a team removal ended (see JwtStrategy). */
@@ -318,7 +329,7 @@ async function tryRefresh(): Promise<boolean> {
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
       try {
-        const res = await fetch(`${API_URL}/auth/refresh`, {
+        const res = await fetch(`${apiUrl()}/auth/refresh`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ refreshToken }),
@@ -428,7 +439,7 @@ async function request<T>(path: string, options: Options = {}): Promise<T> {
   // sometimes-stale `navigator.onLine`.
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, { ...options, headers });
+    res = await fetch(`${apiUrl()}${path}`, { ...options, headers });
   } catch (err) {
     markApiUnreachable();
     throw err;
@@ -515,7 +526,7 @@ function qs(params: Record<string, unknown>): string {
 
 /** Fetch a CSV export (authed) and trigger a browser download. */
 async function downloadCsv(path: string, filename: string): Promise<void> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${apiUrl()}${path}`, {
     headers: tokenStore.access ? { authorization: `Bearer ${tokenStore.access}` } : {},
   });
   if (!res.ok) throw new ApiRequestError('CSV_EXPORT_FAILED', 'Could not export CSV.');
@@ -1255,7 +1266,7 @@ export const api = {
      */
     openInvoiceHtml: async (organizationId: string, invoiceId: string): Promise<void> => {
       const res = await fetch(
-        `${API_URL}/organizations/${organizationId}/billing/invoices/${invoiceId}/html`,
+        `${apiUrl()}/organizations/${organizationId}/billing/invoices/${invoiceId}/html`,
         { headers: tokenStore.access ? { authorization: `Bearer ${tokenStore.access}` } : {} },
       );
       if (!res.ok) throw new Error(`Could not load the invoice (${res.status}).`);
@@ -1307,7 +1318,7 @@ export const api = {
      * will not let a canvas read.
      */
     imageSource: async (id: string, kind: 'logo' | 'cover'): Promise<Blob> => {
-      const res = await fetch(`${API_URL}/organizations/${id}/${kind}/source`, {
+      const res = await fetch(`${apiUrl()}/organizations/${id}/${kind}/source`, {
         headers: tokenStore.access ? { authorization: `Bearer ${tokenStore.access}` } : {},
       });
       if (!res.ok) throw new Error(`Could not open the saved picture (${res.status}).`);
@@ -2537,7 +2548,7 @@ export const api = {
      * save-as-PDF still work, because it is the same HTML in a real tab.
      */
     openHtml: async (id: string): Promise<void> => {
-      const res = await fetch(`${API_URL}/receipts/${id}/html`, {
+      const res = await fetch(`${apiUrl()}/receipts/${id}/html`, {
         headers: tokenStore.access ? { authorization: `Bearer ${tokenStore.access}` } : {},
       });
       if (!res.ok) throw new Error(`Could not load the document (${res.status}).`);
@@ -3592,7 +3603,7 @@ export const api = {
           method: 'POST',
           body: JSON.stringify({ notes }),
         }),
-      csvUrl: () => `${API_URL}/admin/payments/finance/discrepancies.csv`,
+      csvUrl: () => `${apiUrl()}/admin/payments/finance/discrepancies.csv`,
     },
     support: (
       params?: PageParams & {
@@ -3654,7 +3665,7 @@ export const api = {
 
       /** Absolute URL for a report's CSV export (bearer auth still required). */
       csvUrl: (report: ReportCsvName, params?: ReportRange & { limit?: number }) =>
-        `${API_URL}/admin/reports/${report}${qs({ ...(params ?? {}), format: 'csv' })}`,
+        `${apiUrl()}/admin/reports/${report}${qs({ ...(params ?? {}), format: 'csv' })}`,
 
       /**
        * Fetch a report's CSV with the bearer token and trigger a browser download.
@@ -3662,7 +3673,7 @@ export const api = {
        */
       downloadCsv: async (report: ReportCsvName, params?: ReportRange & { limit?: number }) => {
         const res = await fetch(
-          `${API_URL}/admin/reports/${report}${qs({ ...(params ?? {}), format: 'csv' })}`,
+          `${apiUrl()}/admin/reports/${report}${qs({ ...(params ?? {}), format: 'csv' })}`,
           { headers: tokenStore.access ? { authorization: `Bearer ${tokenStore.access}` } : {} },
         );
         if (!res.ok) throw new ApiRequestError('CSV_EXPORT_FAILED', 'Could not export CSV.');

@@ -9,7 +9,8 @@
     "./fonts/inter": "./src/fonts/inter.ts",
     "./fonts/display": "./src/fonts/display.ts",
     "./fonts/brand-display": "./src/fonts/brand-display.ts",
-    "./server": "./src/server.ts"
+    "./server": "./src/server.ts",
+    "./runtime-config": "./src/runtime-config.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

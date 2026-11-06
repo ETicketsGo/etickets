@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Script from 'next/script';
 import './globals.css';
 import { cookies } from 'next/headers';
 import {
@@ -77,6 +78,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           the first paint: the parser executes it before reading the markup below it.
         */}
         <script dangerouslySetInnerHTML={{ __html: workspaceThemeScript }} />
+        {/*
+          This environment's public configuration (AR-17), read when the app runs rather than
+          baked in at build. `beforeInteractive` is placed by Next and runs before hydration, so
+          the first render already uses it; the build-time values remain the fallback.
+        */}
+        <Script src="/runtime-config.js" strategy="beforeInteractive" />
         <WebProviders sessionHint={sessionHint} sidebarCollapsed={sidebarCollapsed}>
           {children}
         </WebProviders>
