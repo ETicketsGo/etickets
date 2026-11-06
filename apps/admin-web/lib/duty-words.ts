@@ -71,6 +71,10 @@ export const DUTY_WORDS: Record<string, { label: string; what: string }> = {
     label: 'Change fees and tax rules',
     what: 'Change booking fees, tax rules, cinema pricing and maintenance mode. Affects every sale.',
   },
+  FEE_SCHEDULE_APPROVE: {
+    label: 'Approve fee changes',
+    what: 'Approve or reject a booking-fee schedule that somebody else submitted, which makes it live, and roll fees back to an earlier version in an emergency. Never a draft you worked on.',
+  },
   PAYOUT_MANAGE: {
     label: 'Manage payouts',
     what: 'Open payouts and settlements, see masked bank accounts, edit terms, hold a settlement.',

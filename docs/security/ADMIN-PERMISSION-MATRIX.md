@@ -37,6 +37,7 @@ accounts are `SUPER_ADMIN` and hold everything by role, so this column does not 
 | `EVENT_REVIEW`                | Approve or reject events, set event status                                                                                                                                                                                                       | MODERATOR                                | -                                                        |
 | `PLATFORM_CONFIG_READ` (#291) | See fee rules, tax rules, cinema pricing policies                                                                                                                                                                                                | FINANCE                                  | FINANCE                                                  |
 | `PLATFORM_CONFIG`             | Change fee, tax and cinema pricing rules; maintenance mode; AI console; notification rates, resend and SNS; test sends                                                                                                                           | none                                     | -                                                        |
+| `FEE_SCHEDULE_APPROVE`        | Approve or reject a booking-fee schedule somebody else submitted (publishes it); emergency rollback to an earlier published version. Never a draft you created, saved or submitted, super admin included. Approve and rollback need step-up MFA  | none                                     | proposed, feat/fee-schedule-approval                     |
 | `PAYOUT_MANAGE`               | Open payouts and settlements, see masked accounts, show one account number (audited), edit payout terms, block a settlement. Verify, pay and release now also need `BANK_VERIFY` / `PAYOUT_EXECUTE`                                              | FINANCE, FINANCE_VERIFIER, FINANCE_PAYER | -                                                        |
 | `BANK_VERIFY`                 | Verify or turn down an organizer bank account (with `PAYOUT_MANAGE`). Never allowed to also pay into an account the holder verified                                                                                                              | FINANCE_VERIFIER                         | proposed, see docs/pilot/FINANCE-SEPARATION-OF-DUTIES.md |
 | `PAYOUT_EXECUTE`              | Mark a payout paid or failed, approve and release a settlement (with `PAYOUT_MANAGE`). Refused for the verifier of the account                                                                                                                   | FINANCE_PAYER                            | proposed, see docs/pilot/FINANCE-SEPARATION-OF-DUTIES.md |
@@ -194,12 +195,15 @@ These stay on the read capability on purpose:
 
 ### Verified still correct from #291
 
-| Route                               | Read needs           | Write needs     |
-| ----------------------------------- | -------------------- | --------------- |
-| `/admin/fee-rules/**` (writes: 410) | PLATFORM_CONFIG_READ | PLATFORM_CONFIG |
-| `/admin/tax-rules/**`               | PLATFORM_CONFIG_READ | PLATFORM_CONFIG |
-| `/admin/cinema-pricing-policies/**` | PLATFORM_CONFIG_READ | PLATFORM_CONFIG |
-| `/admin/ops/maintenance`            | OPS_READ             | PLATFORM_CONFIG |
+| Route                                               | Read needs           | Write needs                                     |
+| --------------------------------------------------- | -------------------- | ----------------------------------------------- |
+| `/admin/fee-rules/**` (writes: 410)                 | PLATFORM_CONFIG_READ | PLATFORM_CONFIG                                 |
+| `/admin/fee-schedules/**` (draft, submit, withdraw) | PLATFORM_CONFIG_READ | PLATFORM_CONFIG                                 |
+| `/admin/fee-schedules/drafts/:id/{approve,reject}`  | PLATFORM_CONFIG_READ | FEE_SCHEDULE_APPROVE (not a maker of the draft) |
+| `/admin/fee-schedules/:currency/emergency-rollback` | PLATFORM_CONFIG_READ | PLATFORM_CONFIG + FEE_SCHEDULE_APPROVE          |
+| `/admin/tax-rules/**`                               | PLATFORM_CONFIG_READ | PLATFORM_CONFIG                                 |
+| `/admin/cinema-pricing-policies/**`                 | PLATFORM_CONFIG_READ | PLATFORM_CONFIG                                 |
+| `/admin/ops/maintenance`                            | OPS_READ             | PLATFORM_CONFIG                                 |
 
 `admin-config-authz.spec.ts` still passes, so these are still enforced.
 
