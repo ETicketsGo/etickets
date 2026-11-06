@@ -66,7 +66,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24.22.2
           cache: npm
 
       # Persist Turborepo's local cache so unchanged build/typecheck/test tasks are
@@ -111,6 +111,15 @@ jobs:
       # command, no credential committed to an environment template. Needs no cloud access.
       - name: Deployment configuration check
         run: npm run verify:deploy
+
+      # New migrations must leave the schema usable by the PREVIOUS release: a rollback runs
+      # the old image on the migrated database, and two replicas run old and new code at once.
+      # Pull requests only (it compares with the base branch). See check-migration-compat.mjs.
+      - name: Migration backward-compatibility check
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          node scripts/deploy/check-migration-compat.mjs --base FETCH_HEAD
 
       - name: Apply migrations & seed
         env:

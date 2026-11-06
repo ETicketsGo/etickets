@@ -170,6 +170,28 @@
     "subject": "Bank account waiting for verification: {organization}",
     "body": "{organization} saved a {currency} payout bank account at {bank}, ending {last4} (version {version}). Changed: {changes}. Entered by {savedBy}. No payout can go to it until it is verified. A staff member other than the person who entered these details must verify them: {savedBy} cannot, and nor can anyone who belongs to {organization}. Open Payouts > Bank accounts in the admin console to check it."
   },
+  "FEE_SCHEDULE_AWAITING_APPROVAL": {
+    "submitted": {
+      "subject": "Fee schedule waiting for approval: {currency}",
+      "body": "{actor} submitted a change to the {currency} booking-fee schedule. It is not live. Buyers pay the current fees until another administrator approves it.{note} You can approve it only if you did not work on this draft: {actor} cannot. Open Settings > Booking fees in the admin console to compare the old and new fees and decide."
+    },
+    "rollback": {
+      "subject": "Emergency fee rollback to review: {currency}",
+      "body": "{actor} used the emergency rollback on the {currency} booking-fee schedule. Version {version} is now live and charges what version {restored} charged. This was done by one person, without a second approval.{note} Open Settings > Booking fees in the admin console to review it."
+    },
+    "note": " Note: \"{note}\""
+  },
+  "FEE_SCHEDULE_DECIDED": {
+    "approved": {
+      "subject": "Fee schedule approved: {currency} version {version}",
+      "body": "{decider} approved your {currency} booking-fee schedule. It is live now as version {version}. Bookings already made keep the fees they were charged.{note}"
+    },
+    "rejected": {
+      "subject": "Fee schedule not approved: {currency}",
+      "body": "{decider} did not approve your {currency} booking-fee schedule. Nothing changed for buyers. The draft is open again so you can fix it and submit it again.{note}"
+    },
+    "note": " Reason: \"{note}\""
+  },
   "PAYOUT_ACCOUNT_UPDATED": {
     "saved": {
       "subject": "Your {currency} payout bank account was changed",

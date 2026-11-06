@@ -1,0 +1,150 @@
+# Build once, promote the same digest: QA -> UAT -> PRODUCTION.
+#
+# Builds the environment-NEUTRAL images (api, worker) ONCE from one commit, pushes them to
+# GHCR, and records what was built in release-manifest.json: the commit, the version label,
+# the build time and each image's digest. Promotion (scripts/deploy/promote-image.mjs) points
+# a Railway service at `image@sha256:<digest>`, so QA, UAT and production run byte-identical
+# images, and a rollback is promoting an earlier, already-approved manifest.
+#
+# The three web apps are NOT built here yet: their API, site and console URLs are inlined into
+# the bundle at build time (NEXT_PUBLIC_*), so one web image cannot serve two environments.
+# See docs/deployment/IMAGE-PROMOTION.md, "Web apps".
+#
+# Manual only. It deploys nothing and changes no environment. Secrets never enter an image:
+# the Dockerfiles take only GIT_SHA, BUILD_VERSION and BUILD_CREATED as build arguments.
+name: Build images (build once)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release label, e.g. 2026.11.06-1. Empty: the short commit.'
+        required: false
+        default: ''
+      run_ci:
+        description: 'Run the full CI gate first (recommended).'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-images-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    if: ${{ inputs.run_ci }}
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  build:
+    needs: [ci]
+    # Runs when CI passed, or when CI was deliberately skipped.
+    if: ${{ always() && (needs.ci.result == 'success' || needs.ci.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        service: [api, worker]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Image name and build metadata
+        id: meta
+        run: |
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          short="${GITHUB_SHA::12}"
+          version='${{ inputs.version }}'
+          echo "image=ghcr.io/${owner}/etickets-${{ matrix.service }}" >> "$GITHUB_OUTPUT"
+          echo "short=${short}" >> "$GITHUB_OUTPUT"
+          echo "version=${version:-$short}" >> "$GITHUB_OUTPUT"
+          echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.service }}/Dockerfile
+          push: true
+          # A tag is a convenience for people; promotion always uses the digest.
+          tags: ${{ steps.meta.outputs.image }}:sha-${{ steps.meta.outputs.short }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_VERSION=${{ steps.meta.outputs.version }}
+            BUILD_CREATED=${{ steps.meta.outputs.created }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Record this image
+        run: |
+          mkdir -p manifest
+          cat > "manifest/${{ matrix.service }}.json" <<EOF
+          {
+            "service": "${{ matrix.service }}",
+            "image": "${{ steps.meta.outputs.image }}",
+            "tag": "sha-${{ steps.meta.outputs.short }}",
+            "digest": "${{ steps.build.outputs.digest }}",
+            "ref": "${{ steps.meta.outputs.image }}@${{ steps.build.outputs.digest }}"
+          }
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: manifest-${{ matrix.service }}
+          path: manifest/${{ matrix.service }}.json
+
+  manifest:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: manifest-*
+          merge-multiple: true
+          path: parts
+
+      - name: Write release-manifest.json
+        run: |
+          node -e '
+            const fs = require("fs");
+            const images = {};
+            for (const f of fs.readdirSync("parts")) {
+              const p = JSON.parse(fs.readFileSync("parts/" + f, "utf8"));
+              images[p.service] = { image: p.image, tag: p.tag, digest: p.digest, ref: p.ref };
+            }
+            const manifest = {
+              schema: 1,
+              version: process.env.VERSION || process.env.GITHUB_SHA.slice(0, 12),
+              gitSha: process.env.GITHUB_SHA,
+              gitRef: process.env.GITHUB_REF,
+              builtAt: new Date().toISOString(),
+              workflowRun: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+              images,
+            };
+            fs.writeFileSync("release-manifest.json", JSON.stringify(manifest, null, 2) + "\n");
+            const rows = Object.entries(images).map(([s, i]) => `| ${s} | \`${i.digest}\` |`).join("\n");
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+              `### Release ${manifest.version}\n\nCommit \`${manifest.gitSha}\`\n\n| service | digest |\n| --- | --- |\n${rows}\n`);
+          '
+        env:
+          VERSION: ${{ inputs.version }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest
+          path: release-manifest.json
+          retention-days: 90

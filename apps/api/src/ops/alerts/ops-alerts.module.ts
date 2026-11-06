@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { OpsAlertService } from './ops-alert.service';
+import { OpsAlertSentryBridge } from './ops-alert-sentry.bridge';
 
 /**
  * Global so the payment, webhook, finance and notification paths can each take an optional
@@ -9,7 +10,7 @@ import { OpsAlertService } from './ops-alert.service';
  */
 @Global()
 @Module({
-  providers: [OpsAlertService],
+  providers: [OpsAlertService, OpsAlertSentryBridge],
   exports: [OpsAlertService],
 })
 export class OpsAlertsModule {}

@@ -7,7 +7,7 @@
 # ─────────────────────────────────────────────────────────────
 
 # ---------- Stage 1: deps ----------
-FROM node:20-alpine AS deps
+FROM node:24.22.2-alpine AS deps
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 
@@ -37,9 +37,17 @@ RUN npm run packages:build \
 RUN npm prune --omit=dev
 
 # ---------- Stage 3: runtime ----------
-FROM node:20-alpine AS runtime
+FROM node:24.22.2-alpine AS runtime
 RUN apk add --no-cache openssl wget
 ENV NODE_ENV=production
+# Build metadata, set by .github/workflows/build-images.yml when an image is built ONCE in CI and
+# promoted by digest. Empty for a Railway source build, so RAILWAY_GIT_COMMIT_SHA is used then.
+# Read by the health endpoint and the Sentry release. Never a secret: it is printed publicly.
+ARG GIT_SHA=""
+ARG BUILD_VERSION=""
+ARG BUILD_CREATED=""
+ENV GIT_SHA=${GIT_SHA} BUILD_VERSION=${BUILD_VERSION} BUILD_CREATED=${BUILD_CREATED}
+LABEL org.opencontainers.image.source="https://github.com/ETicketsGo/etickets"       org.opencontainers.image.revision="${GIT_SHA}"       org.opencontainers.image.version="${BUILD_VERSION}"       org.opencontainers.image.created="${BUILD_CREATED}"
 WORKDIR /app
 
 COPY --from=build /app/node_modules ./node_modules

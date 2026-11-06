@@ -17,7 +17,7 @@ export class HealthController {
   @Get('health')
   @ApiOperation({ summary: 'Liveness probe.' })
   health() {
-    return { status: 'ok', uptime: process.uptime() };
+    return { status: 'ok', uptime: process.uptime(), build: buildInfo() };
   }
 
   @Public()
@@ -43,4 +43,21 @@ export class HealthController {
       return false;
     }
   }
+}
+
+/**
+ * Which build is answering: the commit, and whether the image was built once in CI and
+ * promoted (`image`) or built by Railway from the repository (`railway`). A deploy is verified
+ * by asking this, not by trusting a green tick: see docs/deployment/IMAGE-PROMOTION.md.
+ * Public on purpose (customer-web's /api/health prints its build too); nothing here is secret.
+ */
+export function buildInfo(env: NodeJS.ProcessEnv = process.env) {
+  const image = env.GIT_SHA?.trim();
+  const railway = env.RAILWAY_GIT_COMMIT_SHA?.trim();
+  return {
+    sha: image || railway || null,
+    version: env.BUILD_VERSION?.trim() || null,
+    builtAt: env.BUILD_CREATED?.trim() || null,
+    source: image ? ('image' as const) : railway ? ('railway' as const) : null,
+  };
 }

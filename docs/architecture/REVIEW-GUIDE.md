@@ -44,7 +44,7 @@ When a document and the code disagree, the code wins. Please report the document
 
 | Area                  | Item                                                                                                                                                                    |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Runtime               | Node 20 (`.nvmrc`, Dockerfiles). Node 20 left upstream support in April 2026. The move to Node 22 must land before January 2027.                                        |
+| Runtime               | Node 24 LTS (`.nvmrc`, Dockerfiles, CI). Moved from Node 20 (end of life April 2026) in chore/node-24-runtime; see docs/deployment/NODE-24-UPGRADE.md.                  |
 | Hosting               | One Railway region and one PostgreSQL instance per environment. No read replica, no multi-region failover. RTO and RPO are in `deployment/RAILWAY_BACKUP_RECOVERY.md`.  |
 | Replicas              | Every config-as-code file sets `numReplicas: 1`. The production replica count is not in the repository.                                                                 |
 | Backups               | Nightly dump on the Railway volume. The off-platform copy is off until its bucket is configured (`ops/OFFSITE-BACKUP.md`).                                              |

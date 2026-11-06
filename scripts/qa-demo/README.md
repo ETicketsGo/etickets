@@ -42,7 +42,7 @@ alone.
 
 ## Running it
 
-From the repository root (Node 20+):
+From the repository root (Node 24+):
 
 ```sh
 node scripts/qa-demo/seed-qa-demo.mjs --dry-run            # look up and print the plan, change nothing
