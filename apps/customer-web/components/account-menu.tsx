@@ -13,7 +13,7 @@ import {
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 
-import { ORGANIZER_LOGIN_URL, openOrganizerConsole } from '@/lib/organizer-console';
+import { openOrganizerConsole, organizerLoginUrl } from '@/lib/organizer-console';
 
 /**
  * Who you are signed in as, and what you can do about it.
@@ -196,7 +196,7 @@ export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
               sign-in, for a middle-click or a browser without script.
             */
             <a
-              href={ORGANIZER_LOGIN_URL}
+              href={organizerLoginUrl()}
               role="menuitem"
               data-testid="open-organizer-console"
               className={item}

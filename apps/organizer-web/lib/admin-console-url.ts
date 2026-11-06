@@ -1,3 +1,5 @@
+import { runtimeValue } from '@eticketsgo/web-kit/runtime-config';
+
 /**
  * Where the admin console is, seen from the organizer console.
  *
@@ -15,7 +17,7 @@
  */
 export function adminConsoleOrigin(
   location: { protocol: string; hostname: string } | undefined,
-  configured: string | undefined = process.env.NEXT_PUBLIC_ADMIN_URL,
+  configured: string | undefined = runtimeValue('ADMIN_URL', process.env.NEXT_PUBLIC_ADMIN_URL),
 ): string | null {
   if (configured && configured.trim()) return configured.trim().replace(/\/+$/, '');
   if (!location) return null;

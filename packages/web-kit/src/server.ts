@@ -7,6 +7,11 @@
   the pure city-scope rules, so the server renders the visitor's place exactly as the browser
   will.
 */
-export { api, API_URL } from './api';
+export { api, API_URL, apiUrl } from './api';
+export {
+  RUNTIME_CONFIG_HEADERS,
+  readServerRuntimeConfig,
+  runtimeConfigScript,
+} from './runtime-config';
 export * from './city-scope';
 export { countryKey } from './place-groups';

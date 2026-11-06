@@ -1,4 +1,4 @@
-import { API_URL, ApiRequestError, api, tokenStore, type Paged } from '@eticketsgo/web-kit';
+import { ApiRequestError, api, apiUrl, tokenStore, type Paged } from '@eticketsgo/web-kit';
 import { askForStepUp, reportMfaSetup } from './step-up-bridge';
 
 /**
@@ -189,7 +189,7 @@ async function send<T>(
   const headers = new Headers(init.headers);
   if (init.body) headers.set('content-type', 'application/json');
   if (tokenStore.access) headers.set('authorization', `Bearer ${tokenStore.access}`);
-  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
+  const res = await fetch(`${apiUrl()}${path}`, { ...init, headers });
   const text = await res.text();
   let data: unknown = null;
   try {

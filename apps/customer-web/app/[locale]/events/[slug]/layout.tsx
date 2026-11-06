@@ -5,6 +5,7 @@ import { alternatesFor, localizedPath, shareCards, type ShareImage } from '@/lib
 import { buildEventJsonLd, type EventForStructuredData } from '@/lib/structured-data';
 import { canonicalSiteUrl } from '@/lib/site-url';
 import { loadPublic } from '@/lib/public-api';
+import { runtimeValue } from '@eticketsgo/web-kit/runtime-config';
 
 /**
  * An event page named after its event, with its own canonical URL and its Event markup.
@@ -27,16 +28,18 @@ import { loadPublic } from '@/lib/public-api';
  * generic title and renders, because a missing title is a smaller problem than a blank screen
  * or an event wrongly reported as gone.
  */
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api';
+const BUILD_API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api';
+/** The running environment's API base (runtime-config.ts), else this build's. */
+const apiBase = () => runtimeValue('API_URL', BUILD_API) ?? BUILD_API;
 
 const loadEvent = (slug: string) =>
-  loadPublic<EventForStructuredData>(`${API}/public/events/${encodeURIComponent(slug)}`);
+  loadPublic<EventForStructuredData>(`${apiBase()}/public/events/${encodeURIComponent(slug)}`);
 
 /** The event's own picture for a sharing card, when the organizer uploaded one. */
 function eventShareImage(event: EventForStructuredData): ShareImage[] | undefined {
   const path = event.imageVariants?.banner ?? event.imagePath;
   if (!path) return undefined;
-  return [{ url: /^https?:\/\//i.test(path) ? path : `${API}${path}`, alt: event.title }];
+  return [{ url: /^https?:\/\//i.test(path) ? path : `${apiBase()}${path}`, alt: event.title }];
 }
 
 export async function generateMetadata({
@@ -88,7 +91,7 @@ export default async function EventLayout({
     result.kind === 'ok'
       ? buildEventJsonLd(result.data, {
           pageUrl: `${canonicalSiteUrl()}${localizedPath(locale, `/events/${slug}`)}`,
-          apiUrl: API,
+          apiUrl: apiBase(),
         })
       : [];
   return (
