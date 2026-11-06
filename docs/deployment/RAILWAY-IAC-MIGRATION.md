@@ -134,6 +134,13 @@ After the migration (all six services from IaC settings, api at 2 replicas with 
   F-RF-1 (provider refund failure), F-WH-3 (genuine duplicate signed webhook), PAYOUT-7 (bank
   verification needs a second staff member; not bypassed).
 
+**QA at the end of 2026-11-06:** every service on `4e7666e4` = `main` `df69436a` + #597 + #596
+(next 15.5.28), CI green on draft #598. Smoke 14/14; 2 api replicas; Postgres 9 of 497
+connections (1.8 %); `config plan` exit 0 (no drift). Rollback (previous deployment per
+service): api `d103f2f5`, worker `d2cbf53f`, db-seed `c94db3b9`, customer-web `1b6321c0`,
+organizer-web `84f7dc05`, admin-web `a0eb1634`. **QA now runs code that is not on `main`
+(#596, #597): a deploy from `main` before they merge brings back the root `railway.json`.**
+
 ## 6. Runbook for UAT, then PROD (each needs explicit owner approval)
 
 Prerequisites: this PR merged (so `main` has `.railway/` and no root `railway.json`); the
