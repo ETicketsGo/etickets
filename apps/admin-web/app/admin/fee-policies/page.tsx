@@ -34,12 +34,14 @@ import {
   STATUS_LABEL,
   STATUS_TONE,
   canDeactivate,
+  canEmergencyDeactivate,
   conflictingPolicyId,
   currencyRequired,
   currencyScopeLabel,
   draftToCreateBody,
   draftToTerms,
   feePolicyApi,
+  impactDirectionLabel,
   isConflict,
   ordersLabel,
   termsLabel,
@@ -52,6 +54,7 @@ import {
   type FeePolicyKind,
   type FeePolicyPreview,
   type FeePolicyScope,
+  type PlatformFeePolicyDetail,
   type PlatformFeePolicyView,
 } from '@/lib/fee-policies';
 
@@ -60,9 +63,12 @@ import {
  * organizer. Waive the booking fee, charge a fixed one, or charge a different percentage, for a
  * window of time and optionally a number of orders.
  *
- * The page opens with PLATFORM_CONFIG_READ (list, history, preview). Creating and switching off
- * need PLATFORM_CONFIG and a fresh authenticator code; the code is asked for by the console's
- * step-up dialog when the API says so (`lib/fee-policies.ts`, `lib/step-up-bridge.ts`).
+ * The page opens with PLATFORM_CONFIG_READ (list, history, preview). Proposing a policy, and
+ * asking to switch one off, need PLATFORM_CONFIG; neither changes a price until a second
+ * administrator holding FEE_SCHEDULE_APPROVE, who did not propose it, approves it (AR-10).
+ * Approving and the emergency switch-off need a fresh authenticator code; the code is asked for
+ * by the console's step-up dialog when the API says so (`lib/fee-policies.ts`,
+ * `lib/step-up-bridge.ts`).
  *
  * A policy is never edited. To change terms, switch it off and create a new one, so every
  * booking can still be explained by the policy it was charged under.
@@ -70,11 +76,14 @@ import {
 
 const PAGE_SIZE = 25;
 const STATUSES: FeePolicyEffectiveStatus[] = [
+  'PENDING_APPROVAL',
   'ACTIVE',
   'SCHEDULED',
   'EXPIRED',
   'EXHAUSTED',
   'INACTIVE',
+  'REJECTED',
+  'WITHDRAWN',
 ];
 
 function PolicyStatus({ status }: { status: FeePolicyEffectiveStatus }) {
@@ -197,12 +206,18 @@ export default function AdminFeePolicies() {
       header: '',
       render: (p) => (
         <div className="flex flex-wrap justify-end gap-2">
-          <Button size="sm" variant="secondary" onClick={() => setHistoryId(p.id)}>
-            History
-          </Button>
+          {p.effectiveStatus === 'PENDING_APPROVAL' || p.deactivationRequest ? (
+            <Button size="sm" onClick={() => setHistoryId(p.id)}>
+              Review
+            </Button>
+          ) : (
+            <Button size="sm" variant="secondary" onClick={() => setHistoryId(p.id)}>
+              History
+            </Button>
+          )}
           {mayEdit && canDeactivate(p) && (
             <Button size="sm" variant="danger" onClick={() => setDeactivating(p)}>
-              Deactivate
+              Switch off
             </Button>
           )}
         </div>
@@ -231,7 +246,11 @@ export default function AdminFeePolicies() {
           <li>A policy changes only the platform booking fee.</li>
           <li>Payment processing and tax are not waived.</li>
           <li>An event policy wins over an organizer policy.</li>
-          <li>A policy cannot be edited. To change it, deactivate it and create a new one.</li>
+          <li>A policy cannot be edited. To change it, switch it off and create a new one.</li>
+          <li>
+            A new policy, and switching one off, wait for a second administrator. The person who
+            asked cannot approve it.
+          </li>
         </ul>
       </Card>
 
@@ -511,7 +530,10 @@ function NewPolicyDrawer({
   const create = useMutation({
     mutationFn: feePolicyApi.create,
     onSuccess: () => {
-      toast.push('Fee policy created.', 'success');
+      toast.push(
+        'Sent for approval. It is not live until another administrator approves it.',
+        'success',
+      );
       void qc.invalidateQueries({ queryKey: ['admin', 'fee-policies'] });
       reset();
       onClose();
@@ -919,6 +941,8 @@ function PreviewResult({
 /* ── History ─────────────────────────────────────────────────────────────────────── */
 
 function HistoryDrawer({ id, onClose }: { id: string | null; onClose: () => void }) {
+  const mayEdit = useHolds('PLATFORM_CONFIG');
+  const mayApprove = useHolds('FEE_SCHEDULE_APPROVE');
   const detail = useQuery({
     queryKey: ['admin', 'fee-policies', 'detail', id],
     queryFn: () => feePolicyApi.get(id!),
@@ -953,6 +977,7 @@ function HistoryDrawer({ id, onClose }: { id: string | null; onClose: () => void
               {targetName(p)}
             </p>
           </div>
+          <DecisionPanel policy={p} mayEdit={mayEdit} mayApprove={mayApprove} />
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
             <dt className="text-text-muted">Terms</dt>
             <dd className="tabular-nums">{termsLabel(p)}</dd>
@@ -978,6 +1003,24 @@ function HistoryDrawer({ id, onClose }: { id: string | null; onClose: () => void
             <dd>
               {p.createdByName ?? 'Unknown'}, {dateTime(p.createdAt)}
             </dd>
+            {p.approvedAt && (
+              <>
+                <dt className="text-text-muted">Approved by</dt>
+                <dd className="[overflow-wrap:anywhere]">
+                  {p.approvedByName ?? 'Unknown'}, {dateTime(p.approvedAt)}
+                  {p.approvalNote ? `: ${p.approvalNote}` : ''}
+                </dd>
+              </>
+            )}
+            {p.rejectedAt && (
+              <>
+                <dt className="text-text-muted">Not approved by</dt>
+                <dd className="[overflow-wrap:anywhere]">
+                  {p.rejectedByName ?? 'Unknown'}, {dateTime(p.rejectedAt)}
+                  {p.rejectionNote ? `: ${p.rejectionNote}` : ''}
+                </dd>
+              </>
+            )}
             {p.deactivatedAt && (
               <>
                 <dt className="text-text-muted">Deactivated</dt>
@@ -1045,7 +1088,7 @@ function DeactivateDialog({
     mutationFn: (p: PlatformFeePolicyView) =>
       feePolicyApi.deactivate(p.id, { reason: reason.trim(), version: p.version }),
     onSuccess: () => {
-      toast.push('Fee policy deactivated.', 'success');
+      toast.push('Switch-off requested. Another administrator must approve it.', 'success');
       void qc.invalidateQueries({ queryKey: ['admin', 'fee-policies'] });
       onClose();
     },
@@ -1061,13 +1104,14 @@ function DeactivateDialog({
   const tooShort = reason.trim().length < MIN_REASON;
 
   return (
-    <Dialog open={!!policy} onClose={onClose} title="Deactivate fee policy">
+    <Dialog open={!!policy} onClose={onClose} title="Ask to switch off fee policy">
       {policy && (
         <div className="space-y-3">
           <p className="text-sm text-text-secondary">
             Stop the policy <strong className="text-text-primary">{termsLabel(policy)}</strong> for{' '}
-            <strong className="text-text-primary">{targetName(policy)}</strong>. New orders pay the
-            normal booking fee.
+            <strong className="text-text-primary">{targetName(policy)}</strong>. When another
+            administrator approves, new orders pay the normal booking fee. Until then the policy
+            stays live.
           </p>
           <p className="text-sm text-text-secondary">
             Bookings already made keep the fee they were charged.
@@ -1097,11 +1141,285 @@ function DeactivateDialog({
               disabled={tooShort}
               onClick={() => deactivate.mutate(policy)}
             >
-              Deactivate
+              Ask to switch off
             </Button>
           </div>
         </div>
       )}
     </Dialog>
+  );
+}
+
+/* ── Approval (maker-checker) ────────────────────────────────────────────────────── */
+
+/*
+  What waits for a second administrator on this policy, the estimated effect, and the actions
+  the person looking may take. The API decides; this only hides buttons that would be refused
+  (the maker cannot approve their own change, whatever their role) and says why.
+*/
+function DecisionPanel({
+  policy,
+  mayEdit,
+  mayApprove,
+}: {
+  policy: PlatformFeePolicyDetail;
+  mayEdit: boolean;
+  mayApprove: boolean;
+}) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [note, setNote] = useState('');
+  const [error, setError] = useState<string>();
+  const [emergencyOpen, setEmergencyOpen] = useState(false);
+  const pending = policy.pendingDecision;
+  const impact = useQuery({
+    queryKey: ['admin', 'fee-policies', 'impact', policy.id, policy.version],
+    queryFn: () => feePolicyApi.impact(policy.id),
+    enabled: !!pending,
+  });
+
+  useEffect(() => {
+    setNote('');
+    setError(undefined);
+  }, [policy.id, policy.version]);
+
+  const act = useMutation({
+    mutationFn: (step: 'approve' | 'reject' | 'withdraw') => {
+      const v = { version: policy.version };
+      const n = note.trim();
+      if (pending === 'POLICY') {
+        if (step === 'approve')
+          return feePolicyApi.approve(policy.id, { ...v, note: n || undefined });
+        if (step === 'reject') return feePolicyApi.reject(policy.id, { ...v, note: n });
+        return feePolicyApi.withdraw(policy.id, v);
+      }
+      if (step === 'approve') {
+        return feePolicyApi.approveDeactivation(policy.id, { ...v, note: n || undefined });
+      }
+      if (step === 'reject') return feePolicyApi.rejectDeactivation(policy.id, { ...v, note: n });
+      return feePolicyApi.withdrawDeactivation(policy.id, v);
+    },
+    onSuccess: (_r, step) => {
+      const done =
+        step === 'approve'
+          ? pending === 'POLICY'
+            ? 'Approved. The policy prices sales from its start time.'
+            : 'Approved. The policy is switched off.'
+          : step === 'reject'
+            ? 'Not approved. Nothing changed for buyers.'
+            : 'Withdrawn. Nothing changed for buyers.';
+      toast.push(done, 'success');
+      void qc.invalidateQueries({ queryKey: ['admin', 'fee-policies'] });
+    },
+    onError: (e) => {
+      if (isConflict(e)) void qc.invalidateQueries({ queryKey: ['admin', 'fee-policies'] });
+      setError(errorMessage(e));
+    },
+  });
+
+  if (!pending) {
+    return mayEdit && mayApprove && canEmergencyDeactivate(policy) ? (
+      <EmergencySwitchOff policy={policy} open={emergencyOpen} setOpen={setEmergencyOpen} />
+    ) : null;
+  }
+
+  const blocked = policy.viewerBlockedReason;
+  const noteOk = note.trim().length >= 5;
+  const what =
+    pending === 'POLICY'
+      ? 'This policy is waiting for approval. It does not price any sale yet.'
+      : 'A request to switch this policy off is waiting for approval. The policy still prices sales.';
+  const request = policy.deactivationRequest;
+
+  return (
+    <div className="space-y-3 rounded-md border border-status-warning/40 bg-tint-warning p-3">
+      <p className="text-sm font-medium text-text-primary">{what}</p>
+      {pending === 'DEACTIVATION' && request && (
+        <p className="text-sm text-text-secondary [overflow-wrap:anywhere]">
+          Asked by {request.requestedByName ?? 'Unknown'}
+          {request.requestedAt ? `, ${dateTime(request.requestedAt)}` : ''}
+          {request.reason ? `: ${request.reason}` : ''}
+        </p>
+      )}
+      <div className="text-sm">
+        <p className="font-medium text-text-primary">Estimated effect (last 30 days of orders)</p>
+        {impact.isLoading ? (
+          <Skeleton className="h-10 w-full" />
+        ) : impact.isError ? (
+          <p className="text-status-error">
+            We could not estimate the effect. {errorMessage(impact.error)}
+          </p>
+        ) : impact.data ? (
+          <div className="space-y-1">
+            <p className="text-text-secondary">{impactDirectionLabel(impact.data.direction)}</p>
+            {impact.data.currencies.length === 0 ? (
+              <p className="text-text-muted">No confirmed orders for this target in that time.</p>
+            ) : (
+              <ul className="space-y-0.5 tabular-nums">
+                {impact.data.currencies.map((c) => (
+                  <li key={c.currency} className="text-text-secondary">
+                    {c.currency}: {c.orders} order{c.orders === 1 ? '' : 's'}, booking fees{' '}
+                    {money(c.beforeFeeMinor, c.currency)} now, {money(c.afterFeeMinor, c.currency)}{' '}
+                    after ({c.deltaMinor >= 0 ? '+' : '-'}
+                    {money(Math.abs(c.deltaMinor), c.currency)}). {c.higher} higher, {c.lower}{' '}
+                    lower.
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="text-caption text-text-muted">
+              An estimate on today&apos;s schedule. Bookings already made keep their fees.
+            </p>
+          </div>
+        ) : null}
+      </div>
+
+      {blocked ? (
+        <p className="text-sm text-text-secondary">
+          {blocked === 'CREATOR'
+            ? 'You created this policy, so another administrator must decide.'
+            : 'You asked for this switch-off, so another administrator must decide.'}
+        </p>
+      ) : !mayApprove ? (
+        <p className="text-sm text-text-secondary">Deciding needs the Approve booking fees duty.</p>
+      ) : null}
+
+      {(mayApprove && !blocked) || (blocked && mayEdit) ? (
+        <>
+          {mayApprove && !blocked && (
+            <Textarea
+              label="Note"
+              rows={2}
+              value={note}
+              onChange={(e) => {
+                setNote(e.target.value);
+                setError(undefined);
+              }}
+              hint="Optional when you approve. When you reject, say why in at least 5 characters."
+            />
+          )}
+          {error && (
+            <p role="alert" className="text-sm text-status-error">
+              {error}
+            </p>
+          )}
+          <div className="flex flex-wrap justify-end gap-2">
+            {blocked && mayEdit && (
+              <Button
+                variant="secondary"
+                loading={act.isPending && act.variables === 'withdraw'}
+                onClick={() => act.mutate('withdraw')}
+              >
+                Withdraw
+              </Button>
+            )}
+            {mayApprove && !blocked && (
+              <>
+                <Button
+                  variant="danger"
+                  disabled={!noteOk}
+                  loading={act.isPending && act.variables === 'reject'}
+                  onClick={() => act.mutate('reject')}
+                >
+                  Reject
+                </Button>
+                <Button
+                  loading={act.isPending && act.variables === 'approve'}
+                  onClick={() => act.mutate('approve')}
+                >
+                  Approve
+                </Button>
+              </>
+            )}
+          </div>
+        </>
+      ) : null}
+
+      {pending === 'DEACTIVATION' && mayEdit && mayApprove && (
+        <EmergencySwitchOff policy={policy} open={emergencyOpen} setOpen={setEmergencyOpen} />
+      )}
+    </div>
+  );
+}
+
+/*
+  Break glass: one person switches a policy off now, without a second approval. Sales go back to
+  the approved schedule. Needs both duties, a fresh authenticator code and a real reason; every
+  other approver is told to review it.
+*/
+function EmergencySwitchOff({
+  policy,
+  open,
+  setOpen,
+}: {
+  policy: PlatformFeePolicyDetail;
+  open: boolean;
+  setOpen: (v: boolean) => void;
+}) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState<string>();
+  const off = useMutation({
+    mutationFn: () =>
+      feePolicyApi.emergencyDeactivate(policy.id, {
+        version: policy.version,
+        reason: reason.trim(),
+      }),
+    onSuccess: () => {
+      toast.push('Switched off now. Other approvers have been told to review it.', 'success');
+      setOpen(false);
+      setReason('');
+      void qc.invalidateQueries({ queryKey: ['admin', 'fee-policies'] });
+    },
+    onError: (e) => {
+      if (isConflict(e)) void qc.invalidateQueries({ queryKey: ['admin', 'fee-policies'] });
+      setError(errorMessage(e));
+    },
+  });
+  if (!open) {
+    return (
+      <div className="flex justify-end">
+        <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+          Emergency switch-off
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2 rounded-md border border-status-error/30 bg-status-error/5 p-3">
+      <p className="text-sm text-text-primary">
+        Switch this policy off now, without a second approval. New orders pay the normal booking
+        fee. Use this only when it cannot wait. It is recorded as an emergency.
+      </p>
+      <Textarea
+        label="What went wrong"
+        rows={3}
+        value={reason}
+        onChange={(e) => {
+          setReason(e.target.value);
+          setError(undefined);
+        }}
+        hint="At least 20 characters."
+      />
+      {error && (
+        <p role="alert" className="text-sm text-status-error">
+          {error}
+        </p>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button variant="secondary" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+        <Button
+          variant="danger"
+          disabled={reason.trim().length < 20}
+          loading={off.isPending}
+          onClick={() => off.mutate()}
+        >
+          Switch off now
+        </Button>
+      </div>
+    </div>
   );
 }

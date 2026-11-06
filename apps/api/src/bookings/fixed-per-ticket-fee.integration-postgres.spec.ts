@@ -64,6 +64,7 @@ describe('integration-real-postgres: FIXED_PER_TICKET fees, limits and band cove
   let policies: PlatformFeePoliciesService;
   let refunds: RefundsService;
   let adminId = '';
+  let approverId = '';
   const orgs: string[] = [];
   let seq = 0;
 
@@ -189,6 +190,15 @@ describe('integration-real-postgres: FIXED_PER_TICKET fees, limits and band cove
     return ids;
   }
 
+  /*
+    Maker-checker (AR-10): a policy prices nothing until a second administrator approves it,
+    and is switched off by an approved request. `approverId` is that second person.
+  */
+  async function livePolicy(i: Parameters<PlatformFeePoliciesService['create']>[1]) {
+    const p = await policies.create(adminId, i);
+    return policies.approve(approverId, p.id, { version: p.version });
+  }
+
   beforeAll(async () => {
     if (!url) {
       // eslint-disable-next-line no-console
@@ -218,6 +228,16 @@ describe('integration-real-postgres: FIXED_PER_TICKET fees, limits and band cove
         data: {
           email: `admin-${tag}@test.invalid`,
           fullName: 'FPT Admin',
+          passwordHash: 'not-a-real-hash',
+          roles: ['ADMIN'],
+        },
+      })
+    ).id;
+    approverId = (
+      await db!.user.create({
+        data: {
+          email: `approver-${tag}@test.invalid`,
+          fullName: 'Fee Approver',
           passwordHash: 'not-a-real-hash',
           roles: ['ADMIN'],
         },
@@ -259,7 +279,7 @@ describe('integration-real-postgres: FIXED_PER_TICKET fees, limits and band cove
               ],
             },
           }),
-        () => db!.user.deleteMany({ where: { id: adminId } }),
+        () => db!.user.deleteMany({ where: { id: { in: [adminId, approverId] } } }),
       ];
       for (const step of steps) await step().catch(() => undefined);
       await db.$disconnect();
@@ -390,7 +410,7 @@ describe('integration-real-postgres: FIXED_PER_TICKET fees, limits and band cove
   maybe('an EVENT per-ticket policy outranks an ORGANIZATION policy; clamp', async () => {
     const o = await org({ country: 'India', region: null });
     const e = await event(o, [RS(1_000)]);
-    await policies.create(adminId, {
+    await livePolicy({
       scope: 'ORGANIZATION',
       organizationId: o.orgId,
       kind: 'FIXED',
@@ -398,7 +418,7 @@ describe('integration-real-postgres: FIXED_PER_TICKET fees, limits and band cove
       currency: 'INR',
       reason: 'Organizer-wide reduced fee for the test',
     });
-    await policies.create(adminId, {
+    await livePolicy({
       scope: 'EVENT',
       eventId: e.eventId,
       kind: 'FIXED_PER_TICKET',

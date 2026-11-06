@@ -179,7 +179,19 @@
       "subject": "Retour d'urgence de la grille de frais à vérifier : {currency}",
       "body": "{actor} a utilisé le retour d'urgence sur la grille des frais de réservation en {currency}. La version {version} est maintenant en vigueur et facture ce que facturait la version {restored}. Cela a été fait par une seule personne, sans deuxième approbation.{note} Ouvrez Paramètres > Frais de réservation dans la console d'administration pour le vérifier."
     },
-    "note": " Note : « {note} »"
+    "note": " Note : « {note} »",
+    "policySubmitted": {
+      "subject": "Dérogation de frais en attente d'approbation : {target}",
+      "body": "{actor} a créé une dérogation aux frais de réservation pour {target}. Elle n'est pas en vigueur. Les acheteurs paient les frais actuels jusqu'à ce qu'un autre administrateur l'approuve.{note} Vous pouvez l'approuver seulement si vous ne l'avez pas créée : {actor} ne le peut pas. Ouvrez Politiques de frais dans la console d'administration pour voir les conditions et l'effet estimé, et décider."
+    },
+    "policyDeactivation": {
+      "subject": "Désactivation d'une dérogation de frais en attente d'approbation : {target}",
+      "body": "{actor} a demandé de désactiver la dérogation aux frais de réservation pour {target}. Elle est toujours en vigueur. Une fois désactivée, les acheteurs paient de nouveau la grille normale des frais de réservation.{note} Vous pouvez l'approuver seulement si vous ne l'avez pas demandée : {actor} ne le peut pas. Ouvrez Politiques de frais dans la console d'administration pour décider."
+    },
+    "policyEmergency": {
+      "subject": "Désactivation d'urgence d'une dérogation de frais à vérifier : {target}",
+      "body": "{actor} a utilisé la désactivation d'urgence sur la dérogation aux frais de réservation pour {target}. Les acheteurs paient maintenant la grille normale des frais de réservation. Cela a été fait par une seule personne, sans deuxième approbation.{note} Ouvrez Politiques de frais dans la console d'administration pour la vérifier."
+    }
   },
   "FEE_SCHEDULE_DECIDED": {
     "approved": {
@@ -190,7 +202,23 @@
       "subject": "Grille de frais non approuvée : {currency}",
       "body": "{decider} n'a pas approuvé votre grille des frais de réservation en {currency}. Rien n'a changé pour les acheteurs. Le brouillon est de nouveau ouvert pour que vous puissiez le corriger et le soumettre de nouveau.{note}"
     },
-    "note": " Motif : « {note} »"
+    "note": " Motif : « {note} »",
+    "policyApproved": {
+      "subject": "Dérogation de frais approuvée : {target}",
+      "body": "{decider} a approuvé votre dérogation aux frais de réservation pour {target}. Elle est en vigueur à partir de son heure de début. Les réservations déjà faites gardent les frais facturés.{note}"
+    },
+    "policyRejected": {
+      "subject": "Dérogation de frais non approuvée : {target}",
+      "body": "{decider} n'a pas approuvé votre dérogation aux frais de réservation pour {target}. Rien n'a changé pour les acheteurs. Pour réessayer, créez une nouvelle dérogation.{note}"
+    },
+    "deactivationApproved": {
+      "subject": "Dérogation de frais désactivée : {target}",
+      "body": "{decider} a approuvé votre demande de désactiver la dérogation aux frais de réservation pour {target}. Les acheteurs paient maintenant la grille normale des frais de réservation. Les réservations déjà faites gardent les frais facturés.{note}"
+    },
+    "deactivationRejected": {
+      "subject": "Désactivation de la dérogation de frais non approuvée : {target}",
+      "body": "{decider} n'a pas approuvé votre demande de désactiver la dérogation aux frais de réservation pour {target}. Elle est toujours en vigueur et rien n'a changé pour les acheteurs.{note}"
+    }
   },
   "PAYOUT_ACCOUNT_UPDATED": {
     "saved": {

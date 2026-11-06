@@ -195,15 +195,18 @@ These stay on the read capability on purpose:
 
 ### Verified still correct from #291
 
-| Route                                               | Read needs           | Write needs                                     |
-| --------------------------------------------------- | -------------------- | ----------------------------------------------- |
-| `/admin/fee-rules/**` (writes: 410)                 | PLATFORM_CONFIG_READ | PLATFORM_CONFIG                                 |
-| `/admin/fee-schedules/**` (draft, submit, withdraw) | PLATFORM_CONFIG_READ | PLATFORM_CONFIG                                 |
-| `/admin/fee-schedules/drafts/:id/{approve,reject}`  | PLATFORM_CONFIG_READ | FEE_SCHEDULE_APPROVE (not a maker of the draft) |
-| `/admin/fee-schedules/:currency/emergency-rollback` | PLATFORM_CONFIG_READ | PLATFORM_CONFIG + FEE_SCHEDULE_APPROVE          |
-| `/admin/tax-rules/**`                               | PLATFORM_CONFIG_READ | PLATFORM_CONFIG                                 |
-| `/admin/cinema-pricing-policies/**`                 | PLATFORM_CONFIG_READ | PLATFORM_CONFIG                                 |
-| `/admin/ops/maintenance`                            | OPS_READ             | PLATFORM_CONFIG                                 |
+| Route                                                                                                               | Read needs           | Write needs                                        |
+| ------------------------------------------------------------------------------------------------------------------- | -------------------- | -------------------------------------------------- |
+| `/admin/fee-rules/**` (writes: 410)                                                                                 | PLATFORM_CONFIG_READ | PLATFORM_CONFIG                                    |
+| `/admin/fee-schedules/**` (draft, submit, withdraw)                                                                 | PLATFORM_CONFIG_READ | PLATFORM_CONFIG                                    |
+| `/admin/fee-schedules/drafts/:id/{approve,reject}`                                                                  | PLATFORM_CONFIG_READ | FEE_SCHEDULE_APPROVE (not a maker of the draft)    |
+| `/admin/fee-schedules/:currency/emergency-rollback`                                                                 | PLATFORM_CONFIG_READ | PLATFORM_CONFIG + FEE_SCHEDULE_APPROVE             |
+| `/admin/platform-fee-policies` (create), `/:id/deactivate` (request), `/:id/withdraw`, `/:id/deactivation/withdraw` | PLATFORM_CONFIG_READ | PLATFORM_CONFIG                                    |
+| `/admin/platform-fee-policies/:id/{approve,reject}`, `/:id/deactivation/{approve,reject}`                           | PLATFORM_CONFIG_READ | FEE_SCHEDULE_APPROVE (not the creator / requester) |
+| `/admin/platform-fee-policies/:id/emergency-deactivate`                                                             | PLATFORM_CONFIG_READ | PLATFORM_CONFIG + FEE_SCHEDULE_APPROVE             |
+| `/admin/tax-rules/**`                                                                                               | PLATFORM_CONFIG_READ | PLATFORM_CONFIG                                    |
+| `/admin/cinema-pricing-policies/**`                                                                                 | PLATFORM_CONFIG_READ | PLATFORM_CONFIG                                    |
+| `/admin/ops/maintenance`                                                                                            | OPS_READ             | PLATFORM_CONFIG                                    |
 
 `admin-config-authz.spec.ts` still passes, so these are still enforced.
 
