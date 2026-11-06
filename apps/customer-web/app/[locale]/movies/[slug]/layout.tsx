@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { alternatesFor, shareCards } from '@/lib/seo';
 import { loadPublic } from '@/lib/public-api';
+import { runtimeValue } from '@eticketsgo/web-kit/runtime-config';
 
 /**
  * A film page named after its film: "<Film> - ETicketsGo", with its own canonical URL.
@@ -16,7 +17,9 @@ import { loadPublic } from '@/lib/public-api';
  * The sharing card keeps the site's own picture: a stored poster URL can carry an API host
  * that no longer exists (see `portableImageUrl` in web-kit), and a broken image is worse than none.
  */
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api';
+const BUILD_API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api';
+/** The running environment's API base (runtime-config.ts), else this build's. */
+const apiBase = () => runtimeValue('API_URL', BUILD_API) ?? BUILD_API;
 
 interface PublicMovieResponse {
   title?: string;
@@ -24,7 +27,7 @@ interface PublicMovieResponse {
 }
 
 const loadMovie = (slug: string) =>
-  loadPublic<PublicMovieResponse>(`${API}/public/movies/${encodeURIComponent(slug)}`);
+  loadPublic<PublicMovieResponse>(`${apiBase()}/public/movies/${encodeURIComponent(slug)}`);
 
 export async function generateMetadata({
   params,

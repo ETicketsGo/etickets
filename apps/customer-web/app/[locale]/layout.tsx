@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { notFound } from 'next/navigation';
+import Script from 'next/script';
 import { hasLocale, NextIntlClientProvider } from 'next-intl';
 import { setRequestLocale } from 'next-intl/server';
 import { HTML_LANG, type Locale } from '@eticketsgo/i18n';
@@ -194,6 +195,12 @@ export default async function LocaleLayout({
         <JsonLd data={SITE_JSON_LD} />
       </head>
       <body>
+        {/*
+          This environment's public configuration (AR-17), read when the app runs rather than
+          baked in at build. `beforeInteractive` is placed by Next and runs before hydration, so
+          the first render already uses it; the build-time values remain the fallback.
+        */}
+        <Script src="/runtime-config.js" strategy="beforeInteractive" />
         <NextIntlClientProvider>
           <SkipToContent />
           <Providers citySeed={citySeed} readerZone={readerZone}>

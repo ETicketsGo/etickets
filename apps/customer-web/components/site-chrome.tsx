@@ -12,6 +12,7 @@ import { MarketingHeader } from '@/components/marketing/header';
 import { SiteFooter } from '@/components/site-footer';
 import { useTranslations } from 'next-intl';
 import { isTestEnvironment } from '@/lib/build-id';
+import { runtimeValue } from '@eticketsgo/web-kit/runtime-config';
 
 /*
   The public marketing and legal routes: ONE visual design, TWO navigations (owner, N1).
@@ -138,7 +139,10 @@ export function SiteChrome({
     `process.env.NEXT_PUBLIC_APP_ENV` is what Next inlines; read through a variable it would
     be undefined in the browser and every environment would look like production.
   */
-  const testEnvironment = isTestEnvironment(process.env.NEXT_PUBLIC_APP_ENV);
+  // The running environment's (runtime-config.ts) wins; the inlined literal is the fallback.
+  const testEnvironment = isTestEnvironment(
+    runtimeValue('APP_ENV', process.env.NEXT_PUBLIC_APP_ENV),
+  );
   const footerBuildId = testEnvironment ? buildId : null;
 
   // No header, no footer, no city bar — just the sheet.
