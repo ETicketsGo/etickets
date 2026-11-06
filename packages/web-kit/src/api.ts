@@ -3340,15 +3340,45 @@ export const api = {
           `/admin/fee-schedules/drafts/${encodeURIComponent(id)}`,
           { method: 'DELETE' },
         ),
-      publish: (id: string) =>
-        request<FeeSchedulePublished>(
-          `/admin/fee-schedules/drafts/${encodeURIComponent(id)}/publish`,
+      /** Real recent orders re-priced under the live schedule and the draft (an estimate). */
+      impact: (id: string, days = 30) =>
+        request<FeeScheduleImpact>(
+          `/admin/fee-schedules/drafts/${encodeURIComponent(id)}/impact?days=${days}`,
+        ),
+      /** Maker: send the draft for approval. It is frozen until a checker decides. */
+      submit: (id: string, note?: string) =>
+        request<FeeScheduleDraft>(`/admin/fee-schedules/drafts/${encodeURIComponent(id)}/submit`, {
+          method: 'POST',
+          body: JSON.stringify(note ? { note } : {}),
+        }),
+      /** Maker: take a submitted draft back to edit it. */
+      withdraw: (id: string) =>
+        request<FeeScheduleDraft>(
+          `/admin/fee-schedules/drafts/${encodeURIComponent(id)}/withdraw`,
           { method: 'POST' },
+        ),
+      /** Checker (FEE_SCHEDULE_APPROVE, fresh second factor, not a maker): publish it. */
+      approve: (id: string, note?: string) =>
+        request<FeeSchedulePublished>(
+          `/admin/fee-schedules/drafts/${encodeURIComponent(id)}/approve`,
+          { method: 'POST', body: JSON.stringify(note ? { note } : {}) },
+        ),
+      /** Checker: send it back to its maker with a reason (5 characters or more). */
+      reject: (id: string, note: string) =>
+        request<FeeScheduleDraft>(`/admin/fee-schedules/drafts/${encodeURIComponent(id)}/reject`, {
+          method: 'POST',
+          body: JSON.stringify({ note }),
+        }),
+      /** Break glass: restore an earlier published version now, alone, with a reason. */
+      emergencyRollback: (currency: string, version: number, reason: string) =>
+        request<FeeSchedulePublished & { restoredVersion: number }>(
+          `/admin/fee-schedules/${encodeURIComponent(currency)}/emergency-rollback`,
+          { method: 'POST', body: JSON.stringify({ version, reason }) },
         ),
     },
     /**
      * Fee bands. Deleted ones are left out unless `includeDeleted` is set. Read only: bands
-     * change through `feeSchedules` (draft, check, publish); the old single-band writes answer
+     * change through `feeSchedules` (draft, submit, approve); the old single-band writes answer
      * 410 Gone.
      */
     feeRules: (opts: { includeDeleted?: boolean } = {}) =>
@@ -7791,14 +7821,47 @@ export interface FeeScheduleIssue {
   toMinor?: number | null;
 }
 
+export interface FeeSchedulePerson {
+  id: string;
+  email: string;
+  name: string | null;
+}
+
+export type FeeScheduleDecisionAction =
+  'SUBMITTED' | 'WITHDRAWN' | 'APPROVED' | 'REJECTED' | 'EMERGENCY_ROLLBACK';
+
 export interface FeeScheduleDraft {
   id: string;
   currency: string;
-  status: 'OPEN' | 'PUBLISHED' | 'DISCARDED';
+  status: 'OPEN' | 'PENDING_APPROVAL' | 'PUBLISHED' | 'DISCARDED';
   version: number | null;
   createdAt: string;
   updatedAt: string;
   publishedAt: string | null;
+  createdBy?: FeeSchedulePerson | null;
+  /** Everybody who created, saved or submitted it. None of them may approve it. */
+  contributors?: FeeSchedulePerson[];
+  submittedBy?: FeeSchedulePerson | null;
+  submittedAt?: string | null;
+  submissionNote?: string | null;
+  approvedBy?: FeeSchedulePerson | null;
+  approvedAt?: string | null;
+  approvalNote?: string | null;
+  lastRejectionNote?: string | null;
+  emergency?: boolean;
+  rollbackOfVersion?: number | null;
+  /** Approval publishes immediately; there is no scheduled activation yet. */
+  effective?: { at: string | null; mode: 'ON_APPROVAL' | 'PUBLISHED' };
+  decisions?: {
+    id: string;
+    action: FeeScheduleDecisionAction;
+    actor: FeeSchedulePerson | null;
+    note: string | null;
+    version: number | null;
+    createdAt: string;
+  }[];
+  /** For the person asking: may they approve or reject it, and if not, why. */
+  viewer?: { mayDecide: boolean; independenceBlock: 'SUBMITTER' | 'CONTRIBUTOR' | null };
   bands: FeeScheduleBand[];
   /** The live schedule changed after this draft was started; it cannot be published. */
   stale: boolean;
@@ -7817,7 +7880,43 @@ export interface FeeScheduleOverview {
   liveFingerprint: string;
   live: FeeScheduleBand[];
   openDraft: { id: string; createdAt: string; createdByUserId: string; updatedAt: string } | null;
-  history: { id: string; version: number; publishedAt: string; publishedByUserId: string }[];
+  pendingDraft?: {
+    id: string;
+    createdAt: string;
+    createdByUserId: string;
+    submittedByUserId: string | null;
+    submittedAt: string | null;
+    submittedBy: FeeSchedulePerson | null;
+  } | null;
+  history: {
+    id: string;
+    version: number;
+    publishedAt: string;
+    publishedByUserId: string;
+    submittedByUserId?: string | null;
+    approvedByUserId?: string | null;
+    approvalNote?: string | null;
+    emergency?: boolean;
+    rollbackOfVersion?: number | null;
+    publishedBy?: FeeSchedulePerson | null;
+    submittedBy?: FeeSchedulePerson | null;
+    approvedBy?: FeeSchedulePerson | null;
+  }[];
+}
+
+/** Recent real orders re-priced under the live schedule and the draft. An estimate. */
+export interface FeeScheduleImpact {
+  place: string;
+  windowDays: number;
+  orders: number;
+  liveFeeMinor: number;
+  draftFeeMinor: number;
+  deltaMinor: number;
+  higher: number;
+  lower: number;
+  unchanged: number;
+  largestIncreaseMinor: number;
+  largestDecreaseMinor: number;
 }
 
 export interface FeeSchedulePublished {

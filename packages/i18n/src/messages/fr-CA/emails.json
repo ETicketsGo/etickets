@@ -170,6 +170,28 @@
     "subject": "Compte bancaire en attente de vérification : {organization}",
     "body": "{organization} a enregistré un compte bancaire de versement en {currency} chez {bank}, se terminant par {last4} (version {version}). Modifié : {changes}. Saisi par {savedBy}. Aucun versement ne peut y être envoyé avant sa vérification. Un membre du personnel autre que la personne qui a saisi ces coordonnées doit les vérifier : {savedBy} ne le peut pas, ni personne qui fait partie de {organization}. Ouvrez Versements > Comptes bancaires dans la console d'administration pour le vérifier."
   },
+  "FEE_SCHEDULE_AWAITING_APPROVAL": {
+    "submitted": {
+      "subject": "Grille de frais en attente d'approbation : {currency}",
+      "body": "{actor} a soumis une modification de la grille des frais de réservation en {currency}. Elle n'est pas en vigueur. Les acheteurs paient les frais actuels jusqu'à ce qu'un autre administrateur l'approuve.{note} Vous pouvez l'approuver seulement si vous n'avez pas travaillé sur ce brouillon : {actor} ne le peut pas. Ouvrez Paramètres > Frais de réservation dans la console d'administration pour comparer les anciens et les nouveaux frais et décider."
+    },
+    "rollback": {
+      "subject": "Retour d'urgence de la grille de frais à vérifier : {currency}",
+      "body": "{actor} a utilisé le retour d'urgence sur la grille des frais de réservation en {currency}. La version {version} est maintenant en vigueur et facture ce que facturait la version {restored}. Cela a été fait par une seule personne, sans deuxième approbation.{note} Ouvrez Paramètres > Frais de réservation dans la console d'administration pour le vérifier."
+    },
+    "note": " Note : « {note} »"
+  },
+  "FEE_SCHEDULE_DECIDED": {
+    "approved": {
+      "subject": "Grille de frais approuvée : {currency} version {version}",
+      "body": "{decider} a approuvé votre grille des frais de réservation en {currency}. Elle est en vigueur maintenant, version {version}. Les réservations déjà faites gardent les frais facturés.{note}"
+    },
+    "rejected": {
+      "subject": "Grille de frais non approuvée : {currency}",
+      "body": "{decider} n'a pas approuvé votre grille des frais de réservation en {currency}. Rien n'a changé pour les acheteurs. Le brouillon est de nouveau ouvert pour que vous puissiez le corriger et le soumettre de nouveau.{note}"
+    },
+    "note": " Motif : « {note} »"
+  },
   "PAYOUT_ACCOUNT_UPDATED": {
     "saved": {
       "subject": "Votre compte bancaire de versement en {currency} a été modifié",

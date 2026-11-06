@@ -312,3 +312,96 @@ export function previewSchedule(
   }
   return { place: placeName(home ?? '*', '*'), rows };
 }
+
+/** One real order, as the schedule sees it: its net total and its paid ticket count. */
+export interface ImpactOrder {
+  orderMinor: number;
+  tickets: number;
+}
+
+export interface ScheduleImpact {
+  /** Where the orders were priced (the currency's home market, as in the preview). */
+  place: string;
+  windowDays: number;
+  /** How many orders the estimate re-priced. */
+  orders: number;
+  /** What those orders paid in booking fees under the live schedule, re-priced today. */
+  liveFeeMinor: number;
+  /** What the same orders would pay under the draft. */
+  draftFeeMinor: number;
+  /** draftFeeMinor - liveFeeMinor. Positive: buyers pay more. */
+  deltaMinor: number;
+  higher: number;
+  lower: number;
+  unchanged: number;
+  /** The biggest single-order increase and decrease, both as positive amounts. */
+  largestIncreaseMinor: number;
+  largestDecreaseMinor: number;
+}
+
+/**
+ * What the draft would have changed for real recent orders: each order re-priced under the live
+ * schedule and under the draft, by the checkout's own engine, and summed.
+ *
+ * An ESTIMATE for the approver, never a charge: it re-prices every order at the home market (as
+ * the preview does), so a band scoped to a region or another country is not reflected, and an
+ * event or organizer fee policy that overrode the schedule for an order is ignored. Both limits
+ * are shown next to the figure in the console. Confirmed bookings keep their own snapshot.
+ */
+export function estimateImpact(
+  currency: string,
+  draft: readonly ScheduleBand[],
+  live: readonly Omit<ScheduleBand, 'key' | 'sourceId'>[],
+  orders: readonly ImpactOrder[],
+  windowDays: number,
+): ScheduleImpact {
+  const home = marketCountryFor(currency);
+  const at: FeePlace = home ? { country: home } : {};
+  const withId = (rows: readonly Omit<ScheduleBand, 'key' | 'sourceId'>[]) =>
+    rows.map((r, i) => ({ ...r, id: String(i) }));
+  const draftActive = draft.filter((b) => b.active);
+  const liveActive = live.filter((b) => b.active);
+  const draftTiers = draftActive.length ? scheduleTiers(withId(draftActive), at) : null;
+  const liveTiers = liveActive.length ? scheduleTiers(withId(liveActive), at) : null;
+  const fee = (tiers: ReturnType<typeof scheduleTiers> | null, o: ImpactOrder) =>
+    calculateFees({
+      subtotalMinor: o.orderMinor,
+      feeMode: FeeMode.CUSTOMER_PAYS,
+      currency,
+      ticketCount: o.tickets,
+      paymentFeeBps: 0,
+      ...(tiers ? { tiers } : {}),
+    }).bookingFeeMinor;
+
+  const out: ScheduleImpact = {
+    place: placeName(home ?? '*', '*'),
+    windowDays,
+    orders: orders.length,
+    liveFeeMinor: 0,
+    draftFeeMinor: 0,
+    deltaMinor: 0,
+    higher: 0,
+    lower: 0,
+    unchanged: 0,
+    largestIncreaseMinor: 0,
+    largestDecreaseMinor: 0,
+  };
+  for (const o of orders) {
+    const was = fee(liveTiers, o);
+    const now = fee(draftTiers, o);
+    out.liveFeeMinor += was;
+    out.draftFeeMinor += now;
+    const d = now - was;
+    if (d > 0) {
+      out.higher++;
+      out.largestIncreaseMinor = Math.max(out.largestIncreaseMinor, d);
+    } else if (d < 0) {
+      out.lower++;
+      out.largestDecreaseMinor = Math.max(out.largestDecreaseMinor, -d);
+    } else {
+      out.unchanged++;
+    }
+  }
+  out.deltaMinor = out.draftFeeMinor - out.liveFeeMinor;
+  return out;
+}

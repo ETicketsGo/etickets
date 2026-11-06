@@ -25,7 +25,7 @@ ARG NEXT_PUBLIC_ADMIN_URL=
 ARG NEXT_PUBLIC_APP_RETURN_SCHEME=
 
 # ---------- Stage 1: deps ----------
-FROM node:20-alpine AS deps
+FROM node:24.22.2-alpine AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
@@ -65,7 +65,7 @@ COPY . .
 RUN npx turbo run build --filter=@eticketsgo/customer-web
 
 # ---------- Stage 3: runtime (standalone) ----------
-FROM node:20-alpine AS runtime
+FROM node:24.22.2-alpine AS runtime
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
