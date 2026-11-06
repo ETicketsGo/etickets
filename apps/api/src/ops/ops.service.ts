@@ -144,6 +144,60 @@ export class OpsService implements OnModuleDestroy {
 
   // ─────────────────────────── Health ───────────────────────────
 
+  /**
+   * The database's connection budget against what is using it (AR-05). Read-only.
+   *
+   * `byClient` groups connections by client address, so each API replica, the worker and any
+   * console session show as separate rows. `thisInstance` is the pool of the process that
+   * answered. `utilisationPct` is all connections against `max_connections` less the reserved
+   * superuser slots.
+   */
+  async database() {
+    const setting = async (name: string) => {
+      const rows = await this.prisma.$queryRawUnsafe<{ setting: string }[]>(
+        'SELECT setting FROM pg_settings WHERE name = $1',
+        name,
+      );
+      return Number(rows[0]?.setting ?? NaN);
+    };
+    const [maxConnections, reserved, rows] = await Promise.all([
+      setting('max_connections'),
+      setting('superuser_reserved_connections'),
+      this.prisma.$queryRaw<
+        { client: string | null; state: string | null; same_db: boolean; n: bigint }[]
+      >`SELECT client_addr::text AS client, state, (datname = current_database()) AS same_db,
+               count(*) AS n
+          FROM pg_stat_activity
+         WHERE backend_type = 'client backend'
+         GROUP BY 1, 2, 3
+         ORDER BY 4 DESC`,
+    ]);
+    const total = rows.reduce((sum, r) => sum + Number(r.n), 0);
+    const usable = Number.isFinite(maxConnections)
+      ? maxConnections - (Number.isFinite(reserved) ? reserved : 0)
+      : NaN;
+    return {
+      maxConnections,
+      superuserReserved: reserved,
+      clientConnections: total,
+      inThisDatabase: rows.filter((r) => r.same_db).reduce((sum, r) => sum + Number(r.n), 0),
+      utilisationPct:
+        Number.isFinite(usable) && usable > 0 ? Math.round((total / usable) * 1000) / 10 : null,
+      byClient: rows.map((r) => ({
+        client: r.client ?? 'local',
+        state: r.state ?? 'unknown',
+        thisDatabase: r.same_db,
+        connections: Number(r.n),
+      })),
+      thisInstance: {
+        poolSize: this.prisma.pool?.poolSize ?? null,
+        source: this.prisma.pool?.source ?? null,
+        poolTimeoutSeconds: this.prisma.pool?.poolTimeoutSeconds ?? null,
+        replicaId: process.env.RAILWAY_REPLICA_ID ?? null,
+      },
+    };
+  }
+
   async health(): Promise<OpsHealth> {
     const [database, redis, queue, backup, opsAlerts, pilot] = await Promise.all([
       this.checkDatabase(),
