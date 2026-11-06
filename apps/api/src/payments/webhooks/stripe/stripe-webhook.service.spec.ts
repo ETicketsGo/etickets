@@ -56,7 +56,7 @@ function setup() {
     processor as never,
     metrics as never,
   );
-  return { service, resolver, stripeAdapter, globalAdapter, prisma };
+  return { service, resolver, stripeAdapter, globalAdapter, prisma, processor };
 }
 
 describe('StripeWebhookService.ingest', () => {
@@ -85,6 +85,23 @@ describe('StripeWebhookService.ingest', () => {
 
     expect(result).toEqual({ received: true, duplicate: true });
     expect(prisma.webhookEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('answers a copy that lost the insert race as a duplicate, not a 500', async () => {
+    // Two replicas, one event delivered twice at once: the second insert hits the unique key.
+    const { service, prisma, processor } = setup();
+    prisma.webhookEvent.create.mockRejectedValueOnce(
+      Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }),
+    );
+    const result = await service.ingest('{}', 'sig');
+    expect(result).toEqual({ received: true, duplicate: true });
+    expect(processor.process).not.toHaveBeenCalled();
+  });
+
+  it('rethrows any other database error from the insert', async () => {
+    const { service, prisma } = setup();
+    prisma.webhookEvent.create.mockRejectedValueOnce(new Error('connection lost'));
+    await expect(service.ingest('{}', 'sig')).rejects.toThrow('connection lost');
   });
 
   it('lets a verification failure through rather than swallowing it', async () => {

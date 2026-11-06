@@ -388,6 +388,8 @@ enum NotificationType {
   EVENT_NOT_SELLABLE
   /// Staff-facing: an organizer's saved bank account waits for an independent verifier.
   PAYOUT_ACCOUNT_AWAITING_VERIFICATION
+  FEE_SCHEDULE_AWAITING_APPROVAL
+  FEE_SCHEDULE_DECIDED
 
   // Account security, addressed to the account holder about their own credentials.
   PASSWORD_RESET_REQUESTED
@@ -3491,6 +3493,9 @@ model FeeRule {
 enum FeeScheduleDraftStatus {
   /// Being edited. Prices nothing.
   OPEN
+  /// Submitted for approval. Frozen: it cannot be edited or discarded, only approved, rejected
+  /// (back to OPEN) or withdrawn by its submitter (back to OPEN). Prices nothing.
+  PENDING_APPROVAL
   /// Written to the live bands in one transaction. Never changed again: it is the history.
   PUBLISHED
   /// Thrown away without publishing.
@@ -3510,26 +3515,74 @@ enum FeeScheduleDraftStatus {
 /// schedule this draft was copied from: a publish is refused when it changed since, so one
 /// admin's publish cannot silently overwrite another's.
 model FeeScheduleDraft {
-  id                String                 @id @default(cuid())
-  currency          String
-  status            FeeScheduleDraftStatus @default(OPEN)
+  id                 String                 @id @default(cuid())
+  currency           String
+  status             FeeScheduleDraftStatus @default(OPEN)
   /// `scheduleFingerprint` of the live (not deleted) bands of the currency when copied.
-  baseFingerprint   String
+  baseFingerprint    String
   /// The draft bands: [{ key, sourceId, minMinor, maxMinor, feeType, feeMinor, feePercentBps,
   /// minFeeMinor, maxFeeMinor, country, region, active }]. `sourceId` names the live band a row
   /// was copied from (null for a new one), so a publish updates, adds and deletes exactly.
-  bands             Json
+  bands              Json
   /// Set on publish: the schedule version for this currency, 1, 2, 3...
-  version           Int?
-  createdByUserId   String
-  updatedByUserId   String?
-  publishedByUserId String?
-  publishedAt       DateTime?
-  createdAt         DateTime               @default(now())
-  updatedAt         DateTime               @updatedAt
+  version            Int?
+  createdByUserId    String
+  updatedByUserId    String?
+  publishedByUserId  String?
+  publishedAt        DateTime?
+  /// Everybody who created or saved this draft. None of them may approve it.
+  contributorUserIds String[]               @default([])
+  /// Maker-checker: who submitted it, when, why, and the hash of the bands they submitted.
+  submittedByUserId  String?
+  submittedAt        DateTime?
+  submissionNote     String?
+  submittedBandsHash String?
+  /// The checker. On an approved draft, `publishedByUserId` is the same person.
+  approvedByUserId   String?
+  approvedAt         DateTime?
+  approvalNote       String?
+  /// The most recent rejection, kept on the draft so its maker sees why when it reopens.
+  lastRejectionNote  String?
+  /// True for a version made by an emergency rollback: published by one person, restoring
+  /// `rollbackOfVersion`, an earlier published schedule. Reviewed after the fact.
+  emergency          Boolean                @default(false)
+  rollbackOfVersion  Int?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  decisions FeeScheduleDecision[]
 
   @@unique([currency, version])
   @@index([currency, status])
+}
+
+enum FeeScheduleDecisionAction {
+  SUBMITTED
+  WITHDRAWN
+  APPROVED
+  REJECTED
+  EMERGENCY_ROLLBACK
+}
+
+/// The approval history of fee-schedule drafts. Append-only: a database trigger refuses
+/// UPDATE and DELETE (migration 20261106100000_fee_schedule_approval), so a decision cannot be
+/// rewritten after the fact, by the application or by anybody with a SQL prompt.
+model FeeScheduleDecision {
+  id          String                    @id @default(cuid())
+  draftId     String
+  draft       FeeScheduleDraft          @relation(fields: [draftId], references: [id], onDelete: Restrict)
+  currency    String
+  action      FeeScheduleDecisionAction
+  actorUserId String
+  note        String?
+  /// sha256 of the draft's bands at the moment of the decision.
+  bandsHash   String
+  /// The schedule version this decision produced (APPROVED, EMERGENCY_ROLLBACK).
+  version     Int?
+  createdAt   DateTime                  @default(now())
+
+  @@index([draftId, createdAt])
+  @@index([currency, createdAt])
 }
 
 /// What a tax rule is levied on.

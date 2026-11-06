@@ -17,8 +17,8 @@ Companion documents: [DATA-MODEL](DATA-MODEL.md) · [FLOWS](FLOWS.md) ·
 - **Shape:** a modular monolith. One NestJS API (`apps/api`) and one background worker
   (`apps/worker`) share one PostgreSQL database and one Redis. Three Next.js web apps and one
   Expo mobile app call the API over HTTPS REST (`/api` prefix).
-- **Monorepo:** Turborepo plus npm workspaces, strict TypeScript, Node 20 (`.nvmrc`,
-  `engines.node >=20`, `node:20-alpine` images).
+- **Monorepo:** Turborepo plus npm workspaces, strict TypeScript, Node 24 LTS (`.nvmrc`,
+  `engines.node >=24`, `node:24-alpine` images).
 - **System of record:** PostgreSQL through Prisma 5 (139 models, 151 migrations). Redis holds
   only data that can be rebuilt: BullMQ queues, rate-limit counters, OTP send guards, cache,
   and the optional distributed seat locks.
@@ -400,4 +400,4 @@ code from `Market` configuration.
 These limits are summarized here and tracked in [REVIEW-GUIDE](REVIEW-GUIDE.md#3-known-risks-limitations-and-open-decisions):
 single region and a single Postgres per environment; tenancy enforced in application code
 only; audit log append-only by convention; outbox and distributed locks built but off by
-default; web push not wired; Node 20 runtime.
+default; web push not wired; Node 24 LTS runtime.

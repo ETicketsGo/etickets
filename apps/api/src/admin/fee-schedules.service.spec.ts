@@ -30,7 +30,11 @@ type Rule = {
 type Draft = {
   id: string;
   currency: string;
-  status: 'OPEN' | 'PUBLISHED' | 'DISCARDED';
+  status: 'OPEN' | 'PENDING_APPROVAL' | 'PUBLISHED' | 'DISCARDED';
+  contributorUserIds?: string[];
+  submittedByUserId?: string | null;
+  submittedBandsHash?: string | null;
+  updatedByUserId?: string | null;
   baseFingerprint: string;
   bands: ScheduleBand[];
   version: number | null;
@@ -79,8 +83,17 @@ function store() {
     rules
       .filter((r) => r.currency === currency && r.deletedAt === null)
       .sort((a, b) => a.minMinor - b.minMinor);
-  const matchDraft = (d: Draft, where: Partial<Draft>) =>
-    Object.entries(where).every(([k, v]) => (d as Record<string, unknown>)[k] === v);
+  // Equality, `{ in: [...] }`, and Dates compared by time - what the service's queries use.
+  const matchDraft = (d: Draft, where: Record<string, unknown>) =>
+    Object.entries(where).every(([k, v]) => {
+      const have = (d as Record<string, unknown>)[k];
+      if (v && typeof v === 'object' && 'in' in (v as object)) {
+        return ((v as { in: unknown[] }).in ?? []).includes(have);
+      }
+      if (v instanceof Date) return have instanceof Date && have.getTime() === v.getTime();
+      return have === v;
+    });
+  const decisions: Record<string, unknown>[] = [];
 
   const db = {
     feeRule: {
@@ -126,11 +139,19 @@ function store() {
           updatedAt: new Date(),
           publishedAt: null,
           publishedByUserId: null,
+          contributorUserIds: [],
           ...data,
         } as Draft;
         drafts.push(d);
         return d;
       }),
+      updateMany: jest.fn(
+        async ({ where, data }: { where: Record<string, unknown>; data: Partial<Draft> }) => {
+          const hit = drafts.filter((d) => matchDraft(d, where));
+          for (const d of hit) Object.assign(d, data, { updatedAt: new Date(Date.now() + ++seq) });
+          return { count: hit.length };
+        },
+      ),
       update: jest.fn(async ({ where, data }: { where: { id: string }; data: Partial<Draft> }) => {
         const d = drafts.find((x) => x.id === where.id)!;
         if (
@@ -139,7 +160,7 @@ function store() {
         ) {
           throw new Error('unique constraint (currency, version)');
         }
-        Object.assign(d, data);
+        Object.assign(d, data, { updatedAt: new Date(Date.now() + ++seq) });
         return d;
       }),
       aggregate: jest.fn(
@@ -155,6 +176,16 @@ function store() {
               .reduce<number | null>((m, d) => Math.max(m ?? 0, d.version ?? 0), null),
           },
         }),
+      ),
+    },
+    feeScheduleDecision: {
+      create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        const row = { id: `dec${++seq}`, createdAt: new Date(), ...data };
+        decisions.push(row);
+        return row;
+      }),
+      findMany: jest.fn(async ({ where }: { where: { draftId: string } }) =>
+        decisions.filter((x) => x.draftId === where.draftId),
       ),
     },
     $executeRaw: jest.fn(async () => 1),
@@ -187,7 +218,15 @@ function store() {
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
   );
-  return { svc, rules, drafts, audit, live, db };
+  /*
+    The only way a schedule goes live now: its maker submits it, somebody else approves it.
+    `maker` is whoever worked on the draft; the checker is a different person by construction.
+  */
+  const publish = async (maker: string, id: string) => {
+    await svc.submit(maker, id);
+    return svc.approve(`checker-of-${maker}`, id);
+  };
+  return { svc, rules, drafts, audit, live, db, publish, decisions };
 }
 
 const snapshot = (rules: Rule[]) => JSON.stringify(rules);
@@ -218,7 +257,7 @@ describe('FeeSchedulesService', () => {
   });
 
   it('publishes a reorganisation in one go: update, add, and version 1', async () => {
-    const { svc, live, audit } = store();
+    const { svc, live, audit, publish } = store();
     const draft = await svc.createDraft('admin', 'USD');
     const [low, high] = draft.bands;
     await svc.saveDraft('admin', draft.id, [
@@ -226,7 +265,7 @@ describe('FeeSchedulesService', () => {
       { ...high, maxMinor: 99_999 },
       { ...high, key: 'new', sourceId: null, minMinor: 100_000, maxMinor: null, feeMinor: 499 },
     ]);
-    const result = await svc.publish('admin', draft.id);
+    const result = await publish('admin', draft.id);
     expect(result).toMatchObject({ version: 1, created: 1, updated: 1, deleted: 0 });
     expect(live('USD').map((r) => [r.minMinor, r.maxMinor, r.feeMinor])).toEqual([
       [0, 9_999, 199],
@@ -246,23 +285,24 @@ describe('FeeSchedulesService', () => {
   });
 
   it('replacing several bands with one soft-deletes the rest', async () => {
-    const { svc, live, rules } = store();
+    const { svc, live, rules, publish } = store();
     const draft = await svc.createDraft('admin', 'USD');
     await svc.saveDraft('admin', draft.id, [{ ...draft.bands[0], maxMinor: null, feeMinor: 250 }]);
-    const r = await svc.publish('admin', draft.id);
+    const r = await publish('admin', draft.id);
     expect(r).toMatchObject({ updated: 1, deleted: 1, created: 0 });
     expect(live('USD')).toHaveLength(1);
     const gone = rules.find((x) => x.id === 'usd-high')!;
-    expect(gone).toMatchObject({ active: false, deletedByUserId: 'admin' });
+    // Deleted by whoever made it live: the approver, not the maker who drafted it.
+    expect(gone).toMatchObject({ active: false, deletedByUserId: 'checker-of-admin' });
     expect(gone.deletedAt).toBeInstanceOf(Date);
   });
 
   it('refuses to publish a draft with errors, and writes nothing', async () => {
-    const { svc, rules } = store();
+    const { svc, rules, publish } = store();
     const draft = await svc.createDraft('admin', 'USD');
     await svc.saveDraft('admin', draft.id, [draft.bands[0]]);
     const before = snapshot(rules);
-    await expect(svc.publish('admin', draft.id)).rejects.toMatchObject({
+    await expect(publish('admin', draft.id)).rejects.toMatchObject({
       code: 'FEE_SCHEDULE_INVALID',
       status: 409,
     });
@@ -270,12 +310,12 @@ describe('FeeSchedulesService', () => {
   });
 
   it('refuses a publish when the live schedule changed after the draft was made', async () => {
-    const { svc, rules } = store();
+    const { svc, rules, publish } = store();
     const draft = await svc.createDraft('admin', 'USD');
     // Somebody edits a live band directly in the meantime.
     rules.find((r) => r.id === 'usd-high')!.feeMinor = 350;
     expect((await svc.draft(draft.id)).stale).toBe(true);
-    await expect(svc.publish('admin', draft.id)).rejects.toMatchObject({
+    await expect(publish('admin', draft.id)).rejects.toMatchObject({
       code: 'FEE_SCHEDULE_STALE',
       status: 409,
     });
@@ -283,52 +323,52 @@ describe('FeeSchedulesService', () => {
   });
 
   it('two drafts from the same schedule: the first publish wins, the second is refused', async () => {
-    const { svc, drafts, live } = store();
+    const { svc, drafts, live, publish } = store();
     const a = await svc.createDraft('admin-a', 'USD');
     // A second draft made at the same moment, from the same live schedule.
     drafts.push({ ...drafts[0], id: 'd-b', createdByUserId: 'admin-b' });
     await svc.saveDraft('admin-a', a.id, [a.bands[0], { ...a.bands[1], feeMinor: 301 }]);
     await svc.saveDraft('admin-b', 'd-b', [a.bands[0], { ...a.bands[1], feeMinor: 999 }]);
-    await svc.publish('admin-a', a.id);
-    await expect(svc.publish('admin-b', 'd-b')).rejects.toMatchObject({
+    await publish('admin-a', a.id);
+    await expect(publish('admin-b', 'd-b')).rejects.toMatchObject({
       code: 'FEE_SCHEDULE_STALE',
     });
     expect(live('USD')[1].feeMinor).toBe(301);
   });
 
   it('a published draft cannot be published again, edited, or discarded', async () => {
-    const { svc } = store();
+    const { svc, publish } = store();
     const d = await svc.createDraft('admin', 'USD');
     await svc.saveDraft('admin', d.id, [d.bands[0], { ...d.bands[1], feeMinor: 301 }]);
-    await svc.publish('admin', d.id);
-    await expect(svc.publish('admin', d.id)).rejects.toMatchObject({ status: 409 });
+    await publish('admin', d.id);
+    await expect(publish('admin', d.id)).rejects.toMatchObject({ status: 409 });
     await expect(svc.saveDraft('admin', d.id, d.bands)).rejects.toMatchObject({ status: 409 });
     await expect(svc.discardDraft('admin', d.id)).rejects.toMatchObject({ status: 409 });
   });
 
   it('versions count per currency, and publishing USD leaves INR untouched', async () => {
-    const { svc, rules } = store();
+    const { svc, rules, publish } = store();
     const inrBefore = JSON.stringify(rules.filter((r) => r.currency === 'INR'));
     const first = await svc.createDraft('admin', 'USD');
     await svc.saveDraft('admin', first.id, [first.bands[0], { ...first.bands[1], feeMinor: 301 }]);
-    await svc.publish('admin', first.id);
+    await publish('admin', first.id);
     const second = await svc.createDraft('admin', 'USD');
     await svc.saveDraft('admin', second.id, [
       second.bands[0],
       { ...second.bands[1], feeMinor: 302 },
     ]);
-    expect((await svc.publish('admin', second.id)).version).toBe(2);
+    expect((await publish('admin', second.id)).version).toBe(2);
     expect(JSON.stringify(rules.filter((r) => r.currency === 'INR'))).toBe(inrBefore);
     expect((await svc.overview('USD')).liveVersion).toBe(2);
   });
 
   it('the live fingerprint a quote carries moves only when a publish lands', async () => {
-    const { svc, live } = store();
+    const { svc, live, publish } = store();
     const before = scheduleFingerprint(live('USD'));
     const d = await svc.createDraft('admin', 'USD');
     await svc.saveDraft('admin', d.id, [d.bands[0], { ...d.bands[1], feeMinor: 301 }]);
     expect(scheduleFingerprint(live('USD'))).toBe(before);
-    await svc.publish('admin', d.id);
+    await publish('admin', d.id);
     expect(scheduleFingerprint(live('USD'))).not.toBe(before);
   });
 
@@ -384,13 +424,13 @@ describe('FeeSchedulesService', () => {
     });
 
     it('a second save is compared with the previous save, and carries the published base version', async () => {
-      const { svc, audit } = store();
+      const { svc, audit, publish } = store();
       const first = await svc.createDraft('admin', 'USD');
       await svc.saveDraft('admin', first.id, [
         first.bands[0],
         { ...first.bands[1], feeMinor: 301 },
       ]);
-      await svc.publish('admin', first.id);
+      await publish('admin', first.id);
       const d = await svc.createDraft('admin', 'USD');
       audit.record.mockClear();
       audit.recordInTransaction.mockClear();
@@ -424,6 +464,187 @@ describe('FeeSchedulesService', () => {
         svc.saveDraft('admin', d.id, [{ ...d.bands[0], feeMinor: 1 }]),
       ).rejects.toMatchObject({ status: 409 });
       expect(saves(audit)).toHaveLength(0);
+    });
+  });
+});
+
+describe('maker-checker', () => {
+  const change = async (svc: FeeSchedulesService, maker: string) => {
+    const d = await svc.createDraft(maker, 'USD');
+    await svc.saveDraft(maker, d.id, [d.bands[0], { ...d.bands[1], feeMinor: 333 }]);
+    return d.id;
+  };
+
+  it('a submitted draft prices nothing and cannot be edited or discarded', async () => {
+    const { svc, rules } = store();
+    const id = await change(svc, 'maker');
+    const before = snapshot(rules);
+    const sent = await svc.submit('maker', id, 'raise the high band');
+    expect(sent.status).toBe('PENDING_APPROVAL');
+    expect(snapshot(rules)).toBe(before);
+    await expect(svc.saveDraft('maker', id, sent.bands)).rejects.toMatchObject({
+      status: 409,
+      details: { reason: 'PENDING_APPROVAL' },
+    });
+    await expect(svc.discardDraft('maker', id)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('the submitter cannot approve their own draft, and nothing goes live', async () => {
+    const { svc, rules, audit } = store();
+    const id = await change(svc, 'superadmin');
+    await svc.submit('superadmin', id);
+    const before = snapshot(rules);
+    await expect(svc.approve('superadmin', id)).rejects.toMatchObject({
+      status: 403,
+      details: { reason: 'NOT_INDEPENDENT' },
+    });
+    expect(snapshot(rules)).toBe(before);
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'FEE_SCHEDULE_APPROVAL_REFUSED',
+        metadata: expect.objectContaining({ reason: 'SUBMITTER' }),
+      }),
+    );
+  });
+
+  it('anybody who saved the draft is a maker too, even if somebody else submitted it', async () => {
+    const { svc } = store();
+    const id = await change(svc, 'alice');
+    const d = await svc.draft(id);
+    await svc.saveDraft('bob', id, [d.bands[0], { ...d.bands[1], feeMinor: 334 }]);
+    await svc.submit('carol', id);
+    for (const who of ['alice', 'bob', 'carol']) {
+      await expect(svc.approve(who, id)).rejects.toMatchObject({ status: 403 });
+      await expect(svc.reject(who, id, 'not like this')).rejects.toMatchObject({ status: 403 });
+    }
+    const viewer = (await svc.draft(id, 'bob')).viewer;
+    expect(viewer).toEqual({ mayDecide: false, independenceBlock: 'CONTRIBUTOR' });
+    expect((await svc.draft(id, 'dave')).viewer).toEqual({
+      mayDecide: true,
+      independenceBlock: null,
+    });
+    const r = await svc.approve('dave', id, 'checked against the pricing memo');
+    expect(r.version).toBe(1);
+  });
+
+  it('approval publishes, records the checker, and writes an append-only decision', async () => {
+    const { svc, live, decisions, audit } = store();
+    const id = await change(svc, 'maker');
+    await svc.submit('maker', id);
+    await svc.approve('checker', id, 'ok');
+    expect(live('USD')[1].feeMinor).toBe(333);
+    const d = await svc.draft(id);
+    expect(d.status).toBe('PUBLISHED');
+    expect(d.effective.mode).toBe('PUBLISHED');
+    expect(decisions.map((x) => x.action)).toEqual(['SUBMITTED', 'APPROVED']);
+    expect(decisions[1]).toMatchObject({ actorUserId: 'checker', version: 1, note: 'ok' });
+    const actions = audit.recordInTransaction.mock.calls.map((c) => c[1].action);
+    expect(actions).toEqual(
+      expect.arrayContaining([
+        'FEE_SCHEDULE_SUBMITTED',
+        'FEE_SCHEDULE_APPROVED',
+        'FEE_SCHEDULE_PUBLISHED',
+      ]),
+    );
+  });
+
+  it('a rejection needs a reason, reopens the draft for its maker, and changes nothing live', async () => {
+    const { svc, rules } = store();
+    const id = await change(svc, 'maker');
+    await svc.submit('maker', id);
+    const before = snapshot(rules);
+    await expect(svc.reject('checker', id, '')).rejects.toMatchObject({ status: 400 });
+    const back = await svc.reject('checker', id, 'the high band is too steep');
+    expect(back.status).toBe('OPEN');
+    expect(back.lastRejectionNote).toBe('the high band is too steep');
+    expect(snapshot(rules)).toBe(before);
+    // Reopened: the maker can edit and submit again, and the checker can then approve.
+    await svc.saveDraft('maker', id, [back.bands[0], { ...back.bands[1], feeMinor: 320 }]);
+    await svc.submit('maker', id);
+    expect((await svc.approve('checker', id)).version).toBe(1);
+  });
+
+  it('only a maker can withdraw, and withdrawing reopens the draft', async () => {
+    const { svc } = store();
+    const id = await change(svc, 'maker');
+    await svc.submit('maker', id);
+    await expect(svc.withdraw('stranger', id)).rejects.toMatchObject({ status: 403 });
+    expect((await svc.withdraw('maker', id)).status).toBe('OPEN');
+    await expect(svc.approve('checker', id)).rejects.toMatchObject({
+      details: { reason: 'NOT_PENDING' },
+    });
+  });
+
+  it('a draft identical to the live schedule cannot be submitted', async () => {
+    const { svc } = store();
+    const d = await svc.createDraft('maker', 'USD');
+    await expect(svc.submit('maker', d.id)).rejects.toMatchObject({
+      details: { reason: 'NO_CHANGES' },
+    });
+  });
+
+  it('the old one-person publish is refused with a reason', async () => {
+    const { svc, rules } = store();
+    const id = await change(svc, 'maker');
+    const before = snapshot(rules);
+    await expect(svc.publish('maker', id)).rejects.toMatchObject({
+      code: 'FEE_SCHEDULE_APPROVAL_REQUIRED',
+      status: 409,
+    });
+    expect(snapshot(rules)).toBe(before);
+  });
+
+  it('a pending draft that went stale cannot be approved', async () => {
+    const { svc, rules } = store();
+    const id = await change(svc, 'maker');
+    await svc.submit('maker', id);
+    rules.find((r) => r.id === 'usd-low')!.feeMinor = 150;
+    await expect(svc.approve('checker', id)).rejects.toMatchObject({ code: 'FEE_SCHEDULE_STALE' });
+  });
+
+  describe('emergency rollback', () => {
+    it('restores an earlier version as a new emergency version, alone, with a reason', async () => {
+      const { svc, live, decisions, publish } = store();
+      const v1 = await change(svc, 'maker');
+      await publish('maker', v1);
+      const second = await svc.createDraft('maker', 'USD');
+      await svc.saveDraft('maker', second.id, [
+        second.bands[0],
+        { ...second.bands[1], feeMinor: 9_999 },
+      ]);
+      await publish('maker', second.id);
+      expect(live('USD')[1].feeMinor).toBe(9_999);
+
+      await expect(svc.emergencyRollback('oncall', 'USD', 1, 'too short')).rejects.toMatchObject({
+        status: 400,
+      });
+      const r = await svc.emergencyRollback(
+        'oncall',
+        'USD',
+        1,
+        'Version 2 charges 99.99 per order by mistake',
+      );
+      expect(r).toMatchObject({ version: 3, restoredVersion: 1 });
+      expect(live('USD')[1].feeMinor).toBe(333);
+      const made = await svc.draft(r.id);
+      expect(made).toMatchObject({ status: 'PUBLISHED', emergency: true, rollbackOfVersion: 1 });
+      expect(decisions.at(-1)).toMatchObject({
+        action: 'EMERGENCY_ROLLBACK',
+        actorUserId: 'oncall',
+      });
+    });
+
+    it('refuses the live version, a later one, or one that does not exist', async () => {
+      const { svc, rules, publish } = store();
+      const v1 = await change(svc, 'maker');
+      await publish('maker', v1);
+      const before = snapshot(rules);
+      for (const v of [1, 2, 7]) {
+        await expect(
+          svc.emergencyRollback('oncall', 'USD', v, 'a long enough reason for the test'),
+        ).rejects.toMatchObject({ details: { reason: 'NOT_AN_EARLIER_VERSION' } });
+      }
+      expect(snapshot(rules)).toBe(before);
     });
   });
 });

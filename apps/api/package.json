@@ -81,7 +81,7 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/express": "^5.0.6",
     "@types/jest": "^29.5.13",
-    "@types/node": "^20.16.10",
+    "@types/node": "^24.10.1",
     "@types/passport-jwt": "^4.0.1",
     "@types/qrcode": "^1.5.5",
     "@types/uuid": "^10.0.0",

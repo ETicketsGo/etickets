@@ -216,8 +216,10 @@ function offsetAt(zone: string, at: Date): string {
 
 /**
  * Do two zones keep the same clock - the same offset, the same daylight-saving days - for the
- * next year? America/Denver and America/Boise do; America/Vancouver and America/Whitehorse do
- * not (Yukon stopped changing its clocks in 2020).
+ * next year? America/Denver and America/Boise do; America/Los_Angeles and America/Phoenix do
+ * not (Arizona keeps no daylight saving). The answer comes from the runtime's tz database, so it
+ * can change with the Node version: tzdata 2026e records British Columbia staying on UTC-7 from
+ * November 2026, after which America/Vancouver keeps the same clock as America/Whitehorse.
  *
  * The question that matters for a venue is not "is this the key the table would have picked"
  * but "would any show time read differently". A venue in Boise stored as America/Denver sells

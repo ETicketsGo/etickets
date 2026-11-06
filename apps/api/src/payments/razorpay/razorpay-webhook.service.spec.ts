@@ -197,6 +197,31 @@ describe('redelivery cannot be processed twice', () => {
   );
 });
 
+describe('two copies of one delivery arriving at the same moment', () => {
+  /*
+    With two API replicas, Razorpay's retry can land on one while the first copy is still on
+    the other. Both read "no row"; the second insert hits the unique key. That copy is a
+    duplicate and is answered 200, not 500 - a 500 makes the provider retry and pages someone.
+  */
+  it('answers the losing insert as a duplicate and does not process it', async () => {
+    const { service, prisma, processed } = makeService(null);
+    prisma.webhookEvent.create.mockRejectedValueOnce(
+      Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }),
+    );
+    const result = await service.ingest(BODY, sign(BODY), 'evt_race');
+    expect(result).toEqual({ received: true, duplicate: true });
+    expect(processed).toEqual([]);
+  });
+
+  it('still fails loudly for any other database error', async () => {
+    const { service, prisma } = makeService(null);
+    prisma.webhookEvent.create.mockRejectedValueOnce(
+      Object.assign(new Error('connection lost'), { code: 'P1001' }),
+    );
+    await expect(service.ingest(BODY, sign(BODY), 'evt_x')).rejects.toThrow('connection lost');
+  });
+});
+
 describe('ingestion survives a processor that fails', () => {
   it('still reports the event as received', async () => {
     /*

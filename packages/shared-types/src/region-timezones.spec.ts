@@ -107,7 +107,11 @@ describe('two zones keeping the same clock', () => {
   it('is false where any show time would read differently, even for part of the year', () => {
     expect(sameClock('America/New_York', 'America/Boise', at)).toBe(false);
     expect(sameClock('America/Denver', 'America/Phoenix', at)).toBe(false);
-    expect(sameClock('America/Vancouver', 'America/Whitehorse', at)).toBe(false);
+    // Los Angeles changes its clocks and Phoenix does not, under every tz database version.
+    // (This used to be Vancouver against Whitehorse. tzdata 2026e - Node 24.22 - records British
+    // Columbia staying on UTC-7 from November 2026, so those two now keep the same clock; the
+    // answer depends on the runtime's tz data, which is why the runtime version is pinned.)
+    expect(sameClock('America/Los_Angeles', 'America/Phoenix', at)).toBe(false);
     expect(sameClock('America/Denver', 'Not/AZone', at)).toBe(false);
   });
 });

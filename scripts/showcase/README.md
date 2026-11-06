@@ -56,7 +56,7 @@ cd apps/api && PORT=4131 APP_ENV=LOCAL CORS_ORIGINS=http://localhost:3131 THROTT
   AUTH_THROTTLE_LIMIT=1000 ORG_REGISTRATION_THROTTLE_LIMIT=100 node dist/main.js
 ```
 
-Then, from the repo root (Node 20+):
+Then, from the repo root (Node 24+):
 
 ```sh
 node scripts/showcase/load-showcase.mjs --dry-run              # print the plan, change nothing
