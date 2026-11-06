@@ -96,6 +96,16 @@ export const AdminPermission = {
    * Affects every sale.
    */
   PLATFORM_CONFIG: 'PLATFORM_CONFIG',
+  /**
+   * Approve or reject a booking-fee schedule somebody else submitted, which makes it live, and
+   * roll the live schedule back to an earlier published version in an emergency.
+   *
+   * The checker half of a maker-checker pair: PLATFORM_CONFIG drafts and submits, this approves.
+   * It is in NO preset, so it is granted person by person (a super admin holds it, as every
+   * capability). Holding both is allowed, but never helps: whoever created, edited or submitted
+   * a draft may not approve it, judged on identity, super admin included.
+   */
+  FEE_SCHEDULE_APPROVE: 'FEE_SCHEDULE_APPROVE',
   /** Open the payout and settlement pages, see masked accounts, edit terms, block a settlement. */
   PAYOUT_MANAGE: 'PAYOUT_MANAGE',
   /*

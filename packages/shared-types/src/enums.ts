@@ -346,6 +346,14 @@ export const NotificationType = {
    * is the reviewers', so a saved account stops waiting in a queue nobody was told about.
    */
   PAYOUT_ACCOUNT_AWAITING_VERIFICATION: 'PAYOUT_ACCOUNT_AWAITING_VERIFICATION',
+  /**
+   * A booking-fee schedule was submitted and waits for a second person (FEE_SCHEDULE_APPROVE)
+   * to approve it, or the live schedule was rolled back in an emergency and waits for review.
+   * Sent to the approvers, never to anybody who worked on the draft.
+   */
+  FEE_SCHEDULE_AWAITING_APPROVAL: 'FEE_SCHEDULE_AWAITING_APPROVAL',
+  /** The approver's decision on a submitted fee schedule, sent to whoever submitted it. */
+  FEE_SCHEDULE_DECIDED: 'FEE_SCHEDULE_DECIDED',
   SETTLEMENT_RELEASED: 'SETTLEMENT_RELEASED',
   PAYMENT_DISPUTE_OPENED: 'PAYMENT_DISPUTE_OPENED',
   PAYMENT_DISPUTE_CLOSED: 'PAYMENT_DISPUTE_CLOSED',

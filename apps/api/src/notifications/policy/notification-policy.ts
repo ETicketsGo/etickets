@@ -260,6 +260,21 @@ export const EVENT_POLICY: Partial<Record<NotificationType, EventPolicy>> = {
     guaranteed: [E, A],
   },
 
+  /*
+    The fee-schedule approval queue, and the decision back to the maker. A desk task like the
+    bank-account queue: email and inbox, never push.
+  */
+  [NotificationType.FEE_SCHEDULE_AWAITING_APPROVAL]: {
+    channels: [E, A],
+    urgency: 'IMPORTANT',
+    guaranteed: [E, A],
+  },
+  [NotificationType.FEE_SCHEDULE_DECIDED]: {
+    channels: [E, A],
+    urgency: 'IMPORTANT',
+    guaranteed: [E, A],
+  },
+
   /* Organizer money. Their console and their email; not their WhatsApp, not at 3am. */
   [NotificationType.SETTLEMENT_RELEASED]: {
     channels: [E, A],
