@@ -72,7 +72,7 @@ afterwards (both changes are in the audit log).
 
 ## Regression journeys (`scripts/pilot/pilot-cert.mjs`, all stages)
 
-**65 PASS, 0 FAIL, 4 BLOCKED**, against QA's two replicas. Covered:
+**69 PASS, 0 FAIL, 4 BLOCKED** (65/0/4 on the first run, plus the payout stage re-run at 13:10Z after the show ended), against QA's two replicas. Covered:
 
 - infrastructure and health;
 - organizer registration, legal identity, bank account (masked, unverified), and admin approval;
@@ -93,7 +93,7 @@ afterwards (both changes are in the audit log).
 BLOCKED (not failures):
 
 - COM-4: inbox delivery cannot be observed for a `.test` address.
-- PAYOUT-4: the payout comes due only after the show ends (13:08Z), so it is re-run then.
+- PAYOUT-7: verifying the bank account needs a SECOND authorised staff member (maker-checker). It was not bypassed; the payout stays PENDING with the unverified-bank hold. Re-run at 13:10Z: 0-day test hold set, payout generated (INR 2,996.00 gross), "mark PAID" refused while the account is unverified.
 - F-RF-1: Razorpay test mode cannot make a refund fail on demand.
 - F-WH-3: a genuine duplicate signed webhook needs the webhook secret, which this run does not
   read.
