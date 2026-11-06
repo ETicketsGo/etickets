@@ -123,8 +123,16 @@ Verified on QA after the migration (manifest of each new deployment):
 
 Rollback was exercised for real (worker, db-seed) with `deploymentRollback`.
 
-Smoke test and full certification on the migrated configuration: see
-`docs/deployment/QA-CERTIFICATION-2026-11-06.md` (addendum).
+After the migration (all six services from IaC settings, api at 2 replicas with 20/120):
+
+- `qa-smoke-test.sh`: all automated checks pass.
+- `scripts/pilot/pilot-cert.mjs` (with the MFA sign-in step, AR-28), all stages, fresh
+  organization: **69 PASS, 0 FAIL, 4 BLOCKED**, identical to the morning baseline
+  (QA-CERTIFICATION-2026-11-06.md). Real Razorpay TEST Netbanking payments confirmed through the
+  live webhook, refunds, check-in, reconciliation (0 discrepancies), authorisation refusals,
+  payout generation. BLOCKED, same four, accepted as documented limitations: COM-4 (inbox),
+  F-RF-1 (provider refund failure), F-WH-3 (genuine duplicate signed webhook), PAYOUT-7 (bank
+  verification needs a second staff member; not bypassed).
 
 ## 6. Runbook for UAT, then PROD (each needs explicit owner approval)
 
