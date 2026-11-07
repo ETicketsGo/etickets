@@ -442,23 +442,97 @@ describe('integration-real-postgres: cross-channel fallback', () => {
     await attempt(bookingId, 'whatsapp', DeliveryState.UNDELIVERED);
 
     const summary = await noSmsFallbacks.runDue(new Date(), 5_000);
-    expect(await channelsFor(bookingId)).not.toContain('sms');
     expect(summary.unavailable).toBeGreaterThanOrEqual(1);
-  });
 
-  maybe('stops trying after the horizon (24 h)', async () => {
-    const bookingId = `bk-horizon-${suffix}`;
-    await cancelledAt(bookingId, 25 * 60);
-    await attempt(bookingId, 'whatsapp', DeliveryState.UNDELIVERED);
-    const spy = jest.spyOn(notifications, 'send');
+    // Durable, not silent: a SKIPPED fallback row with the reason, on the booking.
+    const [row] = await smsRows(bookingId);
+    expect(row).toMatchObject({ status: 'SKIPPED', sendReason: 'FALLBACK' });
+    expect(row.lastError).toMatch(/^fallback_unavailable:/);
+    expect(row.deliveries).toHaveLength(0);
+
+    // Settled: later sweeps neither try again nor write a second row.
+    const spy = jest.spyOn(noSms, 'send');
     try {
-      await fallbacks.runDue(new Date(), 5_000);
+      await noSmsFallbacks.runDue(new Date(), 5_000);
+      await noSmsFallbacks.runDue(new Date(), 5_000);
       expect(sendsFor(spy, bookingId)).toBe(0);
-      expect(await channelsFor(bookingId)).not.toContain('sms');
+      expect(await smsRows(bookingId)).toHaveLength(1);
     } finally {
       spy.mockRestore();
     }
   });
+
+  maybe('a recorded fallback is recoverable: resending it delivers the SMS', async () => {
+    /*
+      Notification ops' resend (NotificationOpsService.resend) requeues the SAME row: PENDING,
+      lastError cleared, MANUAL_RESEND. Done here directly, then the ordinary sweep, which
+      now has SMS available, carries it.
+    */
+    const noSmsFallbacks = new NotificationFallbackService(
+      db as never,
+      {
+        send: async () => undefined,
+      } as never,
+    );
+    const bookingId = `bk-recover-${suffix}`;
+    await cancelledAt(bookingId, 60);
+    await attempt(bookingId, 'whatsapp', DeliveryState.UNDELIVERED);
+    await noSmsFallbacks.runDue(new Date(), 5_000);
+    const [skipped] = await smsRows(bookingId);
+    expect(skipped.status).toBe('SKIPPED');
+
+    await db!.notification.update({
+      where: { id: skipped.id },
+      data: {
+        status: 'PENDING',
+        scheduledFor: new Date(),
+        lastError: null,
+        sendReason: 'MANUAL_RESEND',
+      },
+    });
+    deliver.mockClear();
+    await notifications.dispatchDue(new Date(Date.now() + 1000));
+    const [after] = await smsRows(bookingId);
+    expect(after.status).not.toBe('PENDING');
+    expect(after.deliveries.length).toBeGreaterThanOrEqual(1);
+  });
+
+  maybe(
+    'past the horizon (24 h): not sent late, and recorded as expired, not dropped',
+    async () => {
+      const bookingId = `bk-horizon-${suffix}`;
+      await cancelledAt(bookingId, 25 * 60);
+      await attempt(bookingId, 'whatsapp', DeliveryState.UNDELIVERED);
+      const spy = jest.spyOn(notifications, 'send');
+      try {
+        const summary = await fallbacks.runDue(new Date(), 5_000);
+        expect(sendsFor(spy, bookingId)).toBe(0);
+        expect(summary.expired).toBeGreaterThanOrEqual(1);
+        const [row] = await smsRows(bookingId);
+        expect(row).toMatchObject({ status: 'SKIPPED', sendReason: 'FALLBACK' });
+        expect(row.lastError).toMatch(/^fallback_expired:/);
+        // And only once.
+        await fallbacks.runDue(new Date(), 5_000);
+        expect(await smsRows(bookingId)).toHaveLength(1);
+      } finally {
+        spy.mockRestore();
+      }
+    },
+  );
+
+  /** The SMS rows of one booking, with their attempts. */
+  async function smsRows(bookingId: string) {
+    return db!.notification.findMany({
+      where: { channel: 'sms', payload: { path: ['bookingId'], equals: bookingId } },
+      select: {
+        id: true,
+        status: true,
+        lastError: true,
+        sendReason: true,
+        deliveries: { select: { id: true } },
+      },
+    });
+  }
 });
 
 describe('integration-real-postgres: one channel failing does not recreate the others', () => {

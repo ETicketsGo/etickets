@@ -745,6 +745,9 @@ async function main(): Promise<void> {
         */
         const summary = await fallbacks.runDue();
         if (summary.opened > 0) log('info', 'opened notification fallbacks', { ...summary });
+        // A fallback that was due and NOT sent is recorded as a SKIPPED row; say so in the log too.
+        if (summary.unavailable + summary.expired > 0)
+          log('warn', 'notification fallbacks not sent (recorded as SKIPPED)', { ...summary });
         return summary;
       }
       if (job.name === 'notification-callback-replay') {
