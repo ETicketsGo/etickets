@@ -1,15 +1,71 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { NotificationType, DeliveryState, SendKind } from '@eticketsgo/shared-types';
+import { Prisma } from '@prisma/client';
+import {
+  NotificationType,
+  DeliveryState,
+  NotificationStatus,
+  SendKind,
+} from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MetricsService } from '../../metrics/metrics.service';
 import { NotificationService } from '../notification.service';
 import { EVENT_POLICY, type FallbackPolicy } from './notification-policy';
-import type { ChannelKey } from '../channels/notification-channel.interface';
+import { dedupeKeyFor, intentKeyFor } from './dedupe-key';
+import { captureOperationalEvent } from '../../observability/sentry';
+
+/** Appended to the original intent key to form the fallback's explicit intent. */
+export const FALLBACK_SUFFIX = ':fallback';
+
+/**
+ * The intent key the fallback row is STORED under. `enqueue` hashes every explicit intent
+ * (`intentKeyFor`: sha256 of type, recipient and subject), so the fallback is NOT stored as
+ * `<original>:fallback`; it is the hash of that. The SQL in `due` derives the same value with
+ * Postgres's sha256(); the integration suite proves the two agree.
+ */
+export function fallbackIntentKey(
+  type: NotificationType,
+  recipientRef: string,
+  intentKey: string,
+): string {
+  return intentKeyFor({
+    type,
+    recipientRef,
+    payload: {},
+    explicitIntent: `${intentKey}${FALLBACK_SUFFIX}`,
+  })!;
+}
 
 export interface FallbackSummary {
   considered: number;
   opened: number;
+  /**
+   * Due, but the fallback channel could not take it (not configured, no consent, no verified
+   * number). Recorded as a SKIPPED fallback row with the reason: durable, visible, resendable.
+   */
+  unavailable: number;
+  /**
+   * Never opened inside the horizon (e.g. the worker was down). Not sent late; recorded as a
+   * SKIPPED fallback row (`fallback_expired`) instead of being dropped.
+   */
+  expired: number;
 }
+
+/** `lastError` prefixes of the two recorded outcomes; an operator can resend either. */
+export const FALLBACK_UNAVAILABLE = 'fallback_unavailable';
+export const FALLBACK_EXPIRED = 'fallback_expired';
+
+/*
+  How long after the original a fallback is still worth SENDING. The wait (`afterMinutes`) is
+  when it becomes due; past this horizon a text about a cancelled show is more likely to
+  confuse than help, so it is not sent late. It is never dropped either: an intent past the
+  horizon with no fallback and no effective delivery gets a SKIPPED fallback row
+  (`fallback_expired`), which support can see on the booking and resend deliberately. A policy
+  may set its own `giveUpAfterMinutes`.
+*/
+export const DEFAULT_FALLBACK_HORIZON_MINUTES = 24 * 60;
+
+/** Delivery states that mean a preferred channel got through (see `effective`). */
+const GOT_THROUGH: string[] = [DeliveryState.DELIVERED, DeliveryState.READ];
 
 /**
  * Opening a paid channel because the free ones produced nothing.
@@ -63,54 +119,131 @@ export class NotificationFallbackService {
    * fallback channel for each.
    */
   async runDue(now: Date = new Date(), limit = 200): Promise<FallbackSummary> {
-    const summary: FallbackSummary = { considered: 0, opened: 0 };
+    const summary: FallbackSummary = { considered: 0, opened: 0, unavailable: 0, expired: 0 };
 
     for (const { type, fallback } of this.fallbackTypes()) {
-      const cutoff = new Date(now.getTime() - fallback.afterMinutes * 60_000);
-      /*
-        Candidates are the PREFERRED-channel rows, not the intents: an intent has no row of
-        its own. Bounded per sweep so a mass cancellation cannot pull the whole backlog into
-        memory; the rest waits for the next tick and is no less overdue for it.
-      */
-      const candidates = await this.prisma.notification.findMany({
-        where: {
-          type,
-          intentKey: { not: null },
-          createdAt: { lte: cutoff },
-          channel: { in: [...fallback.satisfiedBy] },
-        },
-        select: { intentKey: true },
-        distinct: ['intentKey'],
-        /*
-          Oldest first. The batch is bounded so a mass cancellation cannot pull the whole
-          backlog into memory, and without an order the rows that get left for the next tick
-          are whichever the database happened to return -- so the person who has been waiting
-          longest to hear their show is off could be deferred indefinitely behind newer ones.
-          The most overdue is exactly who this sweep exists for.
-        */
-        orderBy: { createdAt: 'asc' },
-        take: limit,
-      });
-
-      for (const candidate of candidates) {
-        const intentKey = candidate.intentKey!;
+      const horizonMinutes = fallback.giveUpAfterMinutes ?? DEFAULT_FALLBACK_HORIZON_MINUTES;
+      const horizon = new Date(now.getTime() - horizonMinutes * 60_000);
+      const due = await this.due(type, fallback, now, limit);
+      for (const { intentKey, recipientRef, firstAt } of due) {
         summary.considered += 1;
-        if (await this.opened(intentKey, fallback.to)) continue;
+        // Re-checked one by one: the selection is a snapshot, and a receipt or another worker
+        // can have settled the intent since.
+        if (await this.opened(type, recipientRef, intentKey)) continue;
         if (await this.effective(intentKey, fallback)) continue;
-        if (await this.open(intentKey, type, fallback)) summary.opened += 1;
+        if (new Date(firstAt) < horizon) {
+          await this.recordNotSent(
+            intentKey,
+            type,
+            fallback,
+            `${FALLBACK_EXPIRED}: not opened within ${Math.round(horizonMinutes / 60)} h of the original; not sent late`,
+          );
+          summary.expired += 1;
+          continue;
+        }
+        const outcome = await this.open(intentKey, type, fallback);
+        if (outcome === 'opened') summary.opened += 1;
+        else summary.unavailable += 1;
       }
     }
 
     if (summary.opened > 0) {
       this.logger.warn(`opened ${summary.opened} fallback channel(s) after no effective delivery`);
     }
+    if (summary.unavailable + summary.expired > 0) {
+      /*
+        The customer may not know their show is off: every preferred channel failed AND the
+        fallback could not be sent. Each one is a SKIPPED row with its reason (resendable from
+        notification ops); this line and the Sentry event make the count visible per sweep.
+      */
+      this.logger.warn(
+        `fallback NOT sent for ${summary.unavailable} intent(s) (channel unavailable) and ${summary.expired} (past the horizon); recorded as SKIPPED, resend from notification ops`,
+      );
+      for (const [kind, n] of [
+        [FALLBACK_UNAVAILABLE, summary.unavailable],
+        [FALLBACK_EXPIRED, summary.expired],
+      ] as const) {
+        if (n > 0)
+          captureOperationalEvent({
+            message: `Notification fallback not sent: ${kind}`,
+            level: 'warning',
+            fingerprint: ['notification-fallback', kind],
+            tags: { area: 'notifications', fallback_outcome: kind },
+            extra: { count: n },
+          });
+      }
+    }
     return summary;
   }
 
+  /**
+   * The intents that still NEED a decision, oldest first: past the wait, no fallback row yet
+   * (sent, skipped or expired), and no preferred channel that got through. No lower time bound:
+   * an intent past the horizon is selected once more, to be RECORDED as expired, never dropped.
+   *
+   * ── WHY THE DATABASE FILTERS, NOT THE LOOP ─────────────────────────────────────────
+   * The batch is bounded (a mass cancellation must not pull the whole backlog into memory).
+   * When the filtering happened in the loop, the batch was simply the oldest N preferred-channel
+   * intents, and an intent that had been settled -- its email delivered, or its fallback
+   * already opened -- stayed in that oldest N for ever. After N cancellations the sweep read
+   * the same settled intents every minute and never reached a newer one: a show cancelled for
+   * 500 people opened fallbacks for the first 200 and none for the rest. Excluding settled
+   * intents here means every sweep's batch is work that is actually outstanding.
+   *
+   * Oldest first still holds: the person who has waited longest to hear their show is off is
+   * exactly who this sweep exists for.
+   */
+  private async due(
+    type: NotificationType,
+    fallback: FallbackPolicy,
+    now: Date,
+    limit: number,
+  ): Promise<{ intentKey: string; recipientRef: string; firstAt: Date }[]> {
+    const cutoff = new Date(now.getTime() - fallback.afterMinutes * 60_000);
+    const satisfiedBy: string[] = [...fallback.satisfiedBy];
+    const rows = await this.prisma.$queryRaw<
+      { intentKey: string; recipientRef: string; firstAt: Date }[]
+    >(Prisma.sql`
+      SELECT n."intentKey", min(COALESCE(n."userId", n."toEmail", '')) AS "recipientRef",
+             min(n."createdAt") AS "firstAt"
+        FROM "Notification" n
+       WHERE n."type"::text = ${type}
+         AND n."intentKey" IS NOT NULL
+         AND n."channel" = ANY(${satisfiedBy}::text[])
+         AND n."createdAt" <= ${cutoff}
+         AND NOT EXISTS (
+               SELECT 1 FROM "Notification" f
+                WHERE f."intentKey" = encode(sha256(convert_to(
+                        n."type"::text || ' ' || COALESCE(n."userId", n."toEmail", '') || ' ' ||
+                        n."intentKey" || ${FALLBACK_SUFFIX}, 'UTF8')), 'hex'))
+         AND NOT EXISTS (
+               SELECT 1
+                 FROM "NotificationDelivery" d
+                 JOIN "Notification" s ON s."id" = d."notificationId"
+                WHERE s."intentKey" = n."intentKey"
+                  AND s."channel" = ANY(${satisfiedBy}::text[])
+                  AND (d."status" = ANY(${GOT_THROUGH}::text[])
+                       OR (d."status" = ${DeliveryState.ACCEPTED} AND d."channel" = 'push')))
+       GROUP BY n."intentKey"
+       ORDER BY min(n."createdAt") ASC
+       LIMIT ${limit}`);
+    return rows;
+  }
+
   /** Has the fallback already been opened for this intent? */
-  private async opened(intentKey: string, channel: ChannelKey): Promise<boolean> {
+  private async opened(
+    type: NotificationType,
+    recipientRef: string,
+    intentKey: string,
+  ): Promise<boolean> {
+    /*
+      The fallback is stored under the HASH of the derived intent (`fallbackIntentKey`), never
+      the original key. Looking for the original key on the fallback channel -- which is what
+      this used to do -- never found it, so every sweep re-sent an existing fallback (the dedupe
+      index dropped it) and counted it as opened again.
+    */
     const existing = await this.prisma.notification.count({
-      where: { intentKey, channel },
+      where: { intentKey: fallbackIntentKey(type, recipientRef, intentKey) },
     });
     return existing > 0;
   }
@@ -152,18 +285,20 @@ export class NotificationFallbackService {
    * It goes through `send` like anything else, so it inherits the policy check, the
    * suppression check and the dedupe index. The intent key is derived from the original's,
    * which is what makes a second sweep a no-op.
+   *
+   * `send` can rightly write nothing (SMS not configured, no consent, no verified number), or
+   * a SKIPPED row with its reason (`smsNotSent`, when the payload names a booking). Both used to
+   * be reported, logged and counted as "opened" every minute, and the first left no trace at
+   * all. Now a real fallback row is 'opened'; anything else is 'unavailable' and is left as a
+   * SKIPPED row, so the intent is settled, visible and resendable.
    */
   private async open(
     intentKey: string,
     type: NotificationType,
     fallback: FallbackPolicy,
-  ): Promise<boolean> {
-    const source = await this.prisma.notification.findFirst({
-      where: { intentKey },
-      orderBy: { createdAt: 'asc' },
-      select: { userId: true, toEmail: true, payload: true, locale: true },
-    });
-    if (!source) return false;
+  ): Promise<'opened' | 'unavailable'> {
+    const source = await this.source(intentKey);
+    if (!source) return 'unavailable';
 
     await this.notifications.send({
       type,
@@ -175,15 +310,89 @@ export class NotificationFallbackService {
       channels: [fallback.to],
       locale: source.locale,
       // Derived from the original, so exactly one fallback can ever exist for this intent.
-      intentKey: `${intentKey}:fallback`,
+      intentKey: `${intentKey}${FALLBACK_SUFFIX}`,
       // The one caller permitted to reach a channel policy holds back.
       allowDeferredChannel: true,
       // The most expensive message this platform sends, labelled so a cost report can name
       // it rather than burying it in the ordinary total.
       sendReason: SendKind.FALLBACK,
     });
+    const row = await this.prisma.notification.findFirst({
+      where: {
+        intentKey: fallbackIntentKey(type, source.userId ?? source.toEmail ?? '', intentKey),
+      },
+      select: { status: true },
+    });
+    if (!row) {
+      await this.recordNotSent(
+        intentKey,
+        type,
+        fallback,
+        `${FALLBACK_UNAVAILABLE}: ${fallback.to} could not be queued (channel not configured here, no consent or no verified number)`,
+      );
+    }
+    if (!row || row.status === NotificationStatus.SKIPPED) {
+      this.metrics?.recordNotification(fallback.to, 'fallback', 'unavailable');
+      return 'unavailable';
+    }
     this.metrics?.recordNotification(fallback.to, 'fallback', 'opened');
     this.metrics?.recordNotificationFallback(type, fallback.to);
-    return true;
+    return 'opened';
+  }
+
+  private source(intentKey: string) {
+    return this.prisma.notification.findFirst({
+      where: { intentKey },
+      orderBy: { createdAt: 'asc' },
+      select: { userId: true, toEmail: true, payload: true, locale: true, bookingId: true },
+    });
+  }
+
+  /**
+   * The durable record of a fallback that was due and NOT sent: a SKIPPED row on the fallback
+   * channel, under the fallback's own intent and dedupe keys (so it settles the intent, and a
+   * later sweep or a racing worker cannot write a second), with the reason in `lastError`.
+   * Same shape as the SKIPPED row `enqueue` writes for an SMS it may not send. No phone number
+   * is stored. Notification ops' resend requeues it as the first real copy once the channel,
+   * consent or number exists (`resend` does not refuse a row that never reached anybody).
+   */
+  private async recordNotSent(
+    intentKey: string,
+    type: NotificationType,
+    fallback: FallbackPolicy,
+    reason: string,
+  ): Promise<void> {
+    const source = await this.source(intentKey);
+    if (!source) return;
+    const recipientRef = source.userId ?? source.toEmail ?? '';
+    const payload = (source.payload as Record<string, unknown>) ?? {};
+    const explicitIntent = `${intentKey}${FALLBACK_SUFFIX}`;
+    await this.prisma.notification.createMany({
+      data: [
+        {
+          type,
+          userId: source.userId,
+          toEmail: null,
+          payload: payload as Prisma.InputJsonValue,
+          channel: fallback.to,
+          locale: source.locale,
+          status: NotificationStatus.SKIPPED,
+          scheduledFor: new Date(),
+          lastError: reason.slice(0, 500),
+          dedupeKey: dedupeKeyFor({
+            type,
+            channel: fallback.to,
+            recipientRef,
+            payload,
+            explicitIntent,
+          }),
+          intentKey: fallbackIntentKey(type, recipientRef, intentKey),
+          bookingId: source.bookingId,
+          sendReason: SendKind.FALLBACK,
+        },
+      ],
+      skipDuplicates: true,
+    });
+    this.metrics?.recordNotification(fallback.to, 'fallback', reason.split(':')[0]);
   }
 }

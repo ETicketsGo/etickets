@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DeliveryState, NotificationType } from '@eticketsgo/shared-types';
 import { NotificationService } from '../notification.service';
@@ -317,6 +318,221 @@ describe('integration-real-postgres: cross-channel fallback', () => {
     await fallbacks.runDue(new Date(), 5_000);
     expect(await channelsFor(bookingId)).not.toContain('sms');
   });
+
+  /*
+    ── The 2026-11 sweep defects ─────────────────────────────────────────────────────
+    QA's worker logged "opened 1 fallback channel(s)" plus a "was enqueued OUTSIDE a
+    transaction" ERROR every minute for weeks, while no fallback row existed at all. Three
+    faults: settled intents kept their batch slot (starvation), `opened` looked for the
+    original key instead of the fallback's, and a fallback that `send` could not create was
+    still reported as opened.
+  */
+
+  /** A cancellation whose preferred rows were written `minutesAgo` minutes ago. */
+  async function cancelledAt(
+    bookingId: string,
+    minutesAgo: number,
+    who = { userId, email: EMAIL },
+  ) {
+    await notifications.send({
+      type: NotificationType.SHOW_CANCELLED,
+      userId: who.userId,
+      toEmail: who.email,
+      payload: { bookingId, reference: `REF-${bookingId}` },
+    });
+    await db!.notification.updateMany({
+      where: { payload: { path: ['bookingId'], equals: bookingId } },
+      data: { createdAt: new Date(Date.now() - minutesAgo * 60_000) },
+    });
+  }
+
+  const sendsFor = (spy: jest.SpyInstance, bookingId: string) =>
+    spy.mock.calls.filter(
+      ([input]) => (input as { payload?: { bookingId?: string } }).payload?.bookingId === bookingId,
+    ).length;
+
+  maybe(
+    'a settled intent does not hold a batch slot: newer cancellations still get their fallback',
+    async () => {
+      /*
+        The three are the OLDEST overdue intents in the database (23 h 50 min, inside the 24 h
+        horizon), so with a batch of ONE the old selection always returned the settled one and
+        never reached the other two.
+      */
+      const settled = `bk-starve-a-${suffix}`;
+      const second = `bk-starve-b-${suffix}`;
+      const third = `bk-starve-c-${suffix}`;
+      await cancelledAt(settled, 23 * 60 + 50);
+      await cancelledAt(second, 23 * 60 + 49);
+      await cancelledAt(third, 23 * 60 + 48);
+      await attempt(settled, 'whatsapp', DeliveryState.DELIVERED);
+      await attempt(second, 'whatsapp', DeliveryState.UNDELIVERED);
+      await attempt(third, 'whatsapp', DeliveryState.UNDELIVERED);
+
+      await fallbacks.runDue(new Date(), 1);
+      await fallbacks.runDue(new Date(), 1);
+
+      expect(await channelsFor(settled)).not.toContain('sms');
+      expect(await channelsFor(second)).toContain('sms');
+      expect(await channelsFor(third)).toContain('sms');
+    },
+    60_000,
+  );
+
+  maybe('a sweep does not send again for a fallback that already exists', async () => {
+    const bookingId = `bk-resend-${suffix}`;
+    await cancelledAt(bookingId, 60);
+    await attempt(bookingId, 'whatsapp', DeliveryState.UNDELIVERED);
+    await fallbacks.runDue(new Date(), 5_000);
+    expect(await channelsFor(bookingId)).toContain('sms');
+
+    const spy = jest.spyOn(notifications, 'send');
+    try {
+      await fallbacks.runDue(new Date(), 5_000);
+      await fallbacks.runDue(new Date(), 5_000);
+      expect(sendsFor(spy, bookingId)).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  maybe('opening a fallback does not log the outside-a-transaction error', async () => {
+    const bookingId = `bk-noerror-${suffix}`;
+    await cancelledAt(bookingId, 60);
+    await attempt(bookingId, 'whatsapp', DeliveryState.UNDELIVERED);
+    const errors = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    try {
+      await fallbacks.runDue(new Date(), 5_000);
+      expect(await channelsFor(bookingId)).toContain('sms');
+      const outside = errors.mock.calls.filter(([m]) =>
+        String(m).includes('OUTSIDE a transaction'),
+      );
+      expect(outside).toHaveLength(0);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  maybe('a fallback that cannot be created is not counted as opened', async () => {
+    /*
+      The QA case: SMS is not available in this deployment, so `send` rightly writes no SMS
+      row. That used to be logged, and counted in metrics, as "opened" every minute.
+    */
+    const noSms = new NotificationService(
+      db as never,
+      { render: () => ({ subject: 'S', body: 'B' }) } as never,
+      new NotificationPreferencesService(db as never) as never,
+      {
+        has: (c: string) => ['email', 'in_app', 'push', 'whatsapp'].includes(c),
+        resolve: (c: string) => ({ key: c, deliver }),
+      } as never,
+      new MarketingConsentService(db as never) as never,
+      undefined,
+      recorder,
+      new SuppressionService(db as never),
+      new NotificationPolicyResolver(
+        new NotificationPreferencesService(db as never),
+        new MarketingConsentService(db as never),
+        new ConfigService({}),
+      ),
+    );
+    const noSmsFallbacks = new NotificationFallbackService(db as never, noSms);
+    const bookingId = `bk-nosms-${suffix}`;
+    await cancelledAt(bookingId, 60);
+    await attempt(bookingId, 'whatsapp', DeliveryState.UNDELIVERED);
+
+    const summary = await noSmsFallbacks.runDue(new Date(), 5_000);
+    expect(summary.unavailable).toBeGreaterThanOrEqual(1);
+
+    // Durable, not silent: a SKIPPED fallback row with the reason, on the booking.
+    const [row] = await smsRows(bookingId);
+    expect(row).toMatchObject({ status: 'SKIPPED', sendReason: 'FALLBACK' });
+    expect(row.lastError).toMatch(/^fallback_unavailable:/);
+    expect(row.deliveries).toHaveLength(0);
+
+    // Settled: later sweeps neither try again nor write a second row.
+    const spy = jest.spyOn(noSms, 'send');
+    try {
+      await noSmsFallbacks.runDue(new Date(), 5_000);
+      await noSmsFallbacks.runDue(new Date(), 5_000);
+      expect(sendsFor(spy, bookingId)).toBe(0);
+      expect(await smsRows(bookingId)).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  maybe('a recorded fallback is recoverable: resending it delivers the SMS', async () => {
+    /*
+      Notification ops' resend (NotificationOpsService.resend) requeues the SAME row: PENDING,
+      lastError cleared, MANUAL_RESEND. Done here directly, then the ordinary sweep, which
+      now has SMS available, carries it.
+    */
+    const noSmsFallbacks = new NotificationFallbackService(
+      db as never,
+      {
+        send: async () => undefined,
+      } as never,
+    );
+    const bookingId = `bk-recover-${suffix}`;
+    await cancelledAt(bookingId, 60);
+    await attempt(bookingId, 'whatsapp', DeliveryState.UNDELIVERED);
+    await noSmsFallbacks.runDue(new Date(), 5_000);
+    const [skipped] = await smsRows(bookingId);
+    expect(skipped.status).toBe('SKIPPED');
+
+    await db!.notification.update({
+      where: { id: skipped.id },
+      data: {
+        status: 'PENDING',
+        scheduledFor: new Date(),
+        lastError: null,
+        sendReason: 'MANUAL_RESEND',
+      },
+    });
+    deliver.mockClear();
+    await notifications.dispatchDue(new Date(Date.now() + 1000));
+    const [after] = await smsRows(bookingId);
+    expect(after.status).not.toBe('PENDING');
+    expect(after.deliveries.length).toBeGreaterThanOrEqual(1);
+  });
+
+  maybe(
+    'past the horizon (24 h): not sent late, and recorded as expired, not dropped',
+    async () => {
+      const bookingId = `bk-horizon-${suffix}`;
+      await cancelledAt(bookingId, 25 * 60);
+      await attempt(bookingId, 'whatsapp', DeliveryState.UNDELIVERED);
+      const spy = jest.spyOn(notifications, 'send');
+      try {
+        const summary = await fallbacks.runDue(new Date(), 5_000);
+        expect(sendsFor(spy, bookingId)).toBe(0);
+        expect(summary.expired).toBeGreaterThanOrEqual(1);
+        const [row] = await smsRows(bookingId);
+        expect(row).toMatchObject({ status: 'SKIPPED', sendReason: 'FALLBACK' });
+        expect(row.lastError).toMatch(/^fallback_expired:/);
+        // And only once.
+        await fallbacks.runDue(new Date(), 5_000);
+        expect(await smsRows(bookingId)).toHaveLength(1);
+      } finally {
+        spy.mockRestore();
+      }
+    },
+  );
+
+  /** The SMS rows of one booking, with their attempts. */
+  async function smsRows(bookingId: string) {
+    return db!.notification.findMany({
+      where: { channel: 'sms', payload: { path: ['bookingId'], equals: bookingId } },
+      select: {
+        id: true,
+        status: true,
+        lastError: true,
+        sendReason: true,
+        deliveries: { select: { id: true } },
+      },
+    });
+  }
 });
 
 describe('integration-real-postgres: one channel failing does not recreate the others', () => {

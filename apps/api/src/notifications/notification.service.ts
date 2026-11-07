@@ -240,7 +240,13 @@ export class NotificationService {
    * lose the message. Callers without a transaction are unchanged.
    */
   async send(input: NotifyInput, tx?: Prisma.TransactionClient): Promise<void> {
-    if (isCritical(input.type) && !tx) {
+    /*
+      A FALLBACK is exempt: it re-delivers an intent whose original rows already committed with
+      their domain change, minutes or hours earlier, so there is no transaction for it to join.
+      Without this, every fallback sweep logged this error once per intent, every minute
+      (QA worker, 2026-11), burying the real cases the guard exists to surface.
+    */
+    if (isCritical(input.type) && !tx && input.sendReason !== SendKind.FALLBACK) {
       /*
         Loud, and then it writes the row anyway.
 

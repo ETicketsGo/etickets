@@ -590,4 +590,20 @@ describe('integration-real-postgres: notification cost accounting', () => {
     expect(row.deliveryMeasurable).toBe(false);
     expect(row.acceptedRate).toBe(1);
   });
+
+  maybe('a provider health report for one provider contains only that provider', async () => {
+    /*
+      The filter used to be overwritten inside providerHealth, so this returned every provider
+      in the window, and the case above read another suite's `log` push row whenever that
+      sorted first.
+    */
+    const provider = `only-${suffix}`;
+    const a = await attempt({ channel: 'push' });
+    await recorder.accepted(a.deliveryId, provider, 'm-only');
+    const other = await attempt({ channel: 'push' });
+    await recorder.accepted(other.deliveryId, `other-${suffix}`, 'm-other');
+
+    const health = await analytics.providerHealth({ ...REPORT, provider });
+    expect(health.map((h) => h.provider)).toEqual([provider]);
+  });
 });

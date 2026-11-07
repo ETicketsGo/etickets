@@ -372,7 +372,11 @@ export class NotificationAnalyticsService {
   async providerHealth(w: AnalyticsWindow) {
     const grouped = await this.prisma.notificationDelivery.groupBy({
       by: ['provider', 'channel', 'outcomeClass'],
-      where: { ...this.where(w), provider: { not: 'none' } },
+      /*
+        AND, not a spread: `{ ...this.where(w), provider: { not: 'none' } }` replaced the
+        window's own `provider` filter, so a report for one provider returned every provider.
+      */
+      where: { AND: [this.where(w), { provider: { not: 'none' } }] },
       _count: { _all: true },
     });
 
