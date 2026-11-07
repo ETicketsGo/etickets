@@ -1,4 +1,6 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { organizerPaymentsGap, stripeConfiguredIn } from '../payments/organizer-payment-readiness';
 import {
   EventStatus,
   ExperienceType,
@@ -142,6 +144,7 @@ export class PublicEventsService {
     // What a LISTING advertises, per PRICE_DISPLAY_MODE. Returns prices unchanged in the
     // default `itemised` mode without touching the database.
     private readonly advertised: AdvertisedPriceService,
+    @Optional() private readonly config?: ConfigService,
   ) {}
 
   async list(filters: PublicEventFilters) {
@@ -398,6 +401,24 @@ export class PublicEventsService {
       .sort((a, b) => b.count - a.count || a.category.localeCompare(b.category));
   }
 
+  private async paidSalesReady(event: {
+    isFree: boolean;
+    organizationId: string;
+    sessions: { ticketTypes: { priceMinor: number; currency: string | null }[] }[];
+  }): Promise<boolean> {
+    if (event.isFree || !this.config) return true;
+    const stripeConfigured = stripeConfiguredIn((k) => this.config?.get<string>(k));
+    const currencies = new Set(
+      event.sessions.flatMap((s) => s.ticketTypes.filter((t) => t.priceMinor > 0).map((t) => t.currency)),
+    );
+    for (const currency of currencies) {
+      if (await organizerPaymentsGap(this.prisma, stripeConfigured, event.organizationId, currency)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   async getBySlug(slug: string) {
     const event = await this.prisma.event.findUnique({
       where: { slug },
@@ -425,6 +446,18 @@ export class PublicEventsService {
             description: true,
             website: true,
             instagramUrl: true,
+            /*
+              The seller's legal identity, shown BEFORE payment (pilot walk 2026-11-07: it
+              appeared only on the receipt). Approval requires these, and the receipt already
+              prints them, so nothing here is new to the public. Returned only for an
+              approved organizer (below).
+            */
+            status: true,
+            legalName: true,
+            legalEntityType: true,
+            registeredCity: true,
+            registeredRegion: true,
+            registeredCountry: true,
           },
         },
         sessions: {
@@ -498,6 +531,16 @@ export class PublicEventsService {
         description: event.organization.description,
         website: event.organization.website,
         instagramUrl: event.organization.instagramUrl,
+        seller:
+          event.organization.status === 'APPROVED' && event.organization.legalName
+            ? {
+                legalName: event.organization.legalName,
+                legalEntityType: event.organization.legalEntityType ?? null,
+                city: event.organization.registeredCity ?? null,
+                region: event.organization.registeredRegion ?? null,
+                country: event.organization.registeredCountry ?? null,
+              }
+            : null,
       },
       // What a buyer checks before paying. Null when the organizer has not said.
       ageLimit: event.ageLimit,
@@ -506,6 +549,12 @@ export class PublicEventsService {
       // Surfaced on the event rather than nested in `organizer`, because it is a fact about
       // how you can pay for THIS event, not a detail of who is running it.
       cashAccepted: event.organization.cashPaymentsEnabled && !event.isFree,
+      /*
+        False when paid tickets cannot be paid for yet (a US organizer still finishing Stripe
+        payout setup). The storefront then shows paid tickets as not on sale instead of letting
+        a buyer reserve seats the payment step will refuse. Free tickets are unaffected.
+      */
+      paidSalesReady: await this.paidSalesReady(event),
       sessions: event.sessions.map((s) => ({
         id: s.id,
         startsAt: s.startsAt,
