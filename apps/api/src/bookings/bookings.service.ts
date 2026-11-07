@@ -1,5 +1,6 @@
 import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { organizerPaymentsGap, stripeConfiguredIn } from '../payments/organizer-payment-readiness';
 import { Prisma } from '@prisma/client';
 import { feeTaxSummary } from '../pricing/fee-tax';
 import {
@@ -715,6 +716,29 @@ export class BookingsService {
         'This organizer does not accept cash at the venue.',
         HttpStatus.CONFLICT,
       );
+    }
+
+    /*
+      An online paid order the organizer cannot be paid for (US organizer still finishing
+      Stripe setup). The payment step refuses it anyway; refusing here means no seats are held
+      for an order that can never be paid. Cash at the venue and counter sales take no card.
+      India (Razorpay) is never gated: see organizerPaymentsGap.
+    */
+    if (!wantsCash && !opts?.counterSale && fees.totalMinor > 0 && this.config) {
+      const gap = await organizerPaymentsGap(
+        this.prisma,
+        stripeConfiguredIn((k) => this.config?.get<string>(k)),
+        session.event.organizationId,
+        currency,
+      );
+      if (gap) {
+        throw new AppException(
+          ErrorCodes.ORGANIZER_PAYMENTS_NOT_READY,
+          'This organizer has not finished payment setup yet, so paid tickets are not on sale.',
+          HttpStatus.CONFLICT,
+          { organizationId: session.event.organizationId },
+        );
+      }
     }
 
     /*

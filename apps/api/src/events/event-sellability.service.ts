@@ -1,4 +1,6 @@
 import { Injectable, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { organizerPaymentsGap, stripeConfiguredIn } from '../payments/organizer-payment-readiness';
 import { TAX_CATEGORY_LABELS, blocksBooking, isTaxCategory } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { currencyForCountry } from '../common/country';
@@ -61,7 +63,9 @@ export type SellabilityCode =
   /** Tax here depends on what the event is, and it has no tax classification. */
   | 'TAX_CLASSIFICATION_MISSING'
   /** It is classified, but no active tax rule covers that classification at this price. */
-  | 'TAX_RULE_NOT_FOUND';
+  | 'TAX_RULE_NOT_FOUND'
+  /** Paid tickets in a currency whose provider needs the organizer's own account (Stripe Connect), and it cannot take charges yet. */
+  | 'PAYMENTS_NOT_READY';
 
 /**
  * Who can actually put this right.
@@ -184,6 +188,7 @@ export class EventSellabilityService {
       depends on one is simply skipped rather than reporting a false blocker.
     */
     @Optional() private readonly policies?: CinemaPricingPolicyService,
+    @Optional() private readonly config?: ConfigService,
   ) {}
 
   /**
@@ -261,6 +266,7 @@ export class EventSellabilityService {
       select: {
         id: true,
         isFree: true,
+        organizationId: true,
         taxCategory: true,
         venue: { select: { country: true, region: true, timezone: true } },
         organization: { select: { registeredCountry: true, registeredRegion: true } },
@@ -326,6 +332,44 @@ export class EventSellabilityService {
         fix: 'Add at least one show date.',
         fixPath: `/organizer/events/${eventId}/sessions`,
       });
+    }
+
+    /*
+      Paid tickets the organizer cannot be paid for. Checkout refuses these at the payment
+      step (ORGANIZER_PAYMENTS_NOT_READY), after the buyer has reserved seats; this says it
+      to the organizer before the event is listed. India (Razorpay) is never gated: see
+      organizerPaymentsGap.
+    */
+    if (!event.isFree && this.config) {
+      const paidCurrencies = [
+        ...new Set(
+          event.sessions
+            .flatMap((s) => s.ticketTypes)
+            .filter((t) => t.priceMinor > 0)
+            .map((t) => t.currency),
+        ),
+      ];
+      const stripeConfigured = stripeConfiguredIn((k) => this.config?.get<string>(k));
+      for (const currency of paidCurrencies) {
+        const gap = await organizerPaymentsGap(
+          this.prisma,
+          stripeConfigured,
+          event.organizationId,
+          currency,
+        );
+        if (gap) {
+          blockers.push({
+            code: 'PAYMENTS_NOT_READY',
+            owner: 'ORGANIZER',
+            message:
+              `Your paid tickets are priced in ${currency}, and your payout account cannot ` +
+              'take card payments yet, so nobody could pay for them.',
+            fix: 'Finish payout setup (Stripe) on the Payouts page. Free tickets are not affected.',
+            fixPath: '/organizer/payouts',
+          });
+          break;
+        }
+      }
     }
 
     for (const session of event.sessions) {

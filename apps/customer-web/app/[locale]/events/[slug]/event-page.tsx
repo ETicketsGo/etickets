@@ -245,6 +245,12 @@ export function EventDetailPage() {
   const addOnSubtotal = addOns.reduce((s, a) => s + (addOnQty[a.id] ?? 0) * a.priceMinor, 0);
   const bundleSubtotal = bundles.reduce((s, b) => s + (bundleQty[b.id] ?? 0) * b.priceFromMinor, 0);
   const subtotal = ticketSubtotal + addOnSubtotal + bundleSubtotal;
+  /*
+    Paid tickets the organizer cannot be paid for yet (US organizer finishing Stripe setup).
+    The payment step would refuse them after seats were reserved; say so here instead.
+  */
+  const paidNotOnSale = !!event && !event.isFree && event.paidSalesReady === false;
+  const blockedByPayments = paidNotOnSale && subtotal > 0;
 
   const totalQty =
     Object.values(qty).reduce((a, b) => a + b, 0) +
@@ -1372,6 +1378,21 @@ export function EventDetailPage() {
                 </p>
               ) : null}
 
+              {paidNotOnSale && !dateSoldOut && (
+                <div
+                  role="status"
+                  data-testid="event-paid-not-on-sale"
+                  className="mt-5 bg-brand-sunken px-4 py-3"
+                >
+                  <p className="text-brand-ui font-semibold text-brand-ink">
+                    {sf('event.paidNotOnSaleTitle')}
+                  </p>
+                  <p className="mt-1 text-brand-meta text-brand-ink-2">
+                    {sf('event.paidNotOnSaleHint')}
+                  </p>
+                </div>
+              )}
+
               {dateSoldOut && (
                 <div
                   role="status"
@@ -1643,7 +1664,9 @@ export function EventDetailPage() {
                         size="lg"
                         className="w-full uppercase tracking-[0.08em]"
                         aria-busy={(book.isPending && !payWithCash) || undefined}
-                        disabled={totalQty === 0 || book.isPending || sessionStarted}
+                        disabled={
+                          totalQty === 0 || book.isPending || sessionStarted || blockedByPayments
+                        }
                         onClick={() => startBooking(false)}
                       >
                         {reserveContent(book.isPending && !payWithCash)}
@@ -1694,7 +1717,7 @@ export function EventDetailPage() {
         label={continueLabel}
         jumpLabel={sf('event.bookTickets')}
         pending={book.isPending && !payWithCash}
-        disabled={book.isPending}
+        disabled={book.isPending || blockedByPayments}
         onContinue={() => startBooking(false)}
       />
 

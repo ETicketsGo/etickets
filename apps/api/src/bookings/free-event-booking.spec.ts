@@ -44,6 +44,8 @@ interface Options {
   /** What the ticket type is priced in, and where the venue is. */
   currency?: string;
   venueCountry?: string;
+  /** The organizer's Stripe Connect account. Default: onboarded, able to take charges. */
+  stripeAccount?: { providerAccountId: string | null; chargesEnabled: boolean } | null;
 }
 
 function setup(over: Options = {}) {
@@ -76,6 +78,15 @@ function setup(over: Options = {}) {
   };
 
   const prisma = {
+    organizerPaymentAccount: {
+      findUnique: jest
+        .fn()
+        .mockResolvedValue(
+          over.stripeAccount === undefined
+            ? { providerAccountId: 'acct_1', chargesEnabled: true }
+            : over.stripeAccount,
+        ),
+    },
     idempotencyRecord: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
     eventSession: {
       findUnique: jest.fn().mockResolvedValue({
@@ -244,6 +255,24 @@ describe('booking a paid event is unchanged', () => {
     expect(written.totalMinor).toBeGreaterThan(0);
     expect(result.status).toBe(BookingStatus.PENDING_PAYMENT);
     expect(confirmFreeBooking).not.toHaveBeenCalled();
+  });
+
+  it('refuses a US paid booking before holding seats while the organizer cannot take charges', async () => {
+    /*
+      Pilot walk 2026-11-07: the buyer reserved seats and only the payment page said the
+      organizer could not take card payments. Refused at creation now; nothing is written.
+    */
+    const { book, bookingCreate } = setup({
+      isFree: false,
+      priceMinor: 2_500,
+      currency: 'USD',
+      venueCountry: 'United States',
+      stripeAccount: { providerAccountId: 'acct_1', chargesEnabled: false },
+    });
+    await expect(book()).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'ORGANIZER_PAYMENTS_NOT_READY' }),
+    });
+    expect(bookingCreate).not.toHaveBeenCalled();
   });
 
   it('records the Payment in the booking’s own currency, not the column default', async () => {

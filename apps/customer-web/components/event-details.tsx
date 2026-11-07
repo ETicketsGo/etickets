@@ -307,6 +307,20 @@ export function OrganizerCard({ organizer }: { organizer: PublicEvent['organizer
           aria-hidden
         />
       </Link>
+      {/*
+        The legal seller, before payment: the receipt names it, and a buyer deciding whether to
+        trust a stranger with money should not have to pay first to find out who that is.
+      */}
+      {organizer.seller ? (
+        <p data-testid="event-seller" className="mt-2 text-brand-meta text-brand-ink-2">
+          {t('soldBy', { legalName: organizer.seller.legalName })}
+          {[organizer.seller.city, organizer.seller.region, organizer.seller.country].some(Boolean)
+            ? `, ${[organizer.seller.city, organizer.seller.region, organizer.seller.country]
+                .filter(Boolean)
+                .join(', ')}`
+            : ''}
+        </p>
+      ) : null}
       {organizer.description ? (
         <p className="mt-3 line-clamp-3 text-brand-ui text-brand-ink-2">{organizer.description}</p>
       ) : null}

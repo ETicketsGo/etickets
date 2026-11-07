@@ -132,7 +132,20 @@ export function createApi(base) {
     }
   }
   const login = async (email, password) => {
-    const r = await send('POST', '/auth/login', { body: { email, password } });
+    let r = await send('POST', '/auth/login', { body: { email, password } });
+    /*
+      Admin MFA (AR-28): a staff account with TOTP answers { mfaRequired, challengeToken }.
+      PILOT_TOTP_HELPER names a local module (outside the repo) exporting nextCode(email);
+      the secret never enters this repo and the code is never printed.
+    */
+    if (r.body?.mfaRequired && r.body?.challengeToken && process.env.PILOT_TOTP_HELPER) {
+      const { createRequire } = await import('node:module');
+      const helper = createRequire(import.meta.url)(process.env.PILOT_TOTP_HELPER);
+      const code = await (helper.nextCode ?? helper.codeFor)(email);
+      r = await send('POST', '/auth/mfa/verify', {
+        body: { challengeToken: r.body.challengeToken, code },
+      });
+    }
     const token = r.body?.accessToken ?? r.body?.tokens?.accessToken;
     if (token) owners.set(token, { email, password });
     return { ...r, token, userId: r.body?.user?.id };

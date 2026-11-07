@@ -3948,6 +3948,8 @@ export interface PublicEvent extends EventDetails {
   isFree: boolean;
   /** The organizer takes cash at the venue, so the buyer may reserve and pay on arrival. */
   cashAccepted?: boolean;
+  /** False while paid tickets cannot be paid for yet (organizer still finishing payout setup). */
+  paidSalesReady?: boolean;
   venue: {
     name: string;
     city: string;
@@ -3974,6 +3976,14 @@ export interface PublicEvent extends EventDetails {
     description?: string | null;
     website?: string | null;
     instagramUrl?: string | null;
+    /** The seller's legal identity, shown before payment. Null until approved with a legal name. */
+    seller?: {
+      legalName: string;
+      legalEntityType: string | null;
+      city: string | null;
+      region: string | null;
+      country: string | null;
+    } | null;
   };
   sessions: {
     id: string;
