@@ -324,6 +324,7 @@ export default function StaffPage() {
         open={editing !== null}
         onClose={() => setEditing(null)}
         title={editing ? `Duties for ${editing.fullName}` : 'Duties'}
+        size="lg"
       >
         {editing ? (
           <div className="space-y-4">
@@ -391,6 +392,7 @@ export default function StaffPage() {
           setInviteSent(null);
         }}
         title="Add back-office staff"
+        size="lg"
       >
         <div className="space-y-4">
           {inviteSent && (
@@ -540,6 +542,20 @@ function DutyChecklist({
   toggle: (permission: string) => void;
   setSelected: (next: Set<string>) => void;
 }) {
+  // About forty duties. Finding one ("Approve fee changes") by scrolling a short box was the
+  // complaint; a filter, a running summary of what is ticked and the active preset fix that.
+  const [filter, setFilter] = useState('');
+  const permissions = catalogue?.permissions ?? [];
+  const q = filter.trim().toLowerCase();
+  const shown = q
+    ? permissions.filter((p) =>
+        `${dutyLabel(p)} ${dutyWhat(p) ?? ''} ${p}`.toLowerCase().includes(q),
+      )
+    : permissions;
+  const sameSet = (grants: string[]) =>
+    grants.length === selected.size && grants.every((g) => selected.has(g));
+  const picked = permissions.filter((p) => selected.has(p));
+
   return (
     <>
       {/*
@@ -552,50 +568,109 @@ function DutyChecklist({
         <div>
           <p className="mb-2 text-caption font-medium text-text-secondary">Start from</p>
           <div className="flex flex-wrap gap-2">
-            {catalogue!.presets.map((preset) => (
-              <button
-                key={preset.key}
-                type="button"
-                title={preset.description}
-                onClick={() => setSelected(new Set(preset.grants))}
-                className="rounded-md border border-border px-2.5 py-1 text-caption text-text-primary transition-colors hover:bg-background-subtle"
-              >
-                {preset.label}
-              </button>
-            ))}
+            {catalogue!.presets.map((preset) => {
+              const active = sameSet(preset.grants);
+              return (
+                <button
+                  key={preset.key}
+                  type="button"
+                  title={preset.description}
+                  aria-pressed={active}
+                  onClick={() => setSelected(new Set(preset.grants))}
+                  className={`rounded-md border px-2.5 py-1 text-caption transition-colors ${
+                    active
+                      ? 'border-action-primary bg-action-primary text-action-primary-foreground'
+                      : 'border-border text-text-primary hover:bg-background-subtle'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
 
-      <div className="max-h-72 space-y-1.5 overflow-auto">
-        {(catalogue?.permissions ?? []).map((permission) => (
-          <label
-            key={permission}
-            className="flex cursor-pointer items-start gap-2.5 rounded-md p-1.5 hover:bg-background-subtle"
-          >
-            <input
-              type="checkbox"
-              checked={selected.has(permission)}
-              onChange={() => toggle(permission)}
-              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-action-primary"
-            />
-            <span className="min-w-0">
-              <span className="text-[0.9375rem] text-text-primary">{dutyLabel(permission)}</span>
-              {/* Every duty says what it hands over; the two that are dangerous say it in amber. */}
-              {dutyWhat(permission) && (
-                <span
-                  className={`block text-caption ${
-                    permission === 'ADMIN_MANAGE' || permission === 'REFUND_APPROVE'
-                      ? 'text-status-warning'
-                      : 'text-text-muted'
-                  }`}
-                >
-                  {dutyWhat(permission)}
-                </span>
-              )}
-            </span>
-          </label>
-        ))}
+      <div className="space-y-2 rounded-md border border-border p-3" data-testid="duty-summary">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-caption font-medium text-text-secondary">
+            {picked.length === 0
+              ? 'No duties chosen yet'
+              : `${picked.length} ${picked.length === 1 ? 'duty' : 'duties'} chosen`}
+          </p>
+          {picked.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="text-caption text-action-primary hover:underline"
+            >
+              Clear all
+            </button>
+          )}
+        </div>
+        {picked.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {picked.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => toggle(p)}
+                aria-label={`Remove ${dutyLabel(p)}`}
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-background-subtle px-2 py-0.5 text-caption text-text-primary hover:border-status-error"
+              >
+                {dutyLabel(p)}
+                <span aria-hidden="true">×</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <label className="sr-only" htmlFor="duty-filter">
+          Find a duty
+        </label>
+        <input
+          id="duty-filter"
+          type="search"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Find a duty, e.g. fee, bank, refund"
+          className="mb-2 w-full rounded-md border border-border bg-background-canvas px-3 py-2 text-[0.9375rem] text-text-primary placeholder:text-text-muted"
+        />
+        <div className="max-h-[45vh] space-y-1.5 overflow-auto pr-1">
+          {shown.length === 0 && (
+            <p className="p-1.5 text-caption text-text-muted">No duty matches “{filter}”.</p>
+          )}
+          {shown.map((permission) => (
+            <label
+              key={permission}
+              className="flex cursor-pointer items-start gap-2.5 rounded-md p-1.5 hover:bg-background-subtle"
+            >
+              <input
+                type="checkbox"
+                checked={selected.has(permission)}
+                onChange={() => toggle(permission)}
+                className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-action-primary"
+              />
+              <span className="min-w-0">
+                <span className="text-[0.9375rem] text-text-primary">{dutyLabel(permission)}</span>
+                {/* Every duty says what it hands over; the two that are dangerous say it in amber. */}
+                {dutyWhat(permission) && (
+                  <span
+                    className={`block text-caption ${
+                      permission === 'ADMIN_MANAGE' || permission === 'REFUND_APPROVE'
+                        ? 'text-status-warning'
+                        : 'text-text-muted'
+                    }`}
+                  >
+                    {dutyWhat(permission)}
+                  </span>
+                )}
+              </span>
+            </label>
+          ))}
+        </div>
       </div>
     </>
   );
