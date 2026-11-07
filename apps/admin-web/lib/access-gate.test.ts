@@ -166,3 +166,45 @@ describe('checkRequest', () => {
     expect((await checkRequest(broken, '/api/health', null, keys)).allow).toBe(true);
   });
 });
+
+describe('a token shaped exactly like Cloudflare Access issues them', () => {
+  /*
+    Cloudflare's application token: RS256 with the signing key's `kid`, `aud` as an ARRAY
+    holding the application's AUD tag, `iss` the team domain, plus `type: "app"`,
+    `identity_nonce`, `sub`, `country`, `email`, `iat`/`nbf`/`exp`. The other tests use a string
+    audience; this one proves the array form a real token carries is accepted, and that an
+    array naming only other applications is not.
+  */
+  async function cloudflareShaped(aud: string[]) {
+    const now = Math.floor(Date.now() / 1000);
+    return new SignJWT({
+      type: 'app',
+      email: 'admin@eticketsgo.com',
+      identity_nonce: 'n0nce',
+      country: 'US',
+    })
+      .setProtectedHeader({ alg: 'RS256', kid: 'k1' })
+      .setIssuer(`https://${TEAM}`)
+      .setAudience(aud)
+      .setSubject('7335d417-61da-459d-899c-0a01c76a2f94')
+      .setIssuedAt(now - 5)
+      .setNotBefore(now - 5)
+      .setExpirationTime(now + 24 * 3600)
+      .sign(privateKey);
+  }
+
+  it('accepts the array audience that names this application', async () => {
+    const v = await checkRequest(enforce, '/admin', await cloudflareShaped([AUD]), keys);
+    expect(v).toEqual({ allow: true, reason: 'valid' });
+  });
+
+  it('refuses an array audience that names only other applications', async () => {
+    const v = await checkRequest(
+      enforce,
+      '/admin',
+      await cloudflareShaped(['b'.repeat(64), 'c'.repeat(64)]),
+      keys,
+    );
+    expect(v).toMatchObject({ allow: false, reason: 'invalid-token' });
+  });
+});
