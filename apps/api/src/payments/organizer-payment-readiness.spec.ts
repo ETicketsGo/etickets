@@ -1,5 +1,9 @@
 import { EventSellabilityService } from '../events/event-sellability.service';
-import { gatedProviderFor, organizerPaymentsGap, stripeConfiguredIn } from './organizer-payment-readiness';
+import {
+  gatedProviderFor,
+  organizerPaymentsGap,
+  stripeConfiguredIn,
+} from './organizer-payment-readiness';
 
 /**
  * Pilot walk 2026-11-07: every US paid event on QA was listed and reservable, and only the
@@ -114,7 +118,12 @@ describe('EventSellabilityService: PAYMENTS_NOT_READY', () => {
   it('never blocks a free event', async () => {
     const free = usEvent({
       isFree: true,
-      sessions: [{ ...usEvent().sessions[0], ticketTypes: [{ ...usEvent().sessions[0].ticketTypes[0], priceMinor: 0 }] }],
+      sessions: [
+        {
+          ...usEvent().sessions[0],
+          ticketTypes: [{ ...usEvent().sessions[0].ticketTypes[0], priceMinor: 0 }],
+        },
+      ],
     });
     const svc = new EventSellabilityService(prisma(free, null), undefined, config(true));
     expect((await svc.check('e1')).blockers.map((b) => b.code)).not.toContain('PAYMENTS_NOT_READY');

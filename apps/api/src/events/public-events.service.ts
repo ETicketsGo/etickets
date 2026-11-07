@@ -409,10 +409,14 @@ export class PublicEventsService {
     if (event.isFree || !this.config) return true;
     const stripeConfigured = stripeConfiguredIn((k) => this.config?.get<string>(k));
     const currencies = new Set(
-      event.sessions.flatMap((s) => s.ticketTypes.filter((t) => t.priceMinor > 0).map((t) => t.currency)),
+      event.sessions.flatMap((s) =>
+        s.ticketTypes.filter((t) => t.priceMinor > 0).map((t) => t.currency),
+      ),
     );
     for (const currency of currencies) {
-      if (await organizerPaymentsGap(this.prisma, stripeConfigured, event.organizationId, currency)) {
+      if (
+        await organizerPaymentsGap(this.prisma, stripeConfigured, event.organizationId, currency)
+      ) {
         return false;
       }
     }
