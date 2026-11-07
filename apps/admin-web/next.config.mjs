@@ -34,6 +34,9 @@ const nextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
+          // Never in search results (with app/robots.ts and the layout's robots metadata).
+          // Not a security control: the access gate in middleware.ts is.
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' },
         ],
       },
     ];

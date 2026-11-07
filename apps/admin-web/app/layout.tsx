@@ -23,6 +23,8 @@ export const metadata: Metadata = {
   */
   title: { default: 'ETicketsGo Admin', template: '%s - ETicketsGo' },
   description: 'Platform administration: organizers, events, refunds, payouts, and audit.',
+  // Not for search engines (see app/robots.ts); the access gate is what protects the console.
+  robots: { index: false, follow: false, nocache: true },
   manifest: '/manifest.webmanifest',
   /*
     Drawn by scripts/brand/generate-favicons.mjs. The admin tile is marigold, the loudest of the
