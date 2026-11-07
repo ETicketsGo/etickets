@@ -614,6 +614,16 @@ function Breakdown({
               : (emptyNote ?? t('priceAddOne'))}
         </p>
       )}
+      {/*
+        Said before paying, not discovered on the refund: a buyer who cancels gets the ticket
+        price back and the fees stay (refunds.service, long-standing policy); an organizer
+        cancellation returns everything. Shown only when there are fees to keep.
+      */}
+      {breakdown && breakdown.feeGroups.some((g) => g.totalMinor > 0) ? (
+        <p data-testid="fees-not-refunded" className={`mt-1 ${s.small} ${s.muted}`}>
+          {t('feesNotRefunded')}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -243,7 +243,16 @@ export function GuestInvoiceCard({ token, emailMasked }: { token: string; emailM
  * sentence is the whole answer, so it is shown as the answer. A toast saying "something went
  * wrong" would send somebody to support to be told what the server had already told us.
  */
-export function GuestRefundCard({ token, emailMasked }: { token: string; emailMasked: string }) {
+export function GuestRefundCard({
+  token,
+  emailMasked,
+  paid = true,
+}: {
+  token: string;
+  emailMasked: string;
+  /** Whether money was taken. A free booking has no fees to keep, so the fee note stays off. */
+  paid?: boolean;
+}) {
   const g = useTranslations('storefront.guest');
   const { money } = useFormat();
   const statusLabel = useStatusLabel();
@@ -309,6 +318,11 @@ export function GuestRefundCard({ token, emailMasked }: { token: string; emailMa
     <section className={PANEL}>
       <h2 className={PANEL_TITLE}>{g('refundTitle')}</h2>
       <p className="text-brand-ui text-brand-ink-2">{g('refundBody')}</p>
+      {paid ? (
+        <p data-testid="refund-fees-note" className="text-brand-meta text-brand-ink-2">
+          {g('refundFeesNote')}
+        </p>
+      ) : null}
 
       {refused ? (
         <div className={BRAND_INSET}>
