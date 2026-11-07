@@ -525,6 +525,14 @@ export default function BookingsPage() {
                   <p className="mt-1 text-brand-meta text-brand-ink-2">
                     {free ? a('cancelTicketsBody') : a('refundEligibility')}
                   </p>
+                  {!free && (
+                    <p
+                      data-testid="refund-fees-note"
+                      className="mt-1 text-brand-meta text-brand-ink-2"
+                    >
+                      {a('refundFeesNote')}
+                    </p>
+                  )}
                   <div className="mt-3">
                     <BrandTextareaField
                       id="reason"

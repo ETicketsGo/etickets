@@ -126,7 +126,11 @@ export default function BookingAccessPage() {
             of until the page offered it.
           */}
             <GuestInvoiceCard token={token} emailMasked={view.buyer.emailMasked} />
-            <GuestRefundCard token={token} emailMasked={view.buyer.emailMasked} />
+            <GuestRefundCard
+              token={token}
+              emailMasked={view.buyer.emailMasked}
+              paid={view.totals.totalMinor > 0}
+            />
             {/*
             The access token proves the claim here. This booking's own anonymous session goes
             with it when this browser is the one that bought it, which costs nothing and is what
