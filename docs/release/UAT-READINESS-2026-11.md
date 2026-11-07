@@ -42,6 +42,9 @@ Every service still uses the legacy config files, and the services' own settings
 - The preview shows no behavioural difference and no variable deletion.
 - No database or Redis change.
 - **No deployment**, and no code change.
+- **Paths stay set** on 11-16 (runbook step 6): every UAT commit still has a repo-root
+  `railway.json`, which would override the settings once the path is cleared (trap 3). The paths
+  are cleared after stage C, when UAT runs `main`; the script refuses before that.
 
 Ready check on the day: step 1 and step 3 outputs unchanged from 2026-11-07.
 

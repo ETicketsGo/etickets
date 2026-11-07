@@ -30,6 +30,7 @@
 import { createRailwayContext, project } from 'railway/iac';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const token = process.env.RAILWAY_TOKEN;
 if (!token) {
@@ -64,7 +65,7 @@ if ((write || clearPaths) && process.env.CONFIRM_IAC_SETTINGS !== envName) {
 
 const SETTINGS = `railwayConfigFile builder dockerfilePath startCommand preDeployCommand
   healthcheckPath healthcheckTimeout restartPolicyType restartPolicyMaxRetries cronSchedule
-  sleepApplication overlapSeconds drainingSeconds latestDeployment { id status }`;
+  sleepApplication overlapSeconds drainingSeconds latestDeployment { id status meta }`;
 async function instances() {
   const { environment } = await gql(
     `query($e:String!){ environment(id:$e){ serviceInstances { edges { node { serviceId serviceName } } } } }`,
@@ -200,6 +201,43 @@ if (write) {
 if (clearPaths) {
   if (total) {
     console.error(`Refusing: ${total} setting(s) still differ. Run --write first, then a dry run.`);
+    process.exit(1);
+  }
+  /*
+    TRAP 3 GUARD. With the path cleared, Railway falls back to a repo-ROOT railway.json if the
+    deployed commit has one, and it WINS over the service settings (on QA it rebuilt every
+    service as the api). #597 removed it from main, but every commit UAT and PROD ran on
+    2026-11-07 (2439e254, be2a2c7f, 646e469f and the Next.js hotfixes) still has it: a redeploy,
+    rollback or hotfix of those after clearing would build the wrong service. So paths are
+    cleared only when no service's current commit has a root railway.json -- in practice after
+    that environment's release of main. Until then the written settings sit under the file
+    (no effect), and they are what remains once Railway stops reading files on 2026-12-01.
+  */
+  const stale = [];
+  for (const { r, inst } of plan) {
+    const sha = inst.latestDeployment?.meta?.commitHash;
+    if (!sha) continue; // image-sourced service: no repo file can apply
+    try {
+      execFileSync('git', ['cat-file', '-e', `${sha}:railway.json`], {
+        stdio: 'ignore',
+        cwd: root,
+      });
+      stale.push(`${r.name}@${sha.slice(0, 8)}`);
+    } catch {
+      try {
+        execFileSync('git', ['cat-file', '-e', `${sha}^{commit}`], { stdio: 'ignore', cwd: root });
+      } catch {
+        console.error(
+          `Refusing: commit ${sha.slice(0, 8)} (${r.name}) is not in this checkout; git fetch first.`,
+        );
+        process.exit(1);
+      }
+    }
+  }
+  if (stale.length) {
+    console.error(
+      `Refusing: these services run a commit with a repo-root railway.json, which would override the settings once the path is cleared: ${stale.join(', ')}. Release a commit without it (main after #597) first.`,
+    );
     process.exit(1);
   }
   for (const { r, inst } of plan) {
