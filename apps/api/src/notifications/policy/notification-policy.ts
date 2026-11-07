@@ -56,6 +56,11 @@ export interface FallbackPolicy {
   afterMinutes: number;
   /** The channels whose success makes the fallback unnecessary. */
   satisfiedBy: readonly ChannelKey[];
+  /**
+   * When to stop trying, after the original (default 24 h, DEFAULT_FALLBACK_HORIZON_MINUTES in
+   * fallback.service.ts). An intent that could not get a fallback is not retried for ever.
+   */
+  giveUpAfterMinutes?: number;
 }
 
 export interface EventPolicy {
