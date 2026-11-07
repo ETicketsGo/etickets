@@ -4,13 +4,18 @@
 ("hard cutoff", docs.railway.com/config-as-code, read 2026-11-06). This document is the audit,
 the design, the QA trial and the runbook for UAT and PROD.
 
-Status on 2026-11-06:
+Status on 2026-11-07:
 
-| Environment | State                                                                          |
-| ----------- | ------------------------------------------------------------------------------ |
-| QA          | **Migrated.** Owned by `.railway/railway.ts`; legacy paths cleared.            |
-| UAT         | Legacy. Preview: IaC reproduces what runs today exactly. Needs owner approval. |
-| PROD        | Legacy. Preview: IaC reproduces what runs today exactly. Needs owner approval. |
+| Environment | State                                                                                                                                                                |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| QA          | **Migrated.** Owned by `.railway/railway.ts`; legacy paths cleared. Settings-first procedure rehearsed on admin-web 2026-11-07 (section 6).                          |
+| UAT         | Legacy. Preview: no behavioural difference. Settings-first dry run: 26 settings. **Proposed 2026-11-16**, needs owner approval.                                      |
+| PROD        | Legacy. Preview: no behavioural difference (re-run after the 2026-11-06 web hotfixes). Settings-first dry run: 26 settings. **Proposed 2026-11-23**, needs approval. |
+
+**Why it cannot wait:** under the legacy files, the UAT and PROD services' own settings are
+empty (no Dockerfile path, start command, health check or pre-deploy migration; db-seed has no
+cron). The files supply all of it. After the cutoff, the first deployment of any service would
+build with Railway's defaults and no start command, and the nightly backup would stop running.
 
 ## 1. Why this is P0
 
@@ -141,30 +146,77 @@ service): api `d103f2f5`, worker `d2cbf53f`, db-seed `c94db3b9`, customer-web `1
 organizer-web `84f7dc05`, admin-web `a0eb1634`. **QA now runs code that is not on `main`
 (#596, #597): a deploy from `main` before they merge brings back the root `railway.json`.**
 
-## 6. Runbook for UAT, then PROD (each needs explicit owner approval)
+## 6. Runbook for UAT, then PROD: settings first, nothing deployed (each needs explicit owner approval)
 
-Prerequisites: this PR merged (so `main` has `.railway/` and no root `railway.json`); the
-environment already runs `main` HEAD through the normal release (api first); you hold that
-environment's project token (scoped to it alone).
+**The configuration migration is separate from any code release.** The first runbook (apply
+after the environment runs `main` HEAD) tied the migration to a full release, because
+`config apply` deploys every service it changes at `main` HEAD (trap 5). UAT runs `2439e254`
+(339 commits behind) and PROD runs `be2a2c7f` (api, worker) plus the web hotfixes, so that
+order would make the migration a feature release. Instead, the settings IaC owns are written
+to each service while the legacy file still wins. Then the paths are cleared, and the plan has
+nothing left to change: no `apply`, no deployment, no code change.
+`scripts/deploy/railway-iac-settings-first.mjs` does it and never touches variables, domains,
+replicas, regions, source, Postgres, Redis or volumes.
 
-1. `RAILWAY_TOKEN=<env token> node --experimental-strip-types scripts/deploy/railway-iac-preview.mjs`
-   must print "No behavioural difference". If it lists variables IaC would delete, regenerate
-   `.railway/variables.ts` (pull, then `railway-iac-variable-names.mjs <ENV> <graph.json>`),
-   review, merge, and repeat.
-2. Record the rollback baseline: each service's latest deployment id and its config path.
-3. Clear the six Config File paths in that environment only:
-   `serviceInstanceUpdate(environmentId, serviceId, input: { railwayConfigFile: "" })`
-   (`null` is ignored; an empty string clears it; no deploy is triggered).
-4. `railway config plan --out <outside .railway>/plan.json` must show only the build/deploy
-   fields the legacy files supplied, **0 to destroy**. Anything else: stop, restore step 3.
-5. `railway config apply --plan plan.json --yes` (never `--confirm-destructive`).
-6. Watch every new deployment's manifest (`deployment.meta.serviceManifest`): `configFile`
-   absent, builder `DOCKERFILE`, the right Dockerfile. Then health, smoke test, replicas.
+**Rehearsed on QA, 2026-11-07, admin-web.** QA admin-web was put back into PROD's state
+(legacy path set, settings blank). The script then ran:
 
-**Rollback:** set each `railwayConfigFile` back to its `deploy/railway/<svc>.railway.json`
-(still in the repo until every environment is migrated) and `deploymentRollback` each service
-to the baseline id, api last. IaC-written settings are harmless while a config file is set
-(the file wins).
+- **`--write`:** 4 settings written, no deployment.
+- **Dry run:** 0 pending.
+- **`--clear-legacy-paths`:** cleared, no deployment.
+- **`config plan --detailed-exit-code`:** exit 0.
+
+A pinned redeploy of the same commit then built from the settings alone: manifest `configFile`
+absent, builder `DOCKERFILE` with `apps/admin-web/Dockerfile`, start
+`node apps/admin-web/server.js`, health `/api/health`. The console answered 200. Without the
+confirmation variable, the script refuses.
+
+**Dry run, 2026-11-07, UAT and PROD (identical):**
+
+| Service            | Settings written                                                                                                                                               |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| api                | `dockerfilePath`, `startCommand`, `preDeployCommand` (`npx prisma migrate deploy`), `healthcheckPath`, `healthcheckTimeout`, `restartPolicyMaxRetries` 10 -> 5 |
+| worker             | `dockerfilePath`, `startCommand`, `healthcheckPath` `/health`, `healthcheckTimeout`                                                                            |
+| the three web apps | `dockerfilePath`, `startCommand`, `healthcheckPath`, `healthcheckTimeout`, `restartPolicyMaxRetries` 10 -> 5                                                   |
+| db-seed            | `cronSchedule` `0 2 * * *` (the nightly backup)                                                                                                                |
+
+That is 26 settings in all, each equal to what the legacy file supplies today: the preview
+shows no behavioural difference.
+
+Prerequisites: you hold that environment's project token (scoped to it alone). Run from a
+checkout of `main` with `npm ci` done, because the SDK is a devDependency. On Windows, run the
+CLI as `env _=<path to railway.exe> railway.exe` (trap 7).
+
+| Step | Command (`T` = `RAILWAY_TOKEN=<env token>`)                                                  | Must show                                                                                                                                                 |
+| ---- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | Confirm the latest verified backup (`docs/deployment/RAILWAY_BACKUP_RECOVERY.md`)            | A verified dump from the last 24 h                                                                                                                        |
+| 1    | `T node --experimental-strip-types scripts/deploy/railway-iac-preview.mjs`                   | "No behavioural difference" (otherwise regenerate `.railway/variables.ts`, review, merge, repeat)                                                         |
+| 2    | Record the baseline: each service's latest deployment id and `railwayConfigFile`             | Six ids and six paths written down                                                                                                                        |
+| 3    | `T node --experimental-strip-types scripts/deploy/railway-iac-settings-first.mjs`            | The 26 settings above, nothing else                                                                                                                       |
+| 4    | `T CONFIRM_IAC_SETTINGS=<ENV> node ... railway-iac-settings-first.mjs --write`               | "no service got a new deployment"                                                                                                                         |
+| 5    | Step 3 again                                                                                 | "No settings pending"                                                                                                                                     |
+| 6    | `T CONFIRM_IAC_SETTINGS=<ENV> node ... railway-iac-settings-first.mjs --clear-legacy-paths`  | Six paths cleared, "no service got a new deployment"                                                                                                      |
+| 7    | `T railway config plan --detailed-exit-code`                                                 | **exit 0**, "already up to date". Anything else: stop, restore the paths (rollback), investigate. Never `apply` here                                      |
+| 8    | Verification deploy (separately approved): ONE web service at the exact commit it runs today | Manifest without `configFile`, builder `DOCKERFILE`, the right Dockerfile, start command and health check; the app answers. PROD: admin-web at `e7285c19` |
+
+The next normal release then builds every service from these settings. A later
+`config apply` is only for an intended change, after the environment runs `main` HEAD, and it
+still redeploys what it changes (trap 5).
+
+**Rollback** (any step): set each `railwayConfigFile` back to its baseline path
+(`deploy/railway/<svc>.railway.json`, kept in the repo until every environment is migrated). The
+file wins again, and the written settings are harmless underneath it. No deployment was made, so
+none needs rolling back. If the step 8 verification deploy fails, `deploymentRollback` that one
+service to its baseline id.
+
+### PROD-specific checks (2026-11-23)
+
+- Run step 1 again on the day. The variable-name lists in `.railway/variables.ts` must match
+  (it lists names only, and each environment has its own list).
+- Not in this change: replicas (PROD 1 each), sleep (off), the custom domains, the api
+  overlap/draining values (AR-22, still an owner decision), the access gate variables (AR-34),
+  Sentry. Each is its own approved change.
+- Keep `deploy/railway/*.railway.json` in the repo until PROD is verified (the rollback source).
 
 After all three environments are migrated: delete `deploy/railway/*.railway.json` and the
 legacy-consistency rule in the validator.

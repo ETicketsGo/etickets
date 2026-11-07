@@ -65,6 +65,45 @@ not runtime values, but never put a real secret or test card in source.
   Sentry auth token as a CI secret (owner) and a `sentry-cli sourcemaps upload` step in the
   image build. Planned with the image workflow, not done.
 
+## Activation and verification (QA first; UAT and PROD each need approval)
+
+Nothing here can be done from the repository: the DSN comes from the owner's Sentry project and
+is credential-like (it lets anyone send events to the project). Never put it in the repo, a PR,
+a chat or a log.
+
+Owner prerequisites:
+
+1. One Sentry project per surface: `etg-backend` (api + worker share it; the `service` tag tells
+   them apart), later `etg-web` and `etg-android`.
+2. The project's DSN, stored in the managed secret store alongside the other secrets.
+3. The alert rules below, created in the Sentry UI, routed to the on-call email first.
+4. Optional later: a CI auth token for source maps (not needed to activate).
+
+Activation, one environment at a time (QA, then UAT, then PROD):
+
+1. Set `SENTRY_DSN` on **api and worker** with `skipDeploys` (a variable change without it
+   builds `main` HEAD). `APP_ENV` already names the environment; leave
+   `SENTRY_TRACES_SAMPLE_RATE` unset (errors only).
+2. Add `SENTRY_DSN` to both services' lists for that environment in `.railway/variables.ts`
+   (IaC keeps only the names it lists), in a PR.
+3. Redeploy the exact commit each service runs (api first). The boot log must say
+   `Sentry initialised (error tracking enabled).`; `Sentry init failed` means a malformed DSN.
+4. Send ONE tagged test event from inside the api container (Railway SSH). It proves the DSN,
+   the network path and the scrub without touching a request path:
+
+   ```sh
+   node -e "const s=require('./dist/observability/sentry'); if(!s.initSentry({service:'api'})) process.exit(2); s.captureOperationalEvent({message:'sentry activation check', level:'warning', fingerprint:['activation-check'], tags:{check:'activation'}}); require('@sentry/node').flush(10000).then(ok=>process.exit(ok?0:1))"
+   ```
+
+   Exit 0, and the issue "sentry activation check" appears with `environment` = that
+   environment, `release` = the deployed commit, `service` = api. Resolve it. Exit 2: no DSN in
+   that container.
+
+5. Within a day: spot-check three real events. None may contain an email, phone, token or UPI
+   id.
+
+Rollback: remove `SENTRY_DSN` and redeploy; the SDK is then a no-op.
+
 ## Alert rules to create in Sentry (owner, in the Sentry UI)
 
 These cannot be created from this repository. Suggested, per project and environment
