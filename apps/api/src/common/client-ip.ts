@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { isIP } from 'node:net';
 import type { Request } from 'express';
 
@@ -35,6 +36,58 @@ import type { Request } from 'express';
  * `THROTTLE_CLIENT_IP_HEADER` names a header deliberately.
  */
 
+/*
+ * ── THE STOREFRONT'S OWN SERVER ─────────────────────────────────────────────────────
+ * The storefront renders pages on its server and reads the public API while doing it. Those
+ * reads used to go out through the public URL, so the edge stamped the STOREFRONT'S address on
+ * every one: all visitors' page renders shared one 120-a-minute budget (measured on PROD,
+ * 2026-11-08: one call per page view, all from Railway's egress), and a busy minute would have
+ * throttled every visitor's render at once.
+ *
+ * They now come over Railway's private network carrying two headers: a shared secret
+ * (`INTERNAL_API_KEY`, server-only on both sides) and the visitor's address as the storefront's
+ * OWN edge gave it. The visitor's address is the rate-limit key ONLY when all of these hold:
+ *
+ *   - the secret is configured here (32+ characters) and the request carries it exactly
+ *     (compared in constant time);
+ *   - the request did NOT come through the public edge: on Railway the edge always sets the
+ *     trusted header (`x-real-ip`), so a request that has it came from the internet, whatever
+ *     else it says;
+ *   - the forwarded value is exactly one IP address.
+ *
+ * Otherwise the headers are ignored and the usual rule applies. Nothing here skips a limit: it
+ * only decides WHOSE budget a request spends, so a visitor who hammers storefront pages runs
+ * out of their own budget, and a request from the internet cannot choose its key.
+ */
+export const INTERNAL_KEY_HEADER = 'x-etg-internal-key';
+export const INTERNAL_CLIENT_IP_HEADER = 'x-etg-client-ip';
+const MIN_INTERNAL_KEY_LENGTH = 32;
+
+/** The configured internal key, or null when unset or too short to be a secret. */
+export function resolveInternalKey(env: { INTERNAL_API_KEY?: string }): string | null {
+  const key = (env.INTERNAL_API_KEY ?? '').trim();
+  return key.length >= MIN_INTERNAL_KEY_LENGTH ? key : null;
+}
+
+/** Constant-time comparison; hashing first makes both sides the same length. */
+function keyMatches(given: unknown, key: string): boolean {
+  if (typeof given !== 'string' || !given) return false;
+  const a = createHash('sha256').update(given).digest();
+  const b = createHash('sha256').update(key).digest();
+  return timingSafeEqual(a, b);
+}
+
+/** The visitor the storefront's server is reading for, when the rules above all hold. */
+function internalVisitor(req: Request, header: string | null, key: string | null): string | null {
+  if (!key || !keyMatches(req.headers[INTERNAL_KEY_HEADER], key)) return null;
+  if (header && req.headers[header] !== undefined) return null; // came through the public edge
+  const value = req.headers[INTERNAL_CLIENT_IP_HEADER];
+  if (typeof value === 'string' && !value.includes(',') && isIP(value.trim())) {
+    return normalise(value);
+  }
+  return null;
+}
+
 /** Value of THROTTLE_CLIENT_IP_HEADER that turns the header off and keeps `req.ip`. */
 const NONE = 'none';
 
@@ -70,7 +123,13 @@ function normalise(ip: string): string {
  * the edge sets exactly one address, so anything else did not come from the edge, and the
  * fallback is the same `req.ip` this platform has always counted on.
  */
-export function clientIpFor(req: Request, header: string | null): string {
+export function clientIpFor(
+  req: Request,
+  header: string | null,
+  internalKey: string | null = null,
+): string {
+  const visitor = internalVisitor(req, header, internalKey);
+  if (visitor) return visitor;
   if (header) {
     const value = req.headers[header];
     if (typeof value === 'string' && !value.includes(',') && isIP(value.trim())) {
@@ -82,8 +141,11 @@ export function clientIpFor(req: Request, header: string | null): string {
 }
 
 /** A `getTracker` for `@nestjs/throttler`, bound to one header decision. */
-export function clientIpTracker(header: string | null): (req: Record<string, unknown>) => string {
-  return (req) => clientIpFor(req as unknown as Request, header);
+export function clientIpTracker(
+  header: string | null,
+  internalKey: string | null = null,
+): (req: Record<string, unknown>) => string {
+  return (req) => clientIpFor(req as unknown as Request, header, internalKey);
 }
 
 /**
@@ -103,5 +165,6 @@ export function requestClientIp(req: Request, env: NodeJS.ProcessEnv = process.e
       THROTTLE_CLIENT_IP_HEADER: env.THROTTLE_CLIENT_IP_HEADER,
       RAILWAY_ENVIRONMENT_ID: env.RAILWAY_ENVIRONMENT_ID,
     }),
+    resolveInternalKey(env),
   );
 }

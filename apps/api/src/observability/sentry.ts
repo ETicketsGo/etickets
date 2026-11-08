@@ -14,6 +14,9 @@ const SCRUBBED_HEADERS = new Set([
   'x-turnstile-token',
   'x-play-integrity-token',
   'x-play-integrity-nonce',
+  // The storefront server's shared secret, and the visitor address it forwards.
+  'x-etg-internal-key',
+  'x-etg-client-ip',
 ]);
 
 /**

@@ -7,7 +7,7 @@
   the pure city-scope rules, so the server renders the visitor's place exactly as the browser
   will.
 */
-export { api, API_URL, apiUrl } from './api';
+export { api, API_URL, apiUrl, setServerApiRoute, type ServerApiRoute } from './api';
 export {
   RUNTIME_CONFIG_HEADERS,
   readServerRuntimeConfig,

@@ -954,6 +954,14 @@ const envSchema = z.object({
   THROTTLE_CLIENT_IP_HEADER: z.string().trim().max(64).optional(),
 
   /*
+    Shared with the storefront's server ONLY (never a NEXT_PUBLIC_ variable). With it, a page
+    render that reaches this API over Railway's private network spends its VISITOR'S rate-limit
+    budget instead of one budget shared by every visitor. Unset (or under 32 characters): that
+    never happens and nothing else changes. Rules: src/common/client-ip.ts.
+  */
+  INTERNAL_API_KEY: z.string().trim().max(256).optional(),
+
+  /*
     The human check (Cloudflare Turnstile) on abuse-prone public routes. OFF unless set: the
     guard is then a pass-through. `adaptive` asks for a token only after a network has made a
     few attempts in a window; `always` asks every time. A switched-on mode with no keys refuses
