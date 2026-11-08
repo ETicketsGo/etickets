@@ -1,5 +1,9 @@
 import { cookies } from 'next/headers';
 import { QueryClient, dehydrate, type DehydratedState } from '@tanstack/react-query';
+import { registerInternalApiRoute } from '@/lib/internal-api';
+
+// Server-side reads go over the private network and spend their visitor's rate-limit budget.
+registerInternalApiRoute();
 
 /** See `prefetchPublic`: set to `off`, the browser fetches every read itself. */
 export const PREFETCH_OFF_COOKIE = 'etg_prefetch';

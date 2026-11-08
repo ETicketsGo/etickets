@@ -1,6 +1,6 @@
 import type { ThrottlerModuleOptions } from '@nestjs/throttler';
 import type { RedisService } from '../redis/redis.service';
-import { clientIpTracker, resolveClientIpHeader } from './client-ip';
+import { clientIpTracker, resolveClientIpHeader, resolveInternalKey } from './client-ip';
 import { RedisThrottlerStorage, throttlerStorageMode } from './redis-throttler.storage';
 
 /**
@@ -57,7 +57,11 @@ export function throttlerOptions(
         limit: Number(env.THROTTLE_LIMIT ?? 120),
       },
     ],
-    getTracker: clientIpTracker(header),
+    // The storefront's server reads for its visitor over the private network (client-ip.ts).
+    getTracker: clientIpTracker(
+      header,
+      resolveInternalKey({ INTERNAL_API_KEY: config.get<string>('INTERNAL_API_KEY') }),
+    ),
     ...(throttlerStorageMode(config) === 'redis'
       ? { storage: new RedisThrottlerStorage(redis, config as never) }
       : {}),

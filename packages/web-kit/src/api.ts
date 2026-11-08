@@ -128,6 +128,36 @@ export function apiUrl(): string {
   return runtimeValue('API_URL', API_URL) ?? API_URL;
 }
 
+/**
+ * Where a SERVER-SIDE read goes, and what it carries: set once by an app's server code
+ * (the storefront: `lib/internal-api.ts`), never in a browser.
+ *
+ * Page renders read the public catalogue. Through the public URL, every visitor's render
+ * reached the API from the app's own address and spent one shared rate-limit budget; the
+ * route this returns sends them over the private network, with the headers the API needs to
+ * count each render against its own visitor (apps/api/src/common/client-ip.ts).
+ *
+ * Only for anonymous GETs: anything signed in or changing state keeps the public path.
+ * Returning null keeps the public path too, as does never setting it (every other app).
+ */
+export type ServerApiRoute = { base: string; headers: Record<string, string> } | null;
+let serverApiRoute: (() => Promise<ServerApiRoute> | ServerApiRoute) | null = null;
+
+export function setServerApiRoute(route: typeof serverApiRoute): void {
+  serverApiRoute = route;
+}
+
+async function serverRouteFor(options: Options, headers: Headers): Promise<ServerApiRoute> {
+  if (typeof window !== 'undefined' || !serverApiRoute) return null;
+  const method = (options.method ?? 'GET').toUpperCase();
+  if (method !== 'GET' || headers.has('authorization')) return null;
+  try {
+    return (await serverApiRoute()) ?? null;
+  } catch {
+    return null; // a route that cannot be worked out is the public path, never a failed read
+  }
+}
+
 const ACCESS_KEY = 'etg_access';
 const REFRESH_KEY = 'etg_refresh';
 
@@ -437,9 +467,11 @@ async function request<T>(path: string, options: Options = {}): Promise<T> {
   // unreachable; any HTTP response — including 4xx/5xx — means it IS reachable (an application
   // error is not a connectivity problem). This drives the offline indicator independently of the
   // sometimes-stale `navigator.onLine`.
+  const route = await serverRouteFor(options, headers);
+  if (route) for (const [name, value] of Object.entries(route.headers)) headers.set(name, value);
   let res: Response;
   try {
-    res = await fetch(`${apiUrl()}${path}`, { ...options, headers });
+    res = await fetch(`${route?.base ?? apiUrl()}${path}`, { ...options, headers });
   } catch (err) {
     markApiUnreachable();
     throw err;
