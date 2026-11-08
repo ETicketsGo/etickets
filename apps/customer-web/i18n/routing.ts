@@ -1,5 +1,5 @@
 import { defineRouting } from 'next-intl/routing';
-import { DEFAULT_LOCALE, LOCALES } from '@eticketsgo/i18n';
+import { DEFAULT_LOCALE, LOCALES } from '@eticketsgo/i18n/locales';
 
 /**
  * How a locale appears in the URL.

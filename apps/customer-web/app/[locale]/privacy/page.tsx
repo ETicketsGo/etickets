@@ -49,7 +49,12 @@ export default async function PrivacyPage({
             <li>Notifications: recipient email, phone, or push tokens.</li>
             <li>
               Location: the city we estimate from your network address, to show what is on near you.
-              We do not use GPS or your device&apos;s precise location.
+              We do not use GPS or your device&apos;s precise location. Country estimates use
+              IP2Location LITE data available from{' '}
+              <a href="https://lite.ip2location.com" rel="noopener noreferrer" target="_blank">
+                https://lite.ip2location.com
+              </a>
+              .
             </li>
           </ul>
           <h2>2. How we use data</h2>

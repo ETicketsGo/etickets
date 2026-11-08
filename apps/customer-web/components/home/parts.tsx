@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
+import * as ReactDOM from 'react-dom';
 import { useTranslations } from 'next-intl';
+
 import {
   BRAND_FOCUS,
   BrandStatusPill,
@@ -21,6 +23,16 @@ import { useReaderZone } from '@/lib/reader-zone';
 import { priceSlot, type Buyability } from '@/lib/home-feed';
 import { useEventPlace } from '@/lib/event-place';
 import { eventKind } from '@/lib/event-kind';
+
+/*
+  React 19's resource hint (the app router runs React 19; this package's types are still 18's).
+  Absent - React 18 under unit tests - it is a no-op.
+*/
+type PreloadImage = (
+  href: string,
+  options: { as: 'image'; fetchPriority?: 'high'; imageSrcSet?: string; imageSizes?: string },
+) => void;
+const preload = (ReactDOM as unknown as { preload?: PreloadImage }).preload ?? (() => undefined);
 
 /*
   ── THE HOME PAGE'S PIECES (docs/design/DESIGN-SYSTEM.md) ─────────────────────────────
@@ -463,6 +475,20 @@ export function StageHero({ event }: { event: PublicEventCard }) {
   const image = cardImage(event, 'banner');
   const [failed, setFailed] = useState(false);
   const today = isTodayAt(event.nextSessionAt, eventZone(event));
+  /*
+    The hero photo is the page's largest paint on every screen size. Declared here, React puts
+    `<link rel="preload" as="image">` in the server-rendered <head>, so the phone starts it
+    with the first bytes instead of after the body and its scripts (Lighthouse, QA 2026-11-08:
+    3.0-3.3 s of the 5.3 s mobile LCP was the photo waiting to be discovered). Same URL set as
+    the <img>, so it is one download, not two.
+  */
+  if (image && !failed) {
+    preload(image.src, {
+      as: 'image',
+      fetchPriority: 'high',
+      ...(image.srcSet ? { imageSrcSet: image.srcSet, imageSizes: '100vw' } : {}),
+    });
+  }
   return (
     <section
       data-brand-tone="stage"

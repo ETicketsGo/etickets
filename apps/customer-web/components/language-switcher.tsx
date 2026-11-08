@@ -1,7 +1,9 @@
 'use client';
 
 import { useLocale, useTranslations } from 'next-intl';
-import { LOCALES, LOCALE_LABEL, type Locale } from '@eticketsgo/i18n';
+// The locale list only: the package root also holds every message catalogue (both languages,
+// storefront and email), which this client component would otherwise ship to every page.
+import { LOCALES, LOCALE_LABEL, type Locale } from '@eticketsgo/i18n/locales';
 import { BRAND_FOCUS } from '@eticketsgo/web-kit';
 import { usePathname, useRouter } from '@/i18n/navigation';
 

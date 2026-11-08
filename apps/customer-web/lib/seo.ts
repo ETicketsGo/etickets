@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { DEFAULT_LOCALE, LOCALES, type Locale } from '@eticketsgo/i18n';
+import { DEFAULT_LOCALE, LOCALES, type Locale } from '@eticketsgo/i18n/locales';
 import { isIndexableDeployment } from './indexability.mjs';
 import { TITLE_TEMPLATE } from './page-title';
 

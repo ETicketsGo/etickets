@@ -47,6 +47,15 @@ const nextConfig = {
     `generateMetadata`, which reads a cached API answer.
   */
   htmlLimitedBots: /.*/,
+  /*
+    The kit's root re-exports every module it has; without this the home page shipped the
+    sign-in guard, the seat map and the back-office table with it (PROD Lighthouse 2026-11-08).
+  */
+  experimental: {
+    optimizePackageImports: ['@eticketsgo/web-kit'],
+  },
+  // The country table is loaded with Node's own require (it manages its own module cache).
+  serverExternalPackages: ['ip3country'],
   async headers() {
     return [
       {
