@@ -9,6 +9,7 @@ import {
 import { RECENT_COOKIE, parseRecentIds } from '@/lib/recent';
 import { READER_ZONE_COOKIE, validZone } from '@/lib/reader-zone-cookie';
 import { firstVisitCountry } from '@/lib/first-visit-location';
+import { countryForAddress } from '@/lib/address-country';
 import { PREFETCH_OFF_COOKIE } from '@/lib/prefetch';
 
 /**
@@ -46,11 +47,15 @@ export const serverCitySeed = cache(async (): Promise<CitySeed> => {
     market: store.get(MARKET_COOKIE)?.value,
   });
   /*
-    A first visit (no cookie says where): the edge's country, when there is one the browser is
-    certain to be given too (`lib/first-visit-location.ts`). `etg_prefetch=off` leaves it to the
+    A first visit (no cookie says where): the edge's country, else the country of the visitor's
+    network address (`lib/first-visit-location.ts`); the browser still checks it. `etg_prefetch=off` leaves it to the
     browser, like every other read, for journeys that stand in for the API there.
   */
   if (seed.ready || store.get(PREFETCH_OFF_COOKIE)?.value === 'off') return seed;
-  const country = firstVisitCountry(await headers());
+  const country = firstVisitCountry(await headers(), {
+    countryFor: countryForAddress,
+    // Railway's edge sets x-real-ip (and overwrites a visitor's own); nowhere else is it known.
+    trustRealIp: Boolean(process.env.RAILWAY_ENVIRONMENT_ID?.trim()),
+  });
   return country ? { ...seed, country, ready: true } : seed;
 });

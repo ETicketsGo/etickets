@@ -22,8 +22,8 @@
  * address, and an edge in front of the API would stamp the SERVER's country on it.
  *
  * With an edge CITY header the API may map the city to another country, so that case is left
- * to the browser. Railway sets none of these today; then this returns null and the page keeps
- * its placeholder, whose height is held (`components/discover-home.tsx`).
+ * to the browser. Railway sets none of these today; then the network address is used instead
+ * (see `firstVisitCountry`).
  */
 const EDGE_COUNTRY_HEADERS = ['cf-ipcountry', 'x-vercel-ip-country', 'x-appengine-country'];
 const EDGE_CITY_HEADERS = ['cf-ipcity', 'x-vercel-ip-city'];
@@ -37,9 +37,42 @@ function edgeValue(headers: Pick<Headers, 'get'>, names: string[]): string | nul
   return null;
 }
 
-/** The scope country the API will resolve for this visitor, when certain; otherwise null. */
-export function firstVisitCountry(headers: Pick<Headers, 'get'>): string | null {
+/**
+ * How the address fallback is wired: the lookup, and whether `x-real-ip` can be believed.
+ * Only Railway's edge is known to set it (and to overwrite a visitor's own); anywhere else a
+ * client could name any address, so the fallback is off.
+ */
+export interface AddressFallback {
+  countryFor: (address: string) => string | null;
+  trustRealIp: boolean;
+}
+
+/**
+ * The scope country to draw a first visit for, or null to keep asking the browser.
+ *
+ * ── THE ADDRESS FALLBACK (owner decision, 2026-11-08) ──────────────────────────────
+ * With no edge header (Railway sets none) the first visit used to be drawn as a placeholder
+ * until the browser had worked out its country and fetched the events: on a phone that was
+ * 4.9 s (PROD, empty) to 6.0 s (QA, with events) before the main content appeared in
+ * Lighthouse. Now the visitor's network address (`x-real-ip`, set by Railway's edge) is
+ * looked up in a local country table and the page is drawn for that country.
+ *
+ * This is a first guess, not an answer: the browser still asks with its own region on every
+ * first visit, and where it disagrees (a VPN, a traveller) the page moves to the browser's
+ * answer, with its height held so nothing below jumps (`settledLate` in discover-home). For
+ * everybody else - the address and the device agree - the first paint is the finished page.
+ * A guess only decides what is drawn first; it never gates access or changes a price.
+ */
+export function firstVisitCountry(
+  headers: Pick<Headers, 'get'>,
+  fallback?: AddressFallback,
+): string | null {
   if (edgeValue(headers, EDGE_CITY_HEADERS)) return null;
   const country = edgeValue(headers, EDGE_COUNTRY_HEADERS)?.toUpperCase();
-  return country && /^[A-Z]{2}$/.test(country) ? country : null;
+  if (country) return /^[A-Z]{2}$/.test(country) ? country : null;
+  if (!fallback?.trustRealIp) return null;
+  const address = headers.get('x-real-ip')?.trim();
+  if (!address || address.includes(',')) return null;
+  const fromAddress = fallback.countryFor(address)?.toUpperCase() ?? null;
+  return fromAddress && /^[A-Z]{2}$/.test(fromAddress) ? fromAddress : null;
 }

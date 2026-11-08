@@ -1,5 +1,5 @@
 import type { MetadataRoute } from 'next';
-import { LOCALES, DEFAULT_LOCALE } from '@eticketsgo/i18n';
+import { LOCALES, DEFAULT_LOCALE } from '@eticketsgo/i18n/locales';
 
 /**
  * Paths that are somebody's own account, purchase or link. The pages also say noindex; this
