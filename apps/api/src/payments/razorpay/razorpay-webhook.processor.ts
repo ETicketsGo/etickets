@@ -373,21 +373,34 @@ export class RazorpayWebhookProcessor {
         })
       : null;
     const organizerShare = organizerShareOfProviderRefund(delta, ownRow ? [ownRow] : [], payment);
-    await this.prisma.payment.update({
-      where: { id: payment.id },
-      data: {
-        refundedMinor: cappedTotal,
-        status:
-          cappedTotal >= payment.amountMinor
-            ? PaymentStatus.REFUNDED
-            : PaymentStatus.PARTIALLY_REFUNDED,
-      },
+    /*
+      AR-54: refundedMinor and the settlement debit commit together or not at all, and the
+      payment write is a compare-and-set on the refundedMinor this delta was computed from. Of two
+      deliveries racing on the same payment only one can move it, so the settlement is debited
+      once. The loser throws rather than returning, so the event is retried: a duplicate of the
+      same refund then stops at the sibling check above, and a different refund is added on top
+      of the committed total. The transfer reversal calls the provider, so it runs after commit.
+    */
+    const eventId = payment.booking.eventId;
+    const recorded = await this.prisma.$transaction(async (tx) => {
+      const claim = await tx.payment.updateMany({
+        where: { id: payment.id, refundedMinor: payment.refundedMinor },
+        data: {
+          refundedMinor: cappedTotal,
+          status:
+            cappedTotal >= payment.amountMinor
+              ? PaymentStatus.REFUNDED
+              : PaymentStatus.PARTIALLY_REFUNDED,
+        },
+      });
+      if (claim.count !== 1) {
+        throw new Error(
+          `Payment ${payment.id} refundedMinor changed while refund ${refund.id ?? '(no id)'} was applied; retrying.`,
+        );
+      }
+      return this.settlements.recordRefund(tx, eventId, refund.currency ?? 'inr', organizerShare);
     });
-    await this.settlements.applyRefund(
-      payment.booking.eventId,
-      refund.currency ?? 'inr',
-      organizerShare,
-    );
+    await this.settlements.reverseRecordedRefund(recorded);
     return 'processed';
   }
 

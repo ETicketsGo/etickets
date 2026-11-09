@@ -309,21 +309,34 @@ export class StripeWebhookProcessor {
     }
     const organizerShare = organizerShareOfProviderRefund(delta, ownRows, payment);
 
-    await this.prisma.payment.update({
-      where: { id: payment.id },
-      data: {
-        refundedMinor: totalRefunded,
-        status:
-          totalRefunded >= payment.amountMinor
-            ? PaymentStatus.REFUNDED
-            : PaymentStatus.PARTIALLY_REFUNDED,
-      },
+    /*
+      AR-54: refundedMinor and the settlement debit commit together or not at all, and the
+      payment write is a compare-and-set on the refundedMinor this delta was computed from. Two
+      concurrent deliveries both read the old value; only one can move it, so the settlement is
+      debited once. The loser throws rather than returning, so the event is retried and recomputes
+      its delta from the committed total (zero for a duplicate, the remainder for a larger one).
+      The transfer reversal calls the provider, so it runs only after the commit.
+    */
+    const eventId = payment.booking.eventId;
+    const recorded = await this.prisma.$transaction(async (tx) => {
+      const claim = await tx.payment.updateMany({
+        where: { id: payment.id, refundedMinor: payment.refundedMinor },
+        data: {
+          refundedMinor: totalRefunded,
+          status:
+            totalRefunded >= payment.amountMinor
+              ? PaymentStatus.REFUNDED
+              : PaymentStatus.PARTIALLY_REFUNDED,
+        },
+      });
+      if (claim.count !== 1) {
+        throw new Error(
+          `Payment ${payment.id} refundedMinor changed while charge ${charge.id} was applied; retrying.`,
+        );
+      }
+      return this.settlements.recordRefund(tx, eventId, charge.currency ?? 'usd', organizerShare);
     });
-    await this.settlements.applyRefund(
-      payment.booking.eventId,
-      charge.currency ?? 'usd',
-      organizerShare,
-    );
+    await this.settlements.reverseRecordedRefund(recorded);
     return 'processed';
   }
 
