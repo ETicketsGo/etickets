@@ -89,6 +89,7 @@ function documentAmounts(d: ReceiptDocument): number[] {
     d.totals.taxMinor,
     d.totals.totalMinor,
     ...(d.taxLines ?? []).flatMap((l) => [l.amountMinor, l.baseMinor]),
+    ...(d.platformFee ? [d.platformFee.feeMinor, d.platformFee.totalMinor] : []),
   ];
 }
 
@@ -231,28 +232,43 @@ export function renderReceiptHtml(d: ReceiptDocument, localeInput?: string): str
   };
 
   const included = resolveInclusiveLines(d);
-  const addedLines = d.taxLines.filter((_, i) => !included[i]);
-  const includedLines = d.taxLines.filter((_, i) => included[i]);
+  /*
+    ── THE PLATFORM FEE IS NOT THE ORGANIZER'S SUPPLY (AR-57) ─────────────────────────
+    A document with a platform-fee section prints the fee and its tax there, under the
+    platform's company, and the organizer's rows leave the fee tax out. In the organizer's
+    table the fee appears once, tax included, so the column still foots to the total.
+    A document without the section (tax off, or issued before it existed) renders exactly as
+    it always did.
+  */
+  const pf = d.platformFee;
+  const isOrganizerLine = (line: ReceiptDocument['taxLines'][number]) =>
+    !pf || line.basis !== 'FEES';
+  const addedLines = d.taxLines.filter((l, i) => !included[i] && isOrganizerLine(l));
+  const includedLines = d.taxLines.filter((l, i) => included[i] && isOrganizerLine(l));
+  const pfAddedLines = pf ? d.taxLines.filter((l, i) => !included[i] && !isOrganizerLine(l)) : [];
+  const pfIncludedLines = pf ? d.taxLines.filter((l, i) => included[i] && !isOrganizerLine(l)) : [];
 
-  const exclusiveTaxRows = addedLines
-    // `line`, not `t` — `t` is the translator in this scope.
-    .map(
-      (line) =>
-        `<tr><th colspan="3">${esc(
-          t(
-            locale,
-            line.basis === 'FEES'
-              ? 'documents.receipt.taxAddedOnFees'
-              : 'documents.receipt.taxAdded',
-            {
-              label: taxName(line.label),
-              rate: formatRate(line.rateBasisPoints),
-              base: money(line.baseMinor),
-            },
-          ),
-        )}</th><td class="num">${money(line.amountMinor)}</td></tr>`,
-    )
-    .join('');
+  const exclusiveRows = (rows: ReceiptDocument['taxLines']) =>
+    rows
+      // `line`, not `t` — `t` is the translator in this scope.
+      .map(
+        (line) =>
+          `<tr><th colspan="3">${esc(
+            t(
+              locale,
+              line.basis === 'FEES'
+                ? 'documents.receipt.taxAddedOnFees'
+                : 'documents.receipt.taxAdded',
+              {
+                label: taxName(line.label),
+                rate: formatRate(line.rateBasisPoints),
+                base: money(line.baseMinor),
+              },
+            ),
+          )}</th><td class="num">${money(line.amountMinor)}</td></tr>`,
+      )
+      .join('');
+  const exclusiveTaxRows = exclusiveRows(addedLines);
 
   /*
     Below the total, and labelled as already in it.
@@ -261,24 +277,26 @@ export function renderReceiptHtml(d: ReceiptDocument, localeInput?: string): str
     while making it unambiguous that they are a breakdown of the number above, not an addition
     to it — which is exactly how an Indian ticket receipt reads.
   */
-  const inclusiveTaxRows = includedLines
-    .map(
-      (line) =>
-        `<tr class="incl"><th colspan="3">${esc(
-          t(
-            locale,
-            line.basis === 'TICKETS'
-              ? 'documents.receipt.taxIncludedInTickets'
-              : 'documents.receipt.taxIncluded',
-            {
-              label: taxName(line.label),
-              rate: formatRate(line.rateBasisPoints),
-              base: money(line.baseMinor),
-            },
-          ),
-        )}</th><td class="num">${money(line.amountMinor)}</td></tr>`,
-    )
-    .join('');
+  const inclusiveRows = (rows: ReceiptDocument['taxLines']) =>
+    rows
+      .map(
+        (line) =>
+          `<tr class="incl"><th colspan="3">${esc(
+            t(
+              locale,
+              line.basis === 'TICKETS'
+                ? 'documents.receipt.taxIncludedInTickets'
+                : 'documents.receipt.taxIncluded',
+              {
+                label: taxName(line.label),
+                rate: formatRate(line.rateBasisPoints),
+                base: money(line.baseMinor),
+              },
+            ),
+          )}</th><td class="num">${money(line.amountMinor)}</td></tr>`,
+      )
+      .join('');
+  const inclusiveTaxRows = inclusiveRows(includedLines);
 
   /*
     One number for "how much tax is in what I paid" -- the question the separate rows above and
@@ -288,9 +306,54 @@ export function renderReceiptHtml(d: ReceiptDocument, localeInput?: string): str
   const taxTotalRow =
     addedLines.length > 0 && includedLines.length > 0
       ? `<tr class="incl total-tax"><th colspan="3">${label('taxTotal')}</th><td class="num">${money(
-          d.taxLines.reduce((sum, line) => sum + line.amountMinor, 0),
+          [...addedLines, ...includedLines].reduce((sum, line) => sum + line.amountMinor, 0),
         )}</td></tr>`
       : '';
+
+  /*
+    The fee rows: itemised when the parts are known and foot exactly, one line when they are not.
+
+    The receipt used to print the whole customer fee under the label "Booking fee", which was
+    the wrong name for it: on a ₹2,999 ticket that single line said ₹80.38 when the booking fee
+    was ₹20 and the rest was payment processing. A buyer comparing the receipt against the
+    checkout screen — where the two were listed separately — found three different
+    presentations of the same money across three screens.
+
+    Payment processing first, then the platform's own fee — the order the checkout shows them
+    in, so the receipt reads line for line against what was agreed to.
+  */
+  const feeRows = (feeMinor: number) =>
+    d.feeParts &&
+    d.feeParts.bookingFeeMinor + d.feeParts.paymentFeeMinor === feeMinor &&
+    feeMinor !== 0
+      ? `${
+          d.feeParts.paymentFeeMinor !== 0
+            ? totalRow(label('paymentFee'), d.feeParts.paymentFeeMinor)
+            : ''
+        }${d.feeParts.bookingFeeMinor !== 0 ? totalRow(label('bookingFee'), d.feeParts.bookingFeeMinor) : ''}`
+      : feeMinor !== 0
+        ? // Parts unknown or not footing: the two together, named as the two together.
+          totalRow(label('fees'), feeMinor)
+        : '';
+
+  const platformFeeSection = pf
+    ? `<section class="platform-fee">
+    <div class="label">${esc(t(locale, 'documents.receipt.platformFeeSeller', { entity: pf.seller.legalName }))}</div>
+    ${
+      pf.seller.taxRegistrationNumber
+        ? `<div class="reg">${label('taxRegistration')}: <strong>${esc(pf.seller.taxRegistrationNumber)}</strong></div>`
+        : ''
+    }
+    <table>
+      <tfoot>
+        ${feeRows(pf.feeMinor)}
+        ${exclusiveRows(pfAddedLines)}
+        ${totalRow(label('platformFeeTotal'), pf.totalMinor, 'grand')}
+        ${inclusiveRows(pfIncludedLines)}
+      </tfoot>
+    </table>
+  </section>`
+    : '';
 
   const notes = d.notes.map((n) => `<li>${esc(n)}</li>`).join('');
 
@@ -388,31 +451,13 @@ export function renderReceiptHtml(d: ReceiptDocument, localeInput?: string): str
       ${totalRow(label('subtotal'), d.totals.subtotalMinor)}
       ${d.totals.discountMinor !== 0 ? totalRow(label('discount'), -Math.abs(d.totals.discountMinor)) : ''}
       ${
-        /*
-          Itemised when the parts are known and foot exactly, one line when they are not.
-
-          The receipt used to print the whole customer fee under the label "Booking fee",
-          which was the wrong name for it: on a ₹2,999 ticket that single line said ₹80.38
-          when the booking fee was ₹20 and the rest was payment processing. A buyer comparing
-          the receipt against the checkout screen — where the two were listed separately —
-          found three different presentations of the same money across three screens.
-        */
-        d.feeParts &&
-        d.feeParts.bookingFeeMinor + d.feeParts.paymentFeeMinor === d.totals.feeMinor &&
-        d.totals.feeMinor !== 0
-          ? /*
-              Payment processing first, then the platform's own fee — the order the checkout
-              shows them in, so the receipt reads line for line against what was agreed to.
-            */
-            `${
-              d.feeParts.paymentFeeMinor !== 0
-                ? totalRow(label('paymentFee'), d.feeParts.paymentFeeMinor)
-                : ''
-            }${d.feeParts.bookingFeeMinor !== 0 ? totalRow(label('bookingFee'), d.feeParts.bookingFeeMinor) : ''}`
-          : d.totals.feeMinor !== 0
-            ? // Parts unknown or not footing: the two together, named as the two together.
-              totalRow(label('fees'), d.totals.feeMinor)
-            : ''
+        pf
+          ? // The platform's fee, tax included, as one row; itemised in its own section below.
+            totalRow(
+              t(locale, 'documents.receipt.platformFeeCharged', { entity: pf.seller.legalName }),
+              pf.totalMinor,
+            )
+          : feeRows(d.totals.feeMinor)
       }
       ${exclusiveTaxRows}
       ${totalRow(
@@ -424,6 +469,8 @@ export function renderReceiptHtml(d: ReceiptDocument, localeInput?: string): str
       ${taxTotalRow}
     </tfoot>
   </table>
+
+  ${platformFeeSection}
 
   ${d.reason ? `<p class="muted">Reason: ${esc(d.reason)}</p>` : ''}
   ${notes ? `<ul class="notes">${notes}</ul>` : ''}

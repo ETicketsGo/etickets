@@ -29,6 +29,9 @@
     "taxTotal": "Total des taxes de cette commande",
     "taxIncludedNote": "La taxe indiquée est déjà comprise dans le total ci-dessus.",
     "paymentFee": "Frais de traitement du paiement",
+    "platformFeeCharged": "Frais de service, taxes incluses, facturés par {entity}",
+    "platformFeeSeller": "Frais de service facturés par {entity}",
+    "platformFeeTotal": "Total des frais de service",
     "taxName": {
       "IGST": "GST intégrée (IGST)",
       "CGST": "GST centrale (CGST)",

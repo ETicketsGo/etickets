@@ -6,7 +6,7 @@
  * with no I/O in it.
  */
 
-import { issuesTaxInvoices, type DocumentOperator } from '@eticketsgo/shared-types';
+import { LEGAL_ENTITIES, issuesTaxInvoices, type DocumentOperator } from '@eticketsgo/shared-types';
 
 export const RECEIPT_DOCUMENT_VERSION = 1;
 
@@ -92,6 +92,68 @@ export interface ReceiptFeeParts {
   paymentFeeMinor: number;
 }
 
+/**
+ * The platform fee, and the tax on it, as the PLATFORM's supply rather than the organizer's.
+ *
+ * ── WHY A SECTION OF ITS OWN ───────────────────────────────────────────────────────
+ * The document's `seller` is the organizer: they sold the ticket. The booking and payment
+ * fees are a different supply by a different company - the DeepTrics entity that operates
+ * ETicketsGo - and so is the tax levied on them (`basis: 'FEES'`). Printing that tax among
+ * the organizer's lines put GST the organizer never charged, and does not owe, under the
+ * organizer's name and registration (AR-57). This section names the platform as the seller
+ * of the fee and carries the fee's own tax lines.
+ *
+ * ── WHAT DID NOT MOVE ──────────────────────────────────────────────────────────────
+ * `taxLines` and `totals` still describe the whole order: they are what the buyer paid, what
+ * the Receipt row's money columns hold, and what the tax report sums. This section is the
+ * attribution of part of that money, not new money.
+ *
+ * Present only when the order carries tax on its fee. With no fee tax there is nothing
+ * misattributed, so a document issued with tax off is exactly what it was before this.
+ */
+export interface ReceiptPlatformFee {
+  /** The platform's operating company, frozen at issue like `operator`. */
+  seller: {
+    legalName: string;
+    country: string;
+    /** The entity's GSTIN or equivalent, when the registry records one. */
+    taxRegistrationNumber: string | null;
+  };
+  /** The fee the customer bears, as in `totals.feeMinor`. Negative on a credit note. */
+  feeMinor: number;
+  /** The tax lines levied on the fee: the `basis: 'FEES'` lines of `taxLines`. */
+  taxLines: ReceiptTaxLine[];
+  /** Fee plus the fee tax ADDED to it: what the fee cost the buyer. Negative on a credit note. */
+  totalMinor: number;
+}
+
+/**
+ * The platform-fee section for a document, or undefined when the fee carries no tax.
+ *
+ * Pure, so the sale document and both kinds of credit note build it the same way.
+ */
+export function platformFeeSection(
+  taxLines: readonly ReceiptTaxLine[],
+  feeMinor: number,
+  operator: DocumentOperator | undefined,
+): ReceiptPlatformFee | undefined {
+  const feeTaxLines = taxLines.filter((l) => l.basis === 'FEES');
+  if (feeTaxLines.length === 0 || !operator) return undefined;
+  const addedFeeTaxMinor = feeTaxLines
+    .filter((l) => l.inclusive !== true)
+    .reduce((sum, l) => sum + l.amountMinor, 0);
+  return {
+    seller: {
+      legalName: operator.legalName,
+      country: operator.country,
+      taxRegistrationNumber: LEGAL_ENTITIES[operator.country]?.taxId ?? null,
+    },
+    feeMinor,
+    taxLines: feeTaxLines,
+    totalMinor: feeMinor + addedFeeTaxMinor,
+  };
+}
+
 export interface ReceiptDocument {
   version: number;
   kind: ReceiptKindName;
@@ -125,6 +187,11 @@ export interface ReceiptDocument {
    * keep rendering exactly as they were issued: the field is never back-filled.
    */
   operator?: DocumentOperator;
+  /**
+   * The platform fee and its tax, attributed to the platform as their seller. Absent when the
+   * fee carries no tax, and on every document issued before AR-57.
+   */
+  platformFee?: ReceiptPlatformFee;
 }
 
 export interface BuildReceiptInput {
@@ -143,6 +210,7 @@ export interface BuildReceiptInput {
   reverses?: { number: string; issuedAt: Date } | null;
   reason?: string | null;
   operator?: DocumentOperator;
+  platformFee?: ReceiptPlatformFee;
 }
 
 /**
@@ -222,6 +290,8 @@ export function buildReceiptDocument(input: BuildReceiptInput): ReceiptDocument 
       : null,
     reason: input.reason ?? null,
     ...(input.operator ? { operator: input.operator } : {}),
+    // Only when present, so a document with no fee tax is byte-for-byte what it was.
+    ...(input.platformFee ? { platformFee: input.platformFee } : {}),
   };
 }
 

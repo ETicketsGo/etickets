@@ -7,6 +7,7 @@ import { documentOperator, type DocumentOperator } from '@eticketsgo/shared-type
 import {
   buildReceiptDocument,
   negateTotals,
+  platformFeeSection,
   resolveSaleKind,
   type ReceiptDocument,
   type ReceiptKindName,
@@ -137,6 +138,24 @@ export class ReceiptsService {
       totalMinor: booking.totalMinor,
     };
 
+    const taxLines: ReceiptTaxLine[] = booking.taxLines.map((t) => ({
+      label: t.label,
+      rateBasisPoints: t.rateBasisPoints,
+      baseMinor: t.baseMinor,
+      amountMinor: t.amountMinor,
+      basis: (t.basis as ReceiptTaxLine['basis']) ?? null,
+      inclusive: t.inclusive ?? null,
+    }));
+    /*
+      The platform's company for this sale: where it happened, then the currency the payment
+      routing took it in. Frozen on the document; a later change to the registry does not
+      reach a receipt already issued.
+    */
+    const operator = documentOperator({
+      transactionCountry: booking.event?.venue?.country ?? null,
+      currency: booking.currency,
+    });
+
     const document = buildReceiptDocument({
       kind,
       number,
@@ -154,24 +173,15 @@ export class ReceiptsService {
           : null,
       },
       lines,
-      taxLines: booking.taxLines.map((t) => ({
-        label: t.label,
-        rateBasisPoints: t.rateBasisPoints,
-        baseMinor: t.baseMinor,
-        amountMinor: t.amountMinor,
-        basis: (t.basis as ReceiptTaxLine['basis']) ?? null,
-        inclusive: t.inclusive ?? null,
-      })),
+      taxLines,
       totals,
+      operator,
       /*
-        The platform's company for this sale: where it happened, then the currency the payment
-        routing took it in. Frozen on the document; a later change to the registry does not
-        reach a receipt already issued.
+        The fee and the tax on it are the platform's supply, not the organizer's (AR-57): the
+        fee GST is attributed to the operator above, never printed as the organizer's tax.
+        Absent when the fee carries no tax, so a tax-off receipt is unchanged.
       */
-      operator: documentOperator({
-        transactionCountry: booking.event?.venue?.country ?? null,
-        currency: booking.currency,
-      }),
+      platformFee: platformFeeSection(taxLines, booking.customerFeeMinor, operator),
       /*
         Itemised only when the customer bears the whole fee, so the parts always foot to the
         line above them. See ReceiptFeeParts for why this is conditional.
@@ -238,8 +248,10 @@ export class ReceiptsService {
       time and could print a tax figure that does not match the one actually returned — on a
       document a tax authority may read.
 
-      `feeMinor` is zero because platform fees are not refunded: the credit note states what
-      moved, and no fee moved.
+      `feeMinor` is the platform fee that went back, `platformFeeRefundedMinor`: zero for a
+      buyer's own refund (fees are not refunded, and the credit note states what moved), and
+      the whole customer fee when the show was cancelled. It used to be zero always, so a
+      cancellation's returned fee was booked as ticket value (AR-57).
     */
     const taxMinor = refund.taxMinor ?? 0;
 
@@ -291,17 +303,41 @@ export class ReceiptsService {
           )
         : null;
     const addedTaxMinor = perLine ? perLine.addedMinor : taxMinor;
+    /*
+      The fee that went back, set by the refund service as what is left of the amount after
+      the tickets and the tax added to them - so the ticket value below is exactly the
+      tickets, and the three parts foot to the amount returned.
+    */
+    const feeRefundedMinor = Math.max(0, refund.platformFeeRefundedMinor ?? 0);
 
     const positive: ReceiptTotals = {
-      subtotalMinor: refund.amountMinor - addedTaxMinor,
+      subtotalMinor: refund.amountMinor - addedTaxMinor - feeRefundedMinor,
       discountMinor: 0,
-      feeMinor: 0,
+      feeMinor: feeRefundedMinor,
       taxMinor,
       totalMinor: refund.amountMinor,
     };
     const totals = negateTotals(positive);
     /** Share of each original tax line being reversed, for a refund that names no tickets. */
     const taxShare = booking.taxMinor > 0 ? taxMinor / booking.taxMinor : 0;
+    const creditTaxLines: ReceiptTaxLine[] = perLine
+      ? perLine.lines.map((t) => ({
+          label: t.label,
+          rateBasisPoints: t.rateBasisPoints,
+          baseMinor: -t.baseMinor,
+          amountMinor: -t.amountMinor,
+          basis: (t.basis as ReceiptTaxLine['basis']) ?? null,
+          inclusive: t.inclusive,
+        }))
+      : booking.taxLines.map((t) => ({
+          label: t.label,
+          rateBasisPoints: t.rateBasisPoints,
+          baseMinor: -Math.round(t.baseMinor * taxShare),
+          amountMinor: -Math.round(t.amountMinor * taxShare),
+          basis: (t.basis as ReceiptTaxLine['basis']) ?? null,
+          inclusive: t.inclusive ?? null,
+        }));
+    const operator = reversalOperator(sale?.documentJson, booking.currency);
 
     const document = buildReceiptDocument({
       kind: 'CREDIT_NOTE',
@@ -319,33 +355,24 @@ export class ReceiptsService {
       },
       lines: [
         {
+          /*
+            The ticket value returned, which is the subtotal: never the fee that went back with
+            it (that is `totals.feeMinor` and the platform-fee section) nor tax added on top.
+            With no fee returned and no added tax - every refund while tax is off and the show
+            is on - this is the whole amount, exactly as before.
+          */
           description: `Refund of ${booking.reference ?? booking.id}`,
           quantity: 1,
-          unitPriceMinor: -refund.amountMinor,
-          lineTotalMinor: -refund.amountMinor,
+          unitPriceMinor: -positive.subtotalMinor,
+          lineTotalMinor: -positive.subtotalMinor,
         },
       ],
-      taxLines: perLine
-        ? perLine.lines.map((t) => ({
-            label: t.label,
-            rateBasisPoints: t.rateBasisPoints,
-            baseMinor: -t.baseMinor,
-            amountMinor: -t.amountMinor,
-            basis: (t.basis as ReceiptTaxLine['basis']) ?? null,
-            inclusive: t.inclusive,
-          }))
-        : booking.taxLines.map((t) => ({
-            label: t.label,
-            rateBasisPoints: t.rateBasisPoints,
-            baseMinor: -Math.round(t.baseMinor * taxShare),
-            amountMinor: -Math.round(t.amountMinor * taxShare),
-            basis: (t.basis as ReceiptTaxLine['basis']) ?? null,
-            inclusive: t.inclusive ?? null,
-          })),
+      taxLines: creditTaxLines,
       totals,
       reverses: sale ? { number: sale.number, issuedAt: sale.issuedAt } : null,
       reason: refund.reason,
-      operator: reversalOperator(sale?.documentJson, booking.currency),
+      operator,
+      platformFee: platformFeeSection(creditTaxLines, totals.feeMinor, operator),
     });
 
     await tx.receipt.create({
@@ -433,6 +460,16 @@ export class ReceiptsService {
       totalMinor: sale.totalMinor,
     });
 
+    const cancelTaxLines: ReceiptTaxLine[] = (saleDoc?.taxLines ?? []).map((t) => ({
+      label: t.label,
+      rateBasisPoints: t.rateBasisPoints,
+      baseMinor: -t.baseMinor,
+      amountMinor: -t.amountMinor,
+      basis: t.basis ?? null,
+      inclusive: t.inclusive ?? null,
+    }));
+    const operator = reversalOperator(sale.documentJson, sale.currency);
+
     const document = buildReceiptDocument({
       kind: 'CREDIT_NOTE',
       number,
@@ -455,14 +492,7 @@ export class ReceiptsService {
           lineTotalMinor: -netOfDiscount,
         },
       ],
-      taxLines: (saleDoc?.taxLines ?? []).map((t) => ({
-        label: t.label,
-        rateBasisPoints: t.rateBasisPoints,
-        baseMinor: -t.baseMinor,
-        amountMinor: -t.amountMinor,
-        basis: t.basis ?? null,
-        inclusive: t.inclusive ?? null,
-      })),
+      taxLines: cancelTaxLines,
       totals,
       feeParts: saleDoc?.feeParts
         ? {
@@ -471,7 +501,9 @@ export class ReceiptsService {
           }
         : undefined,
       reverses: { number: sale.number, issuedAt: sale.issuedAt },
-      operator: reversalOperator(sale.documentJson, sale.currency),
+      operator,
+      // The platform's part reversed under the platform's name, as the sale attributed it.
+      platformFee: platformFeeSection(cancelTaxLines, totals.feeMinor, operator),
       reason,
     });
 
