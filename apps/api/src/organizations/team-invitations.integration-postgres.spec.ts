@@ -156,6 +156,24 @@ describe('integration-real-postgres: team invitations', () => {
     await db.$disconnect();
   }, 120_000);
 
+  /** A back-office super admin to invite staff as; created once, removed with the suffix. */
+  let superAdminActor: { id: string; email: string; fullName: string; roles: string[] } | null =
+    null;
+  const superAdmin = async (): Promise<never> => {
+    if (!superAdminActor) {
+      const row = await db!.user.create({
+        data: {
+          email: `boss-${suffix}@test.invalid`,
+          fullName: 'Boss',
+          passwordHash: 'x',
+          roles: ['ADMIN', 'SUPER_ADMIN'],
+        },
+      });
+      superAdminActor = { id: row.id, email: row.email, fullName: 'Boss', roles: row.roles };
+    }
+    return superAdminActor as never;
+  };
+
   const maybe = (name: string, fn: () => Promise<void>, timeout?: number) =>
     it(
       name,
@@ -391,7 +409,9 @@ describe('integration-real-postgres: team invitations', () => {
       const email = `backoffice-${suffix}@test.invalid`;
       const staff = new AdminStaffService(db as never, noAudit, orgs);
 
-      const invited = await staff.inviteStaff(owner as never, email, [
+      // Invited BY a super admin: since AR-53 an account may only hand out duties it holds, and
+      // the organizer owner used before holds none.
+      const invited = await staff.inviteStaff(await superAdmin(), email, [
         AdminPermission.EVENT_REVIEW,
       ]);
       /*
@@ -446,7 +466,7 @@ describe('integration-real-postgres: team invitations', () => {
       */
       const staff = new AdminStaffService(db as never, noAudit, orgs);
       await expect(
-        staff.inviteStaff(owner as never, owner.email, [AdminPermission.EVENT_REVIEW]),
+        staff.inviteStaff(await superAdmin(), owner.email, [AdminPermission.EVENT_REVIEW]),
       ).rejects.toThrow(/already has an ETicketsGo account/i);
     },
     120_000,
