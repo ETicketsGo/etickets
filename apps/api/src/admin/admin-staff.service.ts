@@ -6,12 +6,31 @@ import {
   ALL_ADMIN_PERMISSIONS,
   AdminPermission,
   Role,
+  permissionsFor,
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService, type AuditEntry } from '../audit/audit.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
+
+/*
+  -- DUTIES ONLY A SUPER ADMIN MAY HAND OUT (AR-53) -------------------------------------
+  Each of these is one half of a separation of duties, or the power to rearrange them:
+    ADMIN_MANAGE          - decides who holds everything else.
+    BANK_VERIFY           - Finance A: verifies an organizer's bank account.
+    PAYOUT_EXECUTE        - Finance B: pays into it. "A verifier may not pay" only means something
+                            if the person choosing who verifies and who pays is not just anyone
+                            who manages staff.
+    FEE_SCHEDULE_APPROVE  - the checker half of the fee-schedule maker-checker pair.
+  Holding one of them yourself is not enough to pass it on; only the super admin may.
+*/
+const SUPER_ADMIN_ONLY_GRANTS: ReadonlySet<AdminPermission> = new Set<AdminPermission>([
+  AdminPermission.ADMIN_MANAGE,
+  AdminPermission.BANK_VERIFY,
+  AdminPermission.PAYOUT_EXECUTE,
+  AdminPermission.FEE_SCHEDULE_APPROVE,
+]);
 
 /**
  * Who works in the back office, and what each of them may do.
@@ -125,6 +144,12 @@ export class AdminStaffService {
       (ALL_ADMIN_PERMISSIONS as string[]).includes(p),
     );
     const before = target.adminGrants.map((g) => g.permission).sort();
+    // Only what is being ADDED is checked: removing a duty grants nothing, and checking the whole
+    // set would stop a manager from editing anybody who holds a duty they do not.
+    await this.assertMayGrant(
+      actor,
+      wanted.filter((p) => !before.includes(p)),
+    );
 
     // Both sides recorded: "what changed" is the question, and an after-only entry cannot
     // answer it once the row has been overwritten again.
@@ -168,11 +193,17 @@ export class AdminStaffService {
   async grantAdminRole(actor: RequestUser, userId: string, permissions: AdminPermission[]) {
     const target = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, roles: true },
+      select: { id: true, email: true, roles: true, adminGrants: { select: { permission: true } } },
     });
     if (!target) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'User not found.', HttpStatus.NOT_FOUND);
     }
+    // Before the role is added: a refused grant must not leave a half-made back-office account.
+    const held = (target.adminGrants ?? []).map((g) => g.permission);
+    await this.assertMayGrant(
+      actor,
+      permissions.filter((p) => !held.includes(p)),
+    );
     if (!target.roles.includes(Role.ADMIN)) {
       await this.prisma.user.update({
         where: { id: userId },
@@ -211,6 +242,8 @@ export class AdminStaffService {
    */
   async inviteStaff(actor: RequestUser, email: string, permissions: AdminPermission[]) {
     const normalised = email.trim().toLowerCase();
+    // Checked before anything is read or created, so a refusal says nothing about the address.
+    await this.assertMayGrant(actor, permissions);
 
     const existing = await this.prisma.user.findUnique({ where: { email: normalised } });
     if (existing) {
@@ -260,6 +293,51 @@ export class AdminStaffService {
     });
 
     return { id: user.id, email: normalised, invitationEmail };
+  }
+
+  /**
+   * Refuse to hand out a duty the actor may not give (AR-53).
+   *
+   * Before this, the only rule was "not to yourself", so anybody holding ADMIN_MANAGE could give a
+   * colleague BANK_VERIFY and PAYOUT_EXECUTE together and undo the verifier/payer split. Now:
+   *   - a super admin may grant anything (their workflow is unchanged);
+   *   - nobody else may grant a SUPER_ADMIN_ONLY_GRANTS duty;
+   *   - nobody else may grant a duty they do not hold themselves.
+   * The actor's roles and grants are read from the database now, not taken from the session, the
+   * same source the permission guard trusts.
+   */
+  private async assertMayGrant(actor: RequestUser, permissions: readonly AdminPermission[]) {
+    const adding = [...new Set(permissions)];
+    if (adding.length === 0) return;
+    const row = await this.prisma.user.findUnique({
+      where: { id: actor.id },
+      select: { roles: true, adminGrants: { select: { permission: true } } },
+    });
+    const roles = (row?.roles ?? []) as string[];
+    if (roles.includes(Role.SUPER_ADMIN)) return;
+
+    const superOnly = adding.filter((p) => SUPER_ADMIN_ONLY_GRANTS.has(p));
+    if (superOnly.length > 0) {
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        `Only a super admin can give someone these duties: ${superOnly.join(', ')}.`,
+        HttpStatus.FORBIDDEN,
+        { permissions: superOnly },
+      );
+    }
+    const held = permissionsFor(
+      roles,
+      (row?.adminGrants ?? []).map((g) => g.permission as AdminPermission),
+    );
+    const notHeld = adding.filter((p) => !held.has(p));
+    if (notHeld.length > 0) {
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        `You can only give someone duties you hold yourself. You do not hold: ${notHeld.join(', ')}.`,
+        HttpStatus.FORBIDDEN,
+        { permissions: notHeld },
+      );
+    }
   }
 
   /** Remove back-office access entirely: the role and every capability with it. */

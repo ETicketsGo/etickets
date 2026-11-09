@@ -227,13 +227,19 @@ describe('staff changes alert only after they commit', () => {
     const prisma = {
       auditLog: { create: jest.fn() },
       user: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: 'staff_1',
-          email: 'staff@example.com',
-          roles: [Role.CUSTOMER, Role.ADMIN],
-          status: UserStatus.ACTIVE,
-          adminGrants: [{ permission: 'REFUND_REVIEW' }],
-        }),
+        // The acting super admin is read too: who may grant what is judged on the actor's
+        // stored roles and grants (AR-53).
+        findUnique: jest.fn().mockImplementation(async ({ where }: { where: { id: string } }) =>
+          where.id === 'boss_1'
+            ? { id: 'boss_1', roles: [Role.ADMIN, Role.SUPER_ADMIN], adminGrants: [] }
+            : {
+                id: 'staff_1',
+                email: 'staff@example.com',
+                roles: [Role.CUSTOMER, Role.ADMIN],
+                status: UserStatus.ACTIVE,
+                adminGrants: [{ permission: 'REFUND_REVIEW' }],
+              },
+        ),
       },
       $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => {
         const out = await fn(tx);

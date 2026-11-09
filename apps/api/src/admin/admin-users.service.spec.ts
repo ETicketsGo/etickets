@@ -29,8 +29,10 @@ function fakeDb(users: UserRow[], opts: { auditFails?: boolean } = {}) {
     const apply = (fn: () => void) => (staged ? staged.push(fn) : fn());
     return {
       user: {
-        findUnique: async ({ where }: { where: { id: string } }) => {
-          const u = state.users.get(where.id);
+        findUnique: async ({ where }: { where: { id?: string; email?: string } }) => {
+          const u = where.id
+            ? state.users.get(where.id)
+            : [...state.users.values()].find((x) => x.email === where.email);
           return u
             ? {
                 ...u,
@@ -38,9 +40,23 @@ function fakeDb(users: UserRow[], opts: { auditFails?: boolean } = {}) {
               }
             : null;
         },
-        update: async ({ where, data }: { where: { id: string }; data: { status: string } }) => {
-          apply(() => Object.assign(state.users.get(where.id)!, data));
+        update: async ({
+          where,
+          data,
+        }: {
+          where: { id: string };
+          data: { status?: string; roles?: { set: string[] } };
+        }) => {
+          const { roles, ...rest } = data;
+          apply(() =>
+            Object.assign(state.users.get(where.id)!, rest, roles ? { roles: roles.set } : {}),
+          );
           return {};
+        },
+        create: async ({ data }: { data: { email: string; roles: string[] } }) => {
+          const row = { id: `new-${state.users.size}`, status: 'ACTIVE', ...data };
+          apply(() => state.users.set(row.id, row));
+          return row;
         },
       },
       refreshToken: {
@@ -244,6 +260,7 @@ describe('a staff manager cannot change their own duties', () => {
 
   it('still lets them change ANOTHER account, audited in the same transaction', async () => {
     const { service, state } = staff();
+    state.grants.set('desk', ['ADMIN_MANAGE', 'REFUND_REVIEW']);
     const other = { id: 'desk2', email: 'd2@t.test', roles: ['ADMIN'], status: 'ACTIVE' };
     state.users.set(other.id, other);
     await service.setPermissions(actor('desk'), 'desk2', ['REFUND_REVIEW'] as never, 'rota', {
@@ -270,9 +287,169 @@ describe('a staff manager cannot change their own duties', () => {
       status: 'ACTIVE',
     });
     state.grants.set('desk2', ['BOOKING_READ']);
+    state.grants.set('desk', ['ADMIN_MANAGE', 'REFUND_APPROVE']);
     await expect(
       service.setPermissions(actor('desk'), 'desk2', ['REFUND_APPROVE'] as never),
     ).rejects.toThrow(/audit/);
     expect(state.grants.get('desk2')).toEqual(['BOOKING_READ']);
+  });
+});
+
+describe('AR-53: a staff manager may hand out only what they may give', () => {
+  /*
+    Before this, the only rule was "not to yourself". A staff manager who was not the super admin
+    could give a colleague BANK_VERIFY and PAYOUT_EXECUTE together, and "a verifier may not pay"
+    meant nothing. Now a non-super-admin grants only what they hold, and the separation-of-duties
+    capabilities only a super admin may give at all.
+  */
+  const MGR_GRANTS = ['ADMIN_MANAGE', 'BANK_VERIFY', 'BOOKING_READ', 'REFUND_REVIEW'];
+
+  function staff() {
+    const { db, state } = fakeDb(USERS);
+    state.users.set('mgr', { id: 'mgr', email: 'm@t.test', roles: ['ADMIN'], status: 'ACTIVE' });
+    state.users.set('desk2', {
+      id: 'desk2',
+      email: 'd2@t.test',
+      roles: ['ADMIN'],
+      status: 'ACTIVE',
+    });
+    state.grants.set('mgr', [...MGR_GRANTS]);
+    const audit = new AuditService(db as never);
+    const invitations = { issueInvitation: jest.fn().mockResolvedValue('SENT') };
+    return {
+      state,
+      invitations,
+      service: new AdminStaffService(db as never, audit, invitations as never),
+    };
+  }
+  const mgr = () => actor('mgr');
+  const boss = () => actor('boss', ['ADMIN', 'SUPER_ADMIN']);
+
+  it('refuses to give BANK_VERIFY + PAYOUT_EXECUTE to one person, and writes nothing', async () => {
+    const { service, state } = staff();
+    await expect(
+      service.setPermissions(mgr(), 'desk2', ['BANK_VERIFY', 'PAYOUT_EXECUTE'] as never),
+    ).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      status: 403,
+      message: expect.stringMatching(/only a super admin can give someone these duties/i),
+    });
+    expect(state.grants.get('desk2')).toBeUndefined();
+    expect(state.audit).toEqual([]);
+  });
+
+  it.each(['ADMIN_MANAGE', 'BANK_VERIFY', 'PAYOUT_EXECUTE', 'FEE_SCHEDULE_APPROVE'])(
+    'only a super admin may grant %s, even when the manager holds it',
+    async (permission) => {
+      const { service, state } = staff();
+      state.grants.set('mgr', [...MGR_GRANTS, permission]);
+      await expect(
+        service.setPermissions(mgr(), 'desk2', [permission] as never),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN', details: { permissions: [permission] } });
+      expect(state.grants.get('desk2')).toBeUndefined();
+    },
+  );
+
+  it('refuses a duty the manager does not hold, naming it, in plain ASCII', async () => {
+    const { service, state } = staff();
+    const err = await service
+      .setPermissions(mgr(), 'desk2', ['BOOKING_READ', 'REFUND_APPROVE'] as never)
+      .then(() => ({ code: 'none', message: '' }))
+      .catch((e: unknown) => e as { code: string; message: string });
+    expect(err).toMatchObject({ code: 'FORBIDDEN' });
+    expect(err.message).toBe(
+      'You can only give someone duties you hold yourself. You do not hold: REFUND_APPROVE.',
+    );
+    expect(err.message).toMatch(/^[\x20-\x7E]+$/);
+    expect(state.grants.get('desk2')).toBeUndefined();
+  });
+
+  it('allows a duty the manager holds', async () => {
+    const { service, state } = staff();
+    await service.setPermissions(mgr(), 'desk2', ['BOOKING_READ', 'REFUND_REVIEW'] as never);
+    expect(state.grants.get('desk2')).toEqual(['BOOKING_READ', 'REFUND_REVIEW']);
+  });
+
+  it('judges only what is ADDED: keeping or removing a super-admin-only duty is not a grant', async () => {
+    const { service, state } = staff();
+    state.grants.set('desk2', ['PAYOUT_EXECUTE', 'FINANCE_READ']);
+    // Keeps PAYOUT_EXECUTE (already held), drops FINANCE_READ, adds BOOKING_READ (mgr holds it).
+    await service.setPermissions(mgr(), 'desk2', ['PAYOUT_EXECUTE', 'BOOKING_READ'] as never);
+    expect(state.grants.get('desk2')).toEqual(['PAYOUT_EXECUTE', 'BOOKING_READ']);
+    await service.setPermissions(mgr(), 'desk2', [] as never);
+    expect(state.grants.get('desk2')).toBeUndefined();
+  });
+
+  it('still refuses a change to your own duties first', async () => {
+    const { service } = staff();
+    await expect(service.setPermissions(mgr(), 'mgr', ['BOOKING_READ'] as never)).rejects.toThrow(
+      /cannot change your own duties/i,
+    );
+  });
+
+  it('grantAdminRole refuses before the account becomes a back-office one', async () => {
+    const { service, state } = staff();
+    await expect(
+      service.grantAdminRole(mgr(), 'cust', ['PAYOUT_EXECUTE'] as never),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN', status: 403 });
+    expect(state.users.get('cust')!.roles).toEqual(['CUSTOMER']);
+    expect(state.grants.get('cust')).toBeUndefined();
+    expect(state.audit).toEqual([]);
+  });
+
+  it('grantAdminRole with duties the manager holds still works', async () => {
+    const { service, state } = staff();
+    await service.grantAdminRole(mgr(), 'cust', ['BOOKING_READ'] as never);
+    expect(state.users.get('cust')!.roles).toEqual(['CUSTOMER', 'ADMIN']);
+    expect(state.grants.get('cust')).toEqual(['BOOKING_READ']);
+  });
+
+  it('inviteStaff refuses before any account is created or invitation sent', async () => {
+    const { service, state, invitations } = staff();
+    const size = state.users.size;
+    await expect(
+      service.inviteStaff(mgr(), 'new@t.test', ['BANK_VERIFY'] as never),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN', status: 403 });
+    await expect(
+      service.inviteStaff(mgr(), 'new@t.test', ['FINANCE_READ'] as never),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(state.users.size).toBe(size);
+    expect(invitations.issueInvitation).not.toHaveBeenCalled();
+    expect(state.audit).toEqual([]);
+  });
+
+  it('judges the actor on the stored account, not on roles claimed by the session', async () => {
+    const { service } = staff();
+    // 'mgr' is not a super admin in the database; a session saying so changes nothing.
+    await expect(
+      service.setPermissions(actor('mgr', ['ADMIN', 'SUPER_ADMIN']), 'desk2', [
+        'PAYOUT_EXECUTE',
+      ] as never),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  describe('the super admin workflow is unchanged', () => {
+    it('sets any duties on another account, including the separated ones', async () => {
+      const { service, state } = staff();
+      const all = ['ADMIN_MANAGE', 'BANK_VERIFY', 'FEE_SCHEDULE_APPROVE', 'REFUND_APPROVE'];
+      await service.setPermissions(boss(), 'desk2', all as never);
+      expect(state.grants.get('desk2')).toEqual(all);
+    });
+
+    it('grants the admin role with PAYOUT_EXECUTE', async () => {
+      const { service, state } = staff();
+      await service.grantAdminRole(boss(), 'cust', ['PAYOUT_EXECUTE'] as never);
+      expect(state.users.get('cust')!.roles).toEqual(['CUSTOMER', 'ADMIN']);
+      expect(state.grants.get('cust')).toEqual(['PAYOUT_EXECUTE']);
+    });
+
+    it('invites with BANK_VERIFY', async () => {
+      const { service, state, invitations } = staff();
+      const out = await service.inviteStaff(boss(), 'New@T.test', ['BANK_VERIFY'] as never);
+      expect(out).toMatchObject({ email: 'new@t.test', invitationEmail: 'SENT' });
+      expect(state.users.get(out.id)!.roles).toEqual(['CUSTOMER', 'ADMIN']);
+      expect(state.grants.get(out.id)).toEqual(['BANK_VERIFY']);
+      expect(invitations.issueInvitation).toHaveBeenCalledTimes(1);
+    });
   });
 });
