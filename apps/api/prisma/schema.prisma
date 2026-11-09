@@ -3943,6 +3943,57 @@ model TaxRule {
   @@index([active, country, region])
 }
 
+enum TaxRuleChangeAction {
+  /// A patch to a rule: switching it on, or changing who or when a live rule charges.
+  UPDATE
+  /// Close a live rule at a date and open its successor at a new rate.
+  SUPERSEDE
+}
+
+enum TaxRuleChangeStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
+/// A change to a tax rule that starts or changes a charge, filed by one administrator and
+/// applied only when a DIFFERENT administrator holding FEE_SCHEDULE_APPROVE approves it (AR-56).
+///
+/// The fee-schedule maker-checker (AR-09), for tax: switching a rule on, changing who or when
+/// a live rule charges, and superseding a live rule's rate. Switching a rule OFF and editing a
+/// draft never come here. `TaxRule` itself is unchanged, so every rule already in the database
+/// keeps its state; nothing is applied to it until an approval.
+///
+/// `taxRuleId` is a plain column, not a relation, so deleting a draft rule is not blocked by
+/// the history of requests filed against it.
+model TaxRuleChange {
+  id                String              @id @default(cuid())
+  taxRuleId         String
+  action            TaxRuleChangeAction
+  /// The patch, or { rateBasisPoints, effectiveFrom, label? } for SUPERSEDE. Dates as ISO.
+  payload           Json
+  /// sha256 of `payload`: the approver applies exactly what was submitted.
+  payloadHash       String
+  /// The rule's `updatedAt` when this was filed. Approval is refused if the rule moved since.
+  baseUpdatedAt     DateTime
+  status            TaxRuleChangeStatus @default(PENDING_APPROVAL)
+  submittedByUserId String
+  submittedAt       DateTime            @default(now())
+  submissionNote    String?
+  /// The checker (APPROVED, REJECTED) or the submitter (WITHDRAWN).
+  decidedByUserId   String?
+  decidedAt         DateTime?
+  decisionNote      String?
+  /// The successor rule a SUPERSEDE created.
+  resultTaxRuleId   String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([status, submittedAt])
+  @@index([taxRuleId])
+}
+
 /// One tax actually charged on one booking, snapshotted at checkout.
 ///
 /// A copy, not a reference: the rule it came from may later be deactivated or superseded,

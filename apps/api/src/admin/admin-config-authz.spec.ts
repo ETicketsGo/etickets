@@ -56,6 +56,8 @@ const ACTORS: Record<string, Actor> = {
   configReader: { roles: ['ADMIN'], grants: [AdminPermission.PLATFORM_CONFIG_READ] },
   configEditor: { roles: ['ADMIN'], grants: [AdminPermission.PLATFORM_CONFIG] },
   opsReader: { roles: ['ADMIN'], grants: [AdminPermission.OPS_READ] },
+  /** The checker half of a maker-checker pair (fee schedules, and tax rule changes: AR-56). */
+  approver: { roles: ['ADMIN'], grants: [AdminPermission.FEE_SCHEDULE_APPROVE] },
   /** Holds everything by role, with no grant rows at all. */
   superAdmin: { roles: ['ADMIN', 'SUPER_ADMIN'], grants: [] },
 };
@@ -68,7 +70,8 @@ const ACTORS: Record<string, Actor> = {
 const CONFIG_ROUTES: {
   method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   path: string;
-  kind: 'read' | 'write';
+  /** `approve`: the checker's duty (FEE_SCHEDULE_APPROVE), never opened by PLATFORM_CONFIG. */
+  kind: 'read' | 'write' | 'approve';
   body?: unknown;
   /** A retired route: allowed callers get 410 and the handler reaches no service. */
   gone?: boolean;
@@ -109,6 +112,19 @@ const CONFIG_ROUTES: {
     body: { rateBasisPoints: 0, effectiveFrom: '2030-01-01' },
   },
   { method: 'DELETE', path: '/admin/tax-rules/tr1', kind: 'write' },
+  /*
+    Tax rule maker-checker (AR-56): the maker files with PLATFORM_CONFIG, a different person
+    holding FEE_SCHEDULE_APPROVE approves or rejects. PLATFORM_CONFIG alone cannot approve.
+  */
+  { method: 'GET', path: '/admin/tax-rules/changes', kind: 'read' },
+  { method: 'POST', path: '/admin/tax-rules/changes/tc1/approve', kind: 'approve', body: {} },
+  {
+    method: 'POST',
+    path: '/admin/tax-rules/changes/tc1/reject',
+    kind: 'approve',
+    body: { note: 'Wrong state for this rate' },
+  },
+  { method: 'POST', path: '/admin/tax-rules/changes/tc1/withdraw', kind: 'write' },
   { method: 'GET', path: '/admin/cinema-pricing-policies', kind: 'read' },
   { method: 'GET', path: '/admin/cinema-pricing-policies/inspect?country=IN', kind: 'read' },
   { method: 'GET', path: '/admin/cinema-pricing-policies/cp1/preflight', kind: 'read' },
@@ -284,6 +300,16 @@ describe('platform configuration is least-privilege', () => {
       it('does NOT open to PLATFORM_CONFIG alone - neither capability implies the other', async () => {
         expect((await call('configEditor', method, path, body)).status).toBe(403);
       });
+    } else if (kind === 'approve') {
+      it('opens to the approval duty (FEE_SCHEDULE_APPROVE)', async () => {
+        expect(allowed(await call('approver', method, path, body))).toBe(true);
+      });
+      it('is refused to PLATFORM_CONFIG alone - a maker cannot approve by holding the write', async () => {
+        expect((await call('configEditor', method, path, body)).status).toBe(403);
+      });
+      it('is refused to a read-only config account', async () => {
+        expect((await call('configReader', method, path, body)).status).toBe(403);
+      });
     } else {
       it('opens to PLATFORM_CONFIG', async () => {
         expect(allowed(await call('configEditor', method, path, body))).toBe(true);
@@ -378,7 +404,8 @@ describe('platform configuration is least-privilege', () => {
         `${r.method} ${r.path
           .replace(/^\/admin\//, '')
           .replace(/\?.*$/, '')
-          .replace(/\/(fr1|tr1|cp1)(?=\/|$)/, '/:id')}`,
+          .replace(/\/(fr1|tr1|cp1)(?=\/|$)/, '/:id')
+          .replace(/\/tc1(?=\/|$)/, '/:changeId')}`,
     );
     expect(declared.length).toBeGreaterThanOrEqual(17);
     expect([...new Set(covered)].sort()).toEqual([...new Set(declared)].sort());

@@ -44,7 +44,8 @@ function setup(existing: Record<string, unknown> | null = LIVE) {
       create,
       delete: remove,
     },
-    $transaction: (ops: unknown[]) => Promise.all(ops),
+    $transaction: (ops: unknown): Promise<unknown> =>
+      typeof ops === 'function' ? ops(prisma) : Promise.all(ops as unknown[]),
   };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const service = new TaxRulesService(prisma as never, audit as never);
@@ -215,8 +216,10 @@ describe('TaxRulesService', () => {
         instant exactly one rule applies — never both, never neither. A gap charges nothing
         and an overlap charges twice, and both are silent.
       */
+      // A draft supersedes at once; a live rule goes through a second approver, and the same
+      // mechanics are held for that path in tax-rule-approval.spec.ts.
       const at = new Date('2026-04-01T00:00:00.000Z');
-      const { service, update, create } = setup();
+      const { service, update, create } = setup({ ...LIVE, active: false });
       await service.supersede('admin-1', 'tr-1', { rateBasisPoints: 500, effectiveFrom: at });
 
       expect(update.mock.calls[0][0].data.effectiveTo).toEqual(at);
@@ -225,7 +228,7 @@ describe('TaxRulesService', () => {
     });
 
     it('carries every other property across, so only the rate moved', async () => {
-      const { service, create } = setup();
+      const { service, create } = setup({ ...LIVE, active: false });
       await service.supersede('admin-1', 'tr-1', {
         rateBasisPoints: 500,
         effectiveFrom: new Date('2026-04-01'),

@@ -149,6 +149,8 @@ describe('integration-real-postgres: platform configuration changes are audited'
       rateBasisPoints: 200,
       effectiveFrom: new Date('2099-01-01T00:00:00Z'),
     });
+    // The rule is off, so superseding applies at once (an active rule would file a change).
+    if (!successor) throw new Error('expected an immediate successor for an inactive rule');
     created.tax.push(successor.id);
     await taxRules.remove(actorId, successor.id);
 
