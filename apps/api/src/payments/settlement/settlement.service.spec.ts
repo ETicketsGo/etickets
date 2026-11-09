@@ -14,6 +14,8 @@ function makeDeps(overrides: {
   attemptClaimCount?: number;
   reserveBps?: number;
   ledgerPayouts?: Array<Record<string, unknown>>;
+  /** Memberships the releaser holds in the organization being paid. */
+  releaserMemberships?: number;
 }) {
   const settlementRow = overrides.settlement ?? null;
   const updated: Array<Record<string, unknown>> = [];
@@ -81,7 +83,13 @@ function makeDeps(overrides: {
     // Read by `release` to refuse a transfer the PAYOUT LEDGER has already claimed. Empty is
     // the ordinary case: no ledger payout covers this event.
     payout: { findMany: jest.fn().mockResolvedValue(overrides.ledgerPayouts ?? []) },
-    organizationMember: { findMany: jest.fn().mockResolvedValue([]) },
+    organizationMember: {
+      findMany: jest.fn().mockResolvedValue([]),
+      // Read by `release` for maker-checker: a member of the organization may not release.
+      count: jest.fn().mockResolvedValue(overrides.releaserMemberships ?? 0),
+    },
+    // The organization's payout-generate advisory lock, taken by `release` (AR-55).
+    $executeRaw: jest.fn().mockResolvedValue(1),
     user: { findMany: jest.fn().mockResolvedValue([]) },
     // The release and the organizer being told about it are now one transaction, so the
     // payout notice cannot be lost in the window between the two writes.
@@ -252,6 +260,90 @@ describe('SettlementService.release', () => {
     const { service } = makeDeps({ settlement: approved(), createTransfer, ledgerPayouts: [] });
     await service.release(actor, 's1');
     expect(createTransfer).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SettlementService.release - AR-55 maker-checker and the payout lock', () => {
+  it('refuses the person who approved the settlement, and moves nothing', async () => {
+    const createTransfer = jest.fn();
+    const { service, prisma, audit } = makeDeps({
+      settlement: approved({ approvedByUserId: 'admin1' }),
+      createTransfer,
+    });
+    await expect(service.release(actor, 's1')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      details: { hold: 'SAME_PERSON' },
+    });
+    expect(createTransfer).not.toHaveBeenCalled();
+    expect(prisma.settlement.updateMany).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'SETTLEMENT_TRANSFERRED',
+        metadata: { outcome: 'REFUSED', reasonCode: 'SAME_PERSON' },
+      }),
+    );
+  });
+
+  it('refuses a releaser who holds any membership in the organization being paid', async () => {
+    const createTransfer = jest.fn();
+    const { service, prisma } = makeDeps({
+      settlement: approved({ approvedByUserId: 'admin2' }),
+      createTransfer,
+      releaserMemberships: 1,
+    });
+    await expect(service.release(actor, 's1')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      details: { hold: 'ORGANIZATION_MEMBER' },
+    });
+    expect(prisma.organizationMember.count).toHaveBeenCalledWith({
+      where: { organizationId: 'org1', userId: 'admin1' },
+    });
+    expect(createTransfer).not.toHaveBeenCalled();
+    expect(prisma.settlement.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('checks the ledger and claims the settlement under the payout-generate lock', async () => {
+    const createTransfer = jest.fn().mockResolvedValue({ transferId: 'tr_7', status: 'COMPLETED' });
+    const { service, prisma } = makeDeps({
+      settlement: approved({ approvedByUserId: 'admin2' }),
+      createTransfer,
+    });
+    const order: string[] = [];
+    prisma.$executeRaw.mockImplementation(async (...args: unknown[]) => {
+      order.push(`lock:${args.slice(1).join()}`);
+      return 1;
+    });
+    prisma.payout.findMany.mockImplementation(async () => {
+      order.push('ledger');
+      return [];
+    });
+    prisma.settlement.updateMany.mockImplementation(async () => {
+      order.push('claim');
+      return { count: 1 };
+    });
+    const transaction = jest.spyOn(prisma, '$transaction');
+
+    await service.release(actor, 's1');
+    // Same key payout generation uses, taken before the ledger read, with the claim after it.
+    expect(order).toEqual(['lock:payout-generate:org1', 'ledger', 'claim']);
+    // The lock, the read and the claim are one transaction; the provider call is outside it.
+    expect(transaction).toHaveBeenCalled();
+    expect(createTransfer).toHaveBeenCalledTimes(1);
+  });
+
+  it('still releases when a different, independent admin approved it', async () => {
+    const createTransfer = jest.fn().mockResolvedValue({ transferId: 'tr_8', status: 'COMPLETED' });
+    const { service, updated } = makeDeps({
+      settlement: approved({ approvedByUserId: 'admin2' }),
+      createTransfer,
+    });
+    await service.release(actor, 's1');
+    expect(createTransfer).toHaveBeenCalledTimes(1);
+    expect(createTransfer.mock.calls[0][0].amountMinor).toBe(100000);
+    expect(updated.find((d) => d.status === 'TRANSFERRED')).toMatchObject({
+      providerTransferId: 'tr_8',
+      transferredMinor: { increment: 100000 },
+    });
   });
 });
 

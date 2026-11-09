@@ -28,6 +28,8 @@ import { PaymentProviderResolver } from '../provider/payment-provider.resolver';
 import { groupScopeWhere, type GroupScope } from '../../admin/group-scope';
 import { countryWhere } from '../../admin/country-filter';
 import { allOf, dayRangeWhere } from '../../admin/list-filters';
+import { independenceFailure } from '../../payouts/payout-account-safety';
+import { lockPayoutGeneration } from '../../payouts/payout-generate-lock';
 
 const DEFAULT_CURRENCY = 'usd';
 
@@ -320,6 +322,43 @@ export class SettlementService {
     throw new AppException(ErrorCodes.CONFLICT, reason, HttpStatus.CONFLICT);
   }
 
+  /**
+   * Maker-checker for a release. The releaser must not be the person who approved the
+   * settlement, and must not hold any membership in the organization being paid. Same rule and
+   * reason codes as bank-account verification (`independenceFailure`). Refusals are audited,
+   * because an attempt to release your own approval is exactly what an investigation looks for.
+   */
+  private async assertIndependentReleaser(
+    actor: RequestUser,
+    settlement: { id: string; organizationId: string; approvedByUserId: string | null },
+  ): Promise<void> {
+    const membership = await this.prisma.organizationMember.count({
+      where: { organizationId: settlement.organizationId, userId: actor.id },
+    });
+    const failure = independenceFailure({
+      actorUserId: actor.id,
+      savedByUserId: settlement.approvedByUserId,
+      actorIsMember: membership > 0,
+    });
+    if (!failure) return;
+    await this.audit.record({
+      actorUserId: actor.id,
+      organizationId: settlement.organizationId,
+      action: 'SETTLEMENT_TRANSFERRED',
+      entityType: 'Settlement',
+      entityId: settlement.id,
+      metadata: { outcome: 'REFUSED', reasonCode: failure },
+    });
+    throw new AppException(
+      ErrorCodes.FORBIDDEN,
+      failure === 'SAME_PERSON'
+        ? 'You approved this settlement, so someone else must release it.'
+        : 'You belong to this organization, so someone else must release its settlement.',
+      HttpStatus.FORBIDDEN,
+      { hold: failure },
+    );
+  }
+
   approve(actor: RequestUser, id: string) {
     return this.transition(id, 'APPROVED', actor, { approvedByUserId: actor.id });
   }
@@ -376,6 +415,16 @@ export class SettlementService {
     }
 
     /*
+      ── TWO PEOPLE FOR EVERY TRANSFER (AR-55) ──────────────────────────────────────────
+      Whoever approved this settlement may not also release it, and nobody who belongs to the
+      organization being paid may release it at all. The same maker-checker rule bank-account
+      verification uses (`independenceFailure`), judged on identity rather than on a
+      capability, so it holds for a super admin too. A refusal is audited and leaves the
+      settlement exactly as it was.
+    */
+    await this.assertIndependentReleaser(actor, settlement);
+
+    /*
       ── THE OTHER WAY AN ORGANIZER CAN ALREADY HAVE BEEN PAID ──────────────────────────
       This platform pays two ways: a provider transfer (here) and the `Payout` ledger, which
       records what is owed and is settled by a bank transfer somebody makes by hand. Nothing
@@ -390,33 +439,42 @@ export class SettlementService {
 
       Checked BEFORE the atomic claim below: a refusal must leave the settlement exactly as
       it was, not parked in TRANSFER_PROCESSING for an operator to unpick.
+
+      The check and the claim run in ONE transaction holding the organization's
+      `payout-generate` lock (AR-55). Without it a payout could be generated between the check
+      and the claim: the generate would not yet see this settlement as claimed, this release
+      would not yet see the payout, and both would pay the event.
     */
-    const claimedByLedger = await this.prisma.payout.findMany({
-      where: {
-        organizationId: settlement.organizationId,
-        currency: settlement.currency,
-        OR: [{ eventId: settlement.eventId }, { eventId: null }],
-        status: { in: ['PENDING', 'SCHEDULED', 'PAID'] },
-      },
-      select: { id: true, status: true, eventId: true, netMinor: true },
+    const ledgerGate = await this.prisma.$transaction(async (tx) => {
+      await lockPayoutGeneration(tx, settlement.organizationId);
+      const standing = await tx.payout.findMany({
+        where: {
+          organizationId: settlement.organizationId,
+          currency: settlement.currency,
+          OR: [{ eventId: settlement.eventId }, { eventId: null }],
+          status: { in: ['PENDING', 'SCHEDULED', 'PAID'] },
+        },
+        select: { id: true, status: true, eventId: true, netMinor: true },
+      });
+      if (standing.length > 0) return standing;
+      // Atomic claim so concurrent releases cannot both transfer.
+      const claim = await tx.settlement.updateMany({
+        where: { id, status: { in: ['APPROVED', 'FAILED'] } },
+        data: { status: 'TRANSFER_PROCESSING' },
+      });
+      return claim.count === 1 ? null : 'LOST_CLAIM';
     });
-    if (claimedByLedger.length > 0) {
+    if (ledgerGate === 'LOST_CLAIM') {
+      const current = await this.prisma.settlement.findUnique({ where: { id } });
+      return current!;
+    }
+    if (ledgerGate) {
       throw new AppException(
         ErrorCodes.CONFLICT,
         'A payout already covers this revenue on the ledger. Settle or cancel it before releasing a transfer, or the organizer is paid twice.',
         HttpStatus.CONFLICT,
-        { payoutIds: claimedByLedger.map((payout) => payout.id) },
+        { payoutIds: ledgerGate.map((payout) => payout.id) },
       );
-    }
-
-    // Atomic claim so concurrent releases cannot both transfer.
-    const claim = await this.prisma.settlement.updateMany({
-      where: { id, status: { in: ['APPROVED', 'FAILED'] } },
-      data: { status: 'TRANSFER_PROCESSING' },
-    });
-    if (claim.count !== 1) {
-      const current = await this.prisma.settlement.findUnique({ where: { id } });
-      return current!;
     }
 
     // Provider-specific pre-checks. For Razorpay, Route must be enabled AND a linked
