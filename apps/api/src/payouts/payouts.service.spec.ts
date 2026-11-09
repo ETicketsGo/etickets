@@ -1175,7 +1175,10 @@ describe('PayoutsService (markPaid)', () => {
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'PAYOUT_PAID',
-        metadata: expect.objectContaining({ outcome: 'REFUSED', reasonCode: 'CLAIMED_BY_TRANSFER' }),
+        metadata: expect.objectContaining({
+          outcome: 'REFUSED',
+          reasonCode: 'CLAIMED_BY_TRANSFER',
+        }),
       }),
     );
   });
