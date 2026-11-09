@@ -29,6 +29,9 @@
     "taxTotal": "Total tax in this order",
     "taxIncludedNote": "Tax shown is already included in the total above.",
     "paymentFee": "Payment processing fee",
+    "platformFeeCharged": "Platform fee incl. tax, charged by {entity}",
+    "platformFeeSeller": "Platform fee charged by {entity}",
+    "platformFeeTotal": "Platform fee total",
     "taxName": {
       "IGST": "Integrated GST (IGST)",
       "CGST": "Central GST (CGST)",
