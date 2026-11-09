@@ -74,7 +74,11 @@ function makeService(
         })),
       ),
     },
-    payoutAllocation: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    payoutAllocation: {
+      createMany: jest.fn().mockResolvedValue({ count: 0 }),
+      // Read by `markPaid` to find the events a period payout covers. None by default.
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     payout: {
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
@@ -405,6 +409,10 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
           allocations.push(...data);
           return { count: data.length };
         }),
+        // Read by `markPaid` to find the events a period payout covers.
+        findMany: jest.fn(async ({ where }: { where: Row }) =>
+          allocations.filter((row) => matches(row, where)),
+        ),
       },
       payout: {
         findMany: jest.fn(async ({ where }: { where: Row }) =>
@@ -839,6 +847,41 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
     expect(payout.netMinor).toBe(70_000);
   });
 
+  it('will not mark a payout paid once a transfer has claimed an event it covers (AR-55)', async () => {
+    /*
+      The payout was raised while the event's settlement was only APPROVED, so it rightly
+      included the event. A release then claimed the same event. Marking the payout paid now
+      would pay the organizer through both systems.
+    */
+    const { book, event, settlements, payouts, generateAt, payAt } = ledger(0);
+    event('ready', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    book('INR', 70_000, '2026-08-20T10:00:00Z', 'ready');
+    const settlement = { id: 's1', organizationId: 'o1', eventId: 'ready', status: 'APPROVED' };
+    settlements.push(settlement);
+    const [payout] = await generateAt('2026-09-05T10:00:00Z');
+    expect(payout.eventId).toBeNull();
+
+    settlement.status = 'TRANSFER_PROCESSING';
+    await expect(payAt(payout.id as string, '2026-09-06T10:00:00Z')).rejects.toMatchObject({
+      code: ErrorCodes.CONFLICT,
+      response: expect.objectContaining({
+        details: { hold: 'CLAIMED_BY_TRANSFER', settlementIds: ['s1'] },
+      }),
+    });
+    expect(payouts[0].status).toBe(PayoutStatus.PENDING);
+  });
+
+  it('still marks paid a payout whose events no transfer has claimed', async () => {
+    const { book, event, settlements, payouts, generateAt, payAt } = ledger(0);
+    event('ready', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    book('INR', 70_000, '2026-08-20T10:00:00Z', 'ready');
+    settlements.push({ id: 's1', organizationId: 'o1', eventId: 'ready', status: 'APPROVED' });
+    const [payout] = await generateAt('2026-09-05T10:00:00Z');
+
+    await payAt(payout.id as string, '2026-09-06T10:00:00Z');
+    expect(payouts[0].status).toBe(PayoutStatus.PAID);
+  });
+
   /*
     ── WHOSE MONEY A REFUND RETURNS ───────────────────────────────────────────────────
     The ledger deducted the WHOLE refund from the organizer. A refund returns the ticket
@@ -1089,6 +1132,53 @@ describe('PayoutsService (markPaid)', () => {
       expect.objectContaining({
         action: 'PAYOUT_PAID',
         metadata: expect.objectContaining({ paidReference: 'UTR12345' }),
+      }),
+    );
+  });
+
+  it("refuses an event's payout once a transfer has claimed that event, under the generate lock (AR-55)", async () => {
+    const { service, prisma, audit } = makeService({
+      payout: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'p1',
+          status: PayoutStatus.PENDING,
+          organizationId: 'o1',
+          eventId: 'e1',
+          currency: 'INR',
+          netMinor: 10_000,
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    });
+    const order: string[] = [];
+    prisma.$executeRaw.mockImplementation(async (...args: unknown[]) => {
+      order.push(`lock:${args.slice(1).join()}`);
+      return 1;
+    });
+    prisma.settlement.findMany.mockImplementation(async () => {
+      order.push('read');
+      return [{ id: 's1', eventId: 'e1' }];
+    });
+
+    await expect(service.markPaid(user, 'p1')).rejects.toMatchObject({
+      code: ErrorCodes.CONFLICT,
+      response: expect.objectContaining({
+        details: { hold: 'CLAIMED_BY_TRANSFER', settlementIds: ['s1'] },
+      }),
+    });
+    expect(order).toEqual(['lock:payout-generate:o1', 'read']);
+    expect(prisma.settlement.findMany.mock.calls[0][0].where).toMatchObject({
+      organizationId: 'o1',
+      eventId: { in: ['e1'] },
+    });
+    expect(prisma.payout.updateMany).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'PAYOUT_PAID',
+        metadata: expect.objectContaining({
+          outcome: 'REFUSED',
+          reasonCode: 'CLAIMED_BY_TRANSFER',
+        }),
       }),
     );
   });

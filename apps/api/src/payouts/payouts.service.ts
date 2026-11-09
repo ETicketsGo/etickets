@@ -26,6 +26,7 @@ import type { RequestUser } from '../common/decorators';
 import { PayoutSettingsService } from './payout-settings.service';
 import { derivePayoutAccountState, type PayoutAccountState } from './payout-account-state';
 import { payoutDestinationVerdict, verifierMayNotPay } from './payout-account-safety';
+import { lockPayoutGeneration } from './payout-generate-lock';
 import {
   calculateCurrencySettlement,
   organizerShareOfRefund,
@@ -1199,7 +1200,7 @@ export class PayoutsService {
       so a payout that fails is dealt with before an overlapping one can be raised on top of it.
     */
     const written = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`payout-generate:${organizationId}`}))`;
+      await lockPayoutGeneration(tx, organizationId);
       // Both the organizer's own generate and the automatic run come through here, so a
       // suspended organizer is held in both. Read after the lock, so a payout cannot be raised
       // by a generate that started before the suspension and waited behind another.
@@ -1444,6 +1445,43 @@ export class PayoutsService {
       pending account. A refusal is audited and the payout stays exactly as it was.
     */
     const outcome = await this.prisma.$transaction(async (tx) => {
+      /*
+        ── AN EVENT A PROVIDER TRANSFER HAS ALREADY CLAIMED (AR-55) ─────────────────────
+        A settlement release sends an event's money straight to the organizer. If that event is
+        also inside this payout, recording the payout paid pays it a second time. Generation
+        leaves claimed events out, but a release can land between generate and pay, so the
+        question is asked again here, under the same lock `release` and generation take, so the
+        answer cannot change before the claim below commits.
+
+        The events a payout covers: its own event, or for a period payout the events its
+        allocations name. A payout from before allocations existed names none and is not
+        re-checked here; release itself refuses while any open payout covers the event.
+      */
+      await lockPayoutGeneration(tx, payout.organizationId);
+      const coveredEventIds = payout.eventId
+        ? [payout.eventId]
+        : [
+            ...new Set(
+              (
+                await tx.payoutAllocation.findMany({
+                  where: { payoutId },
+                  select: { eventId: true },
+                })
+              ).map((row) => row.eventId),
+            ),
+          ];
+      if (coveredEventIds.length > 0) {
+        const claimed = await tx.settlement.findMany({
+          where: {
+            organizationId: payout.organizationId,
+            eventId: { in: coveredEventIds },
+            status: { in: SETTLEMENT_CLAIMED_STATUSES as never[] },
+          },
+          select: { id: true, eventId: true },
+        });
+        if (claimed.length > 0) return { claimedByTransfer: claimed };
+      }
+
       const rows = await tx.$queryRaw<
         {
           verifiedAt: Date | null;
@@ -1481,6 +1519,31 @@ export class PayoutsService {
       // payout can never be paid twice (idempotent under concurrent admins).
       return { claim: await this.claimPaid(tx, payoutId, evidence) };
     });
+    if ('claimedByTransfer' in outcome && outcome.claimedByTransfer) {
+      const settlementIds = outcome.claimedByTransfer.map((s) => s.id);
+      await this.audit.record({
+        actorUserId: admin.id,
+        organizationId: payout.organizationId,
+        action: 'PAYOUT_PAID',
+        entityType: 'Payout',
+        entityId: payoutId,
+        metadata: {
+          outcome: 'REFUSED',
+          reasonCode: 'CLAIMED_BY_TRANSFER',
+          settlementIds,
+          currency: payout.currency,
+          netMinor: payout.netMinor,
+        },
+      });
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This payout cannot be marked paid. A provider transfer has already sent, or is sending, ' +
+          'the money for an event it covers, so marking it paid would pay the organizer twice. ' +
+          'Mark this payout failed instead.',
+        HttpStatus.CONFLICT,
+        { hold: 'CLAIMED_BY_TRANSFER', settlementIds },
+      );
+    }
     if ('verifier' in outcome && outcome.verifier) {
       await this.audit.record({
         actorUserId: admin.id,
