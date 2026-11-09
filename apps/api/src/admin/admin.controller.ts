@@ -107,6 +107,16 @@ const taxRuleSupersedeSchema = z.object({
 });
 type TaxRuleSupersedeBody = z.infer<typeof taxRuleSupersedeSchema>;
 
+/** A checker's note on approving a filed tax change; a reason is required to reject one. */
+const taxChangeNoteSchema = z.object({ note: z.string().trim().max(1000).optional() });
+type TaxChangeNoteBody = z.infer<typeof taxChangeNoteSchema>;
+const taxChangeRejectSchema = z.object({ note: z.string().trim().min(5).max(1000) });
+type TaxChangeRejectBody = z.infer<typeof taxChangeRejectSchema>;
+const taxChangeListSchema = z.object({
+  status: z.enum(['PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'WITHDRAWN']).optional(),
+});
+type TaxChangeListQuery = z.infer<typeof taxChangeListSchema>;
+
 /**
  * Which grouping a summary is being asked for.
  *
@@ -470,10 +480,56 @@ export class AdminController {
     return { unregisteredSellers: await this.taxRules_.unregisteredSellerCount() };
   }
 
+  /*
+    Tax rule maker-checker (AR-56), the fee-schedule pattern: switching a rule on, changing who
+    or when a live rule charges, and superseding a live rule are FILED by these PLATFORM_CONFIG
+    routes and applied only by a different administrator holding FEE_SCHEDULE_APPROVE, with a
+    fresh second factor. Switching a rule off and editing a draft still take effect at once.
+  */
+  @Get('tax-rules/changes')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG_READ)
+  @ApiOperation({ summary: 'Filed tax rule changes, newest first (filter by status).' })
+  taxRuleChanges(@Query(new ZodValidationPipe(taxChangeListSchema)) q: TaxChangeListQuery) {
+    return this.taxRules_.listChanges(q.status);
+  }
+
+  @Post('tax-rules/changes/:changeId/approve')
+  @RequiresAdmin(AdminPermission.FEE_SCHEDULE_APPROVE)
+  @RequiresRecentMfa()
+  @ApiOperation({ summary: 'Approve and apply a filed tax rule change (not its maker).' })
+  approveTaxRuleChange(
+    @CurrentUser() user: { id: string },
+    @Param('changeId') changeId: string,
+    @Body(new ZodValidationPipe(taxChangeNoteSchema)) body: TaxChangeNoteBody,
+  ) {
+    return this.taxRules_.approveChange(user.id, changeId, body.note);
+  }
+
+  @Post('tax-rules/changes/:changeId/reject')
+  @RequiresAdmin(AdminPermission.FEE_SCHEDULE_APPROVE)
+  @ApiOperation({ summary: 'Reject a filed tax rule change with a reason. Changes no rule.' })
+  rejectTaxRuleChange(
+    @CurrentUser() user: { id: string },
+    @Param('changeId') changeId: string,
+    @Body(new ZodValidationPipe(taxChangeRejectSchema)) body: TaxChangeRejectBody,
+  ) {
+    return this.taxRules_.rejectChange(user.id, changeId, body.note);
+  }
+
+  @Post('tax-rules/changes/:changeId/withdraw')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @ApiOperation({ summary: 'Withdraw a tax rule change you filed.' })
+  withdrawTaxRuleChange(@CurrentUser() user: { id: string }, @Param('changeId') changeId: string) {
+    return this.taxRules_.withdrawChange(user.id, changeId);
+  }
+
   @Post('tax-rules')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @RequiresRecentMfa()
-  @ApiOperation({ summary: 'Create a tax rule. Inactive unless explicitly activated (admin).' })
+  @ApiOperation({
+    summary:
+      'Create a tax rule, switched off. Asking for active files the activation for a second approver.',
+  })
   createTaxRule(
     @CurrentUser() user: { id: string },
     @Body(new ZodValidationPipe(taxRuleBodySchema)) body: TaxRuleBody,
@@ -485,7 +541,8 @@ export class AdminController {
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @RequiresRecentMfa()
   @ApiOperation({
-    summary: 'Update a draft tax rule, or switch one on/off. A live rate must be superseded.',
+    summary:
+      'Update a draft or switch a rule off at once; switching on or changing a live rule is filed for approval.',
   })
   updateTaxRule(
     @CurrentUser() user: { id: string },
@@ -498,7 +555,9 @@ export class AdminController {
   @Post('tax-rules/:id/supersede')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @RequiresRecentMfa()
-  @ApiOperation({ summary: 'Close a rule at a date and open its successor at a new rate.' })
+  @ApiOperation({
+    summary: 'Supersede a rule at a new rate. A live rule is filed for a second approver.',
+  })
   supersedeTaxRule(
     @CurrentUser() user: { id: string },
     @Param('id') id: string,
