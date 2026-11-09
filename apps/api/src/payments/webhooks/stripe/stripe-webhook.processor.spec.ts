@@ -1,4 +1,5 @@
 import { StripeWebhookProcessor } from './stripe-webhook.processor';
+import { refundLedgerMemoryDb } from '../../test-support/refund-ledger-memory-db';
 
 function makeProcessor(opts: {
   record?: Record<string, unknown> | null;
@@ -9,6 +10,7 @@ function makeProcessor(opts: {
 }) {
   const updates: Array<Record<string, unknown>> = [];
   const prisma = {
+    $transaction: jest.fn(),
     webhookEvent: {
       updateMany: jest.fn().mockResolvedValue({ count: opts.claimCount ?? 1 }),
       findUnique: jest.fn().mockResolvedValue(opts.record ?? null),
@@ -17,12 +19,21 @@ function makeProcessor(opts: {
         return data;
       }),
     },
-    payment: { findFirst: jest.fn().mockResolvedValue(opts.payment ?? null), update: jest.fn() },
+    payment: {
+      findFirst: jest.fn().mockResolvedValue(opts.payment ?? null),
+      update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     refund: { findMany: jest.fn().mockResolvedValue(opts.refundRows ?? []) },
   };
+  // One transaction is the same mock: the refund path's writes are asserted on it directly.
+  prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma));
   const payments = { processVerifiedEvent: jest.fn().mockResolvedValue({ status: 'confirmed' }) };
   const connect = { syncByProviderAccountId: jest.fn().mockResolvedValue(true) };
-  const settlements = { applyRefund: jest.fn().mockResolvedValue(undefined) };
+  const settlements = {
+    recordRefund: jest.fn().mockResolvedValue(null),
+    reverseRecordedRefund: jest.fn().mockResolvedValue(undefined),
+  };
   const disputes = { syncFromWebhook: jest.fn().mockResolvedValue(undefined) };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const processor = new StripeWebhookProcessor(
@@ -235,7 +246,7 @@ describe('StripeWebhookProcessor.process — dispatch', () => {
     });
     await processor.process('w1');
     // organizer share of a 5000 refund on a 10000 charge with 8000 net = round(5000*8000/10000)=4000
-    expect(settlements.applyRefund).toHaveBeenCalledWith('e1', 'usd', 4000);
+    expect(settlements.recordRefund).toHaveBeenCalledWith(expect.anything(), 'e1', 'usd', 4000);
   });
 
   /*
@@ -278,7 +289,7 @@ describe('StripeWebhookProcessor.process — dispatch', () => {
         refundRows: [ownRow(100000, 0)],
       });
       await processor.process('w1');
-      expect(settlements.applyRefund).toHaveBeenCalledWith('e1', 'usd', 100000);
+      expect(settlements.recordRefund).toHaveBeenCalledWith(expect.anything(), 'e1', 'usd', 100000);
     });
 
     it('a full cancellation refund returns the fees without charging them to the organizer', async () => {
@@ -288,7 +299,7 @@ describe('StripeWebhookProcessor.process — dispatch', () => {
         refundRows: [ownRow(105570, 5570)],
       });
       await processor.process('w1');
-      expect(settlements.applyRefund).toHaveBeenCalledWith('e1', 'usd', 100000);
+      expect(settlements.recordRefund).toHaveBeenCalledWith(expect.anything(), 'e1', 'usd', 100000);
     });
 
     it('with no Refund row of ours (a dashboard refund) the pro-rata share is kept', async () => {
@@ -298,7 +309,7 @@ describe('StripeWebhookProcessor.process — dispatch', () => {
       });
       await processor.process('w1');
       // round(100000 * 100000 / 105570) = 94724
-      expect(settlements.applyRefund).toHaveBeenCalledWith('e1', 'usd', 94724);
+      expect(settlements.recordRefund).toHaveBeenCalledWith(expect.anything(), 'e1', 'usd', 94724);
     });
   });
 
@@ -408,5 +419,141 @@ describe('StripeWebhookProcessor — disputes are routed by our own Payment rows
     await processor.process('w1');
     expect(disputes.syncFromWebhook).not.toHaveBeenCalled();
     expect(updates).toHaveLength(0);
+  });
+});
+
+/*
+  AR-54: `charge.refunded` wrote Payment.refundedMinor and then debited the settlement in a
+  separate write. A crash between the two left the settlement undebited forever (the retry saw a
+  zero delta), and two deliveries that both read the old refundedMinor both debited it. These run
+  the processor against an in-memory payment and settlement with a real rolling-back transaction
+  and the REAL SettlementService ledger write.
+*/
+describe('StripeWebhookProcessor charge.refunded is atomic and counted once (AR-54)', () => {
+  const basePayment = {
+    id: 'p1',
+    bookingId: 'b1',
+    amountMinor: 10000,
+    organizerNetMinor: 8000,
+    refundedMinor: 0,
+    currency: 'usd',
+    status: 'SUCCEEDED',
+    booking: { eventId: 'e1' },
+  };
+  const baseSettlement = {
+    id: 's1',
+    eventId: 'e1',
+    currency: 'usd',
+    provider: 'stripe',
+    status: 'ELIGIBLE',
+    providerTransferId: null,
+    refundsMinor: 0,
+  };
+  const newDb = () => refundLedgerMemoryDb({ payment: basePayment, settlement: baseSettlement });
+
+  /** One delivery of a charge.refunded event, as its own webhook row, through process(). */
+  async function deliver(db: ReturnType<typeof newDb>, eventId: string, amountRefunded: number) {
+    const updates: Array<Record<string, unknown>> = [];
+    const prisma = {
+      ...db.prisma,
+      webhookEvent: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn().mockResolvedValue(
+          record({
+            id: eventId,
+            eventType: 'charge.refunded',
+            payload: {
+              object: {
+                id: 'ch_1',
+                payment_intent: 'pi_1',
+                amount_refunded: amountRefunded,
+                currency: 'usd',
+              },
+            },
+          }),
+        ),
+        update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          updates.push(data);
+          return data;
+        }),
+      },
+      // No Refund row of ours: the pro-rata share, 8000/10000 of the refund.
+      refund: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const processor = new StripeWebhookProcessor(
+      prisma as never,
+      {} as never,
+      {} as never,
+      db.settlements,
+      {} as never,
+      { record: jest.fn() } as never,
+    );
+    await processor.process(eventId);
+    return updates.at(-1)?.processingStatus;
+  }
+
+  it('(a) a single delivery records the refund and debits the organizer share, as before', async () => {
+    const db = newDb();
+    expect(await deliver(db, 'w1', 5000)).toBe('PROCESSED');
+    expect(db.state.payment).toMatchObject({ refundedMinor: 5000, status: 'PARTIALLY_REFUNDED' });
+    expect(db.state.settlement.refundsMinor).toBe(4000);
+  });
+
+  it('(a) a full refund marks the payment REFUNDED and debits the full organizer net', async () => {
+    const db = newDb();
+    expect(await deliver(db, 'w1', 10000)).toBe('PROCESSED');
+    expect(db.state.payment).toMatchObject({ refundedMinor: 10000, status: 'REFUNDED' });
+    expect(db.state.settlement.refundsMinor).toBe(8000);
+  });
+
+  it('(b) a duplicate delivery under another event id debits nothing more', async () => {
+    const db = newDb();
+    await deliver(db, 'w1', 5000);
+    expect(await deliver(db, 'w2', 5000)).toBe('PROCESSED');
+    expect(db.state.payment.refundedMinor).toBe(5000);
+    expect(db.state.settlement.refundsMinor).toBe(4000);
+    expect(db.settlementUpdateCalls()).toBe(1);
+  });
+
+  it('(b) two concurrent deliveries that both read the old total debit the settlement once', async () => {
+    const db = newDb();
+    db.raceNextPaymentReads(2);
+    const outcomes = await Promise.all([deliver(db, 'w1', 5000), deliver(db, 'w2', 5000)]);
+
+    // One commits; the other loses the compare-and-set, writes nothing, and is left to retry.
+    expect([...outcomes].sort()).toEqual(['FAILED', 'PROCESSED']);
+    expect(db.state.payment.refundedMinor).toBe(5000);
+    expect(db.state.settlement.refundsMinor).toBe(4000);
+    expect(db.settlementUpdateCalls()).toBe(1);
+
+    // The retry recomputes from the committed total: nothing left to apply.
+    const loser = outcomes[0] === 'FAILED' ? 'w1' : 'w2';
+    expect(await deliver(db, loser, 5000)).toBe('PROCESSED');
+    expect(db.state.settlement.refundsMinor).toBe(4000);
+  });
+
+  it('(b) a concurrent larger refund is not lost: its retry applies only the remainder', async () => {
+    const db = newDb();
+    db.raceNextPaymentReads(2);
+    const [first, second] = await Promise.all([deliver(db, 'w1', 5000), deliver(db, 'w2', 10000)]);
+    expect([first, second]).toEqual(['PROCESSED', 'FAILED']);
+    expect(db.state.payment.refundedMinor).toBe(5000);
+
+    expect(await deliver(db, 'w2', 10000)).toBe('PROCESSED');
+    expect(db.state.payment).toMatchObject({ refundedMinor: 10000, status: 'REFUNDED' });
+    expect(db.state.settlement.refundsMinor).toBe(8000);
+  });
+
+  it('(c) a failed settlement debit rolls back refundedMinor, and the retry applies it once', async () => {
+    const db = newDb();
+    db.failNextSettlementUpdates(1);
+    expect(await deliver(db, 'w1', 5000)).toBe('FAILED');
+    expect(db.state.payment).toMatchObject({ refundedMinor: 0, status: 'SUCCEEDED' });
+    expect(db.state.settlement.refundsMinor).toBe(0);
+
+    // Before AR-54 the retry saw a zero delta here and the settlement was never debited.
+    expect(await deliver(db, 'w1', 5000)).toBe('PROCESSED');
+    expect(db.state.payment.refundedMinor).toBe(5000);
+    expect(db.state.settlement.refundsMinor).toBe(4000);
   });
 });

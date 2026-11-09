@@ -1,4 +1,5 @@
 import { RazorpayWebhookProcessor } from './razorpay-webhook.processor';
+import { refundLedgerMemoryDb } from '../test-support/refund-ledger-memory-db';
 
 function makeProcessor(opts: {
   record?: Record<string, unknown> | null;
@@ -13,6 +14,7 @@ function makeProcessor(opts: {
 }) {
   const updates: Array<Record<string, unknown>> = [];
   const prisma = {
+    $transaction: jest.fn(),
     webhookEvent: {
       updateMany: jest.fn().mockResolvedValue({ count: opts.claimCount ?? 1 }),
       findUnique: jest.fn().mockResolvedValue(opts.record ?? null),
@@ -22,7 +24,11 @@ function makeProcessor(opts: {
         return data;
       }),
     },
-    payment: { findFirst: jest.fn().mockResolvedValue(opts.payment ?? null), update: jest.fn() },
+    payment: {
+      findFirst: jest.fn().mockResolvedValue(opts.payment ?? null),
+      update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     refund: {
       findFirst: jest.fn(async ({ where }: { where: { providerRef?: string | null } }) =>
         where.providerRef === null ? (opts.inFlight ?? null) : (opts.refundRow ?? null),
@@ -30,9 +36,12 @@ function makeProcessor(opts: {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
   };
+  // One transaction is the same mock: the refund path's writes are asserted on it directly.
+  prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma));
   const payments = { processVerifiedEvent: jest.fn().mockResolvedValue({ status: 'confirmed' }) };
   const settlements = {
-    applyRefund: jest.fn(),
+    recordRefund: jest.fn().mockResolvedValue(null),
+    reverseRecordedRefund: jest.fn().mockResolvedValue(undefined),
     onTransferFailed: jest.fn(),
     applyTransferEvidence: jest.fn().mockResolvedValue({ kind: 'AGREES' }),
   };
@@ -79,8 +88,8 @@ describe('RazorpayWebhookProcessor refunds are counted once', () => {
       payment: capturedPayment,
     });
     await processor.process('w1');
-    expect(prisma.payment.update).not.toHaveBeenCalled();
-    expect(settlements.applyRefund).not.toHaveBeenCalled();
+    expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+    expect(settlements.recordRefund).not.toHaveBeenCalled();
     expect(updates.at(-1)).toMatchObject({ processingStatus: 'IGNORED' });
   });
 
@@ -91,8 +100,8 @@ describe('RazorpayWebhookProcessor refunds are counted once', () => {
       sibling: { id: 'w0' },
     });
     await processor.process('w1');
-    expect(prisma.payment.update).not.toHaveBeenCalled();
-    expect(settlements.applyRefund).not.toHaveBeenCalled();
+    expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+    expect(settlements.recordRefund).not.toHaveBeenCalled();
   });
 
   it('refund.processed finalises our PROCESSING refund row to COMPLETED', async () => {
@@ -116,8 +125,8 @@ describe('RazorpayWebhookProcessor refunds are counted once', () => {
     });
     await processor.process('w1');
     expect(updates.at(-1)).toMatchObject({ processingStatus: 'FAILED' });
-    expect(prisma.payment.update).not.toHaveBeenCalled();
-    expect(settlements.applyRefund).not.toHaveBeenCalled();
+    expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+    expect(settlements.recordRefund).not.toHaveBeenCalled();
   });
 
   it('refund.failed marks our refund FAILED and records it for manual follow-up', async () => {
@@ -296,7 +305,7 @@ describe('RazorpayWebhookProcessor idempotency + dispatch', () => {
     });
     await processor.process('w1');
     // organizer share of a 50000 refund on a 150000 charge with 140000 net = round(50000*140000/150000)=46667
-    expect(settlements.applyRefund).toHaveBeenCalledWith('e1', 'INR', 46667);
+    expect(settlements.recordRefund).toHaveBeenCalledWith(expect.anything(), 'e1', 'INR', 46667);
   });
 
   /*
@@ -340,7 +349,7 @@ describe('RazorpayWebhookProcessor idempotency + dispatch', () => {
         refundRow: ownRow(100000, 0),
       });
       await processor.process('w1');
-      expect(settlements.applyRefund).toHaveBeenCalledWith('e1', 'INR', 100000);
+      expect(settlements.recordRefund).toHaveBeenCalledWith(expect.anything(), 'e1', 'INR', 100000);
     });
 
     it('a full cancellation refund returns the fees without charging them to the organizer', async () => {
@@ -350,7 +359,7 @@ describe('RazorpayWebhookProcessor idempotency + dispatch', () => {
         refundRow: ownRow(105570, 5570),
       });
       await processor.process('w1');
-      expect(settlements.applyRefund).toHaveBeenCalledWith('e1', 'INR', 100000);
+      expect(settlements.recordRefund).toHaveBeenCalledWith(expect.anything(), 'e1', 'INR', 100000);
     });
 
     it('with no Refund row of ours (a dashboard refund) the pro-rata share is kept', async () => {
@@ -360,7 +369,7 @@ describe('RazorpayWebhookProcessor idempotency + dispatch', () => {
       });
       await processor.process('w1');
       // round(100000 * 100000 / 105570) = 94724
-      expect(settlements.applyRefund).toHaveBeenCalledWith('e1', 'INR', 94724);
+      expect(settlements.recordRefund).toHaveBeenCalledWith(expect.anything(), 'e1', 'INR', 94724);
     });
   });
 
@@ -533,5 +542,146 @@ describe('RazorpayWebhookProcessor transfer.reversed carries the amount', () => 
     await processor.process('w1');
 
     expect((prisma as Record<string, unknown>).settlement).toBeUndefined();
+  });
+});
+
+/*
+  AR-54: `refund.processed` wrote Payment.refundedMinor and then debited the settlement in a
+  separate write. A crash between the two left the settlement undebited, and two deliveries that
+  both read the old refundedMinor both debited it (and the later one overwrote the earlier one's
+  refundedMinor). These run the processor against an in-memory payment and settlement with a real
+  rolling-back transaction and the REAL SettlementService ledger write.
+*/
+describe('RazorpayWebhookProcessor refund.processed is atomic and counted once (AR-54)', () => {
+  const basePayment = {
+    id: 'p1',
+    bookingId: 'b1',
+    amountMinor: 150000,
+    organizerNetMinor: 140000,
+    refundedMinor: 0,
+    currency: 'inr',
+    status: 'SUCCEEDED',
+    booking: { eventId: 'e1' },
+  };
+  const baseSettlement = {
+    id: 's1',
+    eventId: 'e1',
+    currency: 'inr',
+    provider: 'razorpay',
+    status: 'ELIGIBLE',
+    providerTransferId: null,
+    refundsMinor: 0,
+  };
+  const newDb = () => refundLedgerMemoryDb({ payment: basePayment, settlement: baseSettlement });
+
+  /**
+   * One delivery of refund.processed, as its own webhook row, through process(). `sibling` is
+   * what the once-per-Razorpay-refund lookup finds: another delivery already handled.
+   */
+  async function deliver(
+    db: ReturnType<typeof newDb>,
+    eventId: string,
+    refund: { id: string; amount: number },
+    sibling: { id: string } | null = null,
+  ) {
+    const updates: Array<Record<string, unknown>> = [];
+    const prisma = {
+      ...db.prisma,
+      webhookEvent: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn().mockResolvedValue(
+          rec({
+            id: eventId,
+            eventType: 'refund.processed',
+            payload: {
+              object: {
+                refund: { entity: { ...refund, payment_id: 'pay_1', currency: 'INR' } },
+              },
+            },
+          }),
+        ),
+        findFirst: jest.fn().mockResolvedValue(sibling),
+        update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          updates.push(data);
+          return data;
+        }),
+      },
+      // No Refund row of ours (a dashboard refund): the pro-rata share, 140000/150000.
+      refund: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+    };
+    const processor = new RazorpayWebhookProcessor(
+      prisma as never,
+      {} as never,
+      db.settlements,
+      {} as never,
+      { record: jest.fn() } as never,
+    );
+    await processor.process(eventId);
+    return updates.at(-1)?.processingStatus;
+  }
+
+  const r1 = { id: 'rfnd_1', amount: 50000 };
+  const r2 = { id: 'rfnd_2', amount: 30000 };
+
+  it('(a) a single delivery records the refund and debits the organizer share, as before', async () => {
+    const db = newDb();
+    expect(await deliver(db, 'w1', r1)).toBe('PROCESSED');
+    expect(db.state.payment).toMatchObject({ refundedMinor: 50000, status: 'PARTIALLY_REFUNDED' });
+    // round(50000 * 140000 / 150000) = 46667, exactly what applyRefund was called with before.
+    expect(db.state.settlement.refundsMinor).toBe(46667);
+  });
+
+  it('(a) a refund is still capped at the captured amount', async () => {
+    const db = newDb();
+    expect(await deliver(db, 'w1', { id: 'rfnd_big', amount: 200000 })).toBe('PROCESSED');
+    expect(db.state.payment).toMatchObject({ refundedMinor: 150000, status: 'REFUNDED' });
+    expect(db.state.settlement.refundsMinor).toBe(140000);
+  });
+
+  it('(b) two concurrent deliveries of the same refund debit the settlement once', async () => {
+    const db = newDb();
+    db.raceNextPaymentReads(2);
+    // Neither delivery has seen the other yet: only the payment compare-and-set stands between them.
+    const outcomes = await Promise.all([deliver(db, 'w1', r1), deliver(db, 'w2', r1)]);
+    expect([...outcomes].sort()).toEqual(['FAILED', 'PROCESSED']);
+    expect(db.state.payment.refundedMinor).toBe(50000);
+    expect(db.state.settlement.refundsMinor).toBe(46667);
+    expect(db.settlementUpdateCalls()).toBe(1);
+
+    // The loser's retry finds the winner's handled delivery and applies nothing.
+    const loser = outcomes[0] === 'FAILED' ? 'w1' : 'w2';
+    const winner = loser === 'w1' ? 'w2' : 'w1';
+    expect(await deliver(db, loser, r1, { id: winner })).toBe('PROCESSED');
+    expect(db.state.payment.refundedMinor).toBe(50000);
+    expect(db.state.settlement.refundsMinor).toBe(46667);
+  });
+
+  it('(b) two different refunds racing are both counted, each exactly once', async () => {
+    const db = newDb();
+    db.raceNextPaymentReads(2);
+    const [first, second] = await Promise.all([deliver(db, 'w1', r1), deliver(db, 'w2', r2)]);
+    // Before AR-54 both debited and the second overwrote refundedMinor with 30000.
+    expect([first, second]).toEqual(['PROCESSED', 'FAILED']);
+    expect(db.state.payment.refundedMinor).toBe(50000);
+
+    expect(await deliver(db, 'w2', r2)).toBe('PROCESSED');
+    expect(db.state.payment.refundedMinor).toBe(80000);
+    // 46667 + round(30000 * 140000 / 150000) = 46667 + 28000
+    expect(db.state.settlement.refundsMinor).toBe(74667);
+  });
+
+  it('(c) a failed settlement debit rolls back refundedMinor, and the retry applies it once', async () => {
+    const db = newDb();
+    db.failNextSettlementUpdates(1);
+    expect(await deliver(db, 'w1', r1)).toBe('FAILED');
+    expect(db.state.payment).toMatchObject({ refundedMinor: 0, status: 'SUCCEEDED' });
+    expect(db.state.settlement.refundsMinor).toBe(0);
+
+    expect(await deliver(db, 'w1', r1)).toBe('PROCESSED');
+    expect(db.state.payment.refundedMinor).toBe(50000);
+    expect(db.state.settlement.refundsMinor).toBe(46667);
   });
 });

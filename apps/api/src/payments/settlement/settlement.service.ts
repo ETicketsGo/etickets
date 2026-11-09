@@ -31,6 +31,12 @@ import { allOf, dayRangeWhere } from '../../admin/list-filters';
 
 const DEFAULT_CURRENCY = 'usd';
 
+/** A refund share written to a settlement's ledger, with the settlement as it was before. */
+export interface RecordedRefund {
+  settlement: Settlement;
+  organizerShareMinor: number;
+}
+
 /** Payments whose money was captured, whatever has been refunded from them since. */
 const CAPTURED_PAYMENT_STATUSES = [
   PaymentStatus.SUCCEEDED,
@@ -810,20 +816,50 @@ export class SettlementService {
   /**
    * Deduct an organizer's share of a refund from their settlement. If the settlement
    * has already been transferred, claw the amount back with a transfer reversal.
-   * Idempotent per (settlement, providerRefundId) via the metadata guard in the caller.
+   * Not idempotent by itself: the refund webhooks call `recordRefund` in the same transaction as
+   * a compare-and-set on `Payment.refundedMinor`, which is what makes a refund count once.
    */
   async applyRefund(eventId: string, currency: string, organizerShareMinor: number): Promise<void> {
-    if (organizerShareMinor <= 0) return;
-    const settlement = await this.prisma.settlement.findUnique({
+    const recorded = await this.recordRefund(this.prisma, eventId, currency, organizerShareMinor);
+    await this.reverseRecordedRefund(recorded);
+  }
+
+  /**
+   * The ledger half of `applyRefund`: add the organizer's share to `refundsMinor`, using the
+   * client it is given. A refund webhook passes its own transaction here so the share is debited
+   * in the SAME commit as `Payment.refundedMinor` (AR-54): a crash can no longer leave one written
+   * without the other. Does no provider I/O, so it is safe inside a transaction.
+   *
+   * Returns what `reverseRecordedRefund` needs once that transaction has committed, or null when
+   * nothing was recorded (no share, or no settlement for this event and currency).
+   */
+  async recordRefund(
+    db: Prisma.TransactionClient,
+    eventId: string,
+    currency: string,
+    organizerShareMinor: number,
+  ): Promise<RecordedRefund | null> {
+    if (organizerShareMinor <= 0) return null;
+    const settlement = await db.settlement.findUnique({
       where: { eventId_currency: { eventId, currency: currency.toLowerCase() } },
     });
-    if (!settlement) return;
+    if (!settlement) return null;
 
-    await this.prisma.settlement.update({
+    await db.settlement.update({
       where: { id: settlement.id },
       data: { refundsMinor: { increment: organizerShareMinor } },
     });
+    return { settlement, organizerShareMinor };
+  }
 
+  /**
+   * The money half of `applyRefund`: claw the recorded share back if the settlement was already
+   * transferred. Calls the provider, so it runs AFTER the transaction that recorded the refund
+   * has committed, never inside it.
+   */
+  async reverseRecordedRefund(recorded: RecordedRefund | null): Promise<void> {
+    if (!recorded) return;
+    const { settlement, organizerShareMinor } = recorded;
     await this.reverseIfTransferred(
       settlement,
       organizerShareMinor,
