@@ -12,7 +12,7 @@ import { ADMIN, ORGANIZER, apiLogin, seedBrowserAuth } from './helpers';
  * So both consoles are loaded with a 40+ character organization name AND a 40+ character
  * person, served by rewriting the API answers in the browser (renaming seeded rows would
  * change a database other people's tests read), and EVERY pair of things in the header -
- * buttons, links, radios, the masthead, the account block - is checked for overlapping
+ * buttons, links, radios, the masthead, the account menu's button - is checked for overlapping
  * rectangles. Geometry, not a screenshot: two boxes overlapping is a fact.
  */
 
@@ -100,9 +100,9 @@ for (const app of [
         await longNames(page);
         try {
           await page.goto(`${app.base}${app.home}`);
-          await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible({
-            timeout: 30_000,
-          });
+          // The account menu's avatar, which now holds Sign out.
+          const account = page.getByRole('button', { name: /^Account menu, signed in as/ });
+          await expect(account).toBeVisible({ timeout: 30_000 });
           await page.waitForLoadState('networkidle').catch(() => undefined);
           if (app.name === 'organizer') {
             // The long name is really what is on screen, whole, for assistive technology.
@@ -111,11 +111,28 @@ for (const app of [
             );
           }
           if (w >= 1024) {
+            // The address is what tells one login from another, so it is the line on show.
             await expect(page.locator('header [data-testid="account-name"]')).toContainText(
-              LONG_PERSON,
+              LONG_EMAIL,
             );
           }
           expect(await headerCollisions(page)).toEqual([]);
+          // The open menu names the person in full and still does not push the page sideways.
+          await account.click();
+          const menu = page.getByTestId('account-menu');
+          await expect(menu).toContainText(LONG_PERSON);
+          await expect(menu).toContainText(LONG_EMAIL);
+          await expect(menu.getByRole('button', { name: 'Sign out' })).toBeVisible();
+          const box = await menu.boundingBox();
+          expect(box && box.x >= 0 && box.x + box.width <= w).toBe(true);
+          expect(
+            await page.evaluate(
+              () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            ),
+          ).toBeLessThanOrEqual(2);
+          await page.keyboard.press('Escape');
+          await expect(menu).toBeHidden();
+          await expect(account).toBeFocused();
         } finally {
           // `longNames` answers through `route.fetch()`; a call still waiting on the API when the
           // context closes would otherwise fail whichever test runs next (see cinema-workspace).

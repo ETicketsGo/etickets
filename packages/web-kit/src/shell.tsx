@@ -21,6 +21,7 @@ import { SIDEBAR_COLLAPSED_COOKIE } from './shell-preferences';
 import { Wordmark, WordmarkMonogram } from './wordmark';
 import { consolePageTitle, navCurrentLabel, visibleNav, type NavItem } from './nav';
 import { IconButton } from './primitives';
+import { ConsoleAccountMenu, type ConsoleAccountLink } from './console-account-menu';
 import { brandButtonClasses } from './brand';
 import {
   NavRail,
@@ -195,9 +196,10 @@ export interface ShellAction {
  * ── THE TOP BAR ────────────────────────────────────────────────────────────────────
  * Left to right: the workspace masthead (an organization's own name and logo; admin has
  * none), "Find a page" (quick navigation, Ctrl/Cmd+K), then the one primary action, the
- * notifications bell, `headerAccessory` (the appearance switch), the person with their role,
- * and Sign out. Only the masthead and the search field are flexible: they truncate, and
- * everything else keeps its size, so nothing can overlap at any width
+ * notifications bell, `headerAccessory` (the appearance switch), then the account: the avatar
+ * and address, opening a menu with the role and Sign out (`console-account-menu.tsx`). Only
+ * the masthead and the search field are flexible: they truncate, and everything else keeps its
+ * size, so nothing can overlap at any width
  * (`console-header-long-names.spec.ts`, `shell-header-overlap.spec.ts`).
  *
  * ── WHO SEES WHAT ──────────────────────────────────────────────────────────────────
@@ -219,6 +221,8 @@ export function AppShell({
   primaryAction,
   notifications,
   accountRole,
+  accountDetails,
+  accountLinks,
   sidebarNotice,
   navLabel = 'Main',
   drawerLabel = 'Navigation',
@@ -243,8 +247,12 @@ export function AppShell({
   primaryAction?: ShellAction | null;
   /** The notifications control (`NotificationsButton`), from `sm` up, where the app has one. */
   notifications?: ReactNode;
-  /** The line under the person's name. Defaults to their platform role. */
+  /** The role beside the address and in the account menu. Defaults to the platform role. */
   accountRole?: string | null;
+  /** More in the account menu, under the role: see `ConsoleAccountMenu`. */
+  accountDetails?: ReactNode | ((close: () => void) => ReactNode);
+  /** The account's own pages in the account menu ("Account security"). */
+  accountLinks?: ConsoleAccountLink[];
   /** A notice above the sidebar's list (desk only): see `ShellNotice`. */
   sidebarNotice?: ShellNotice | null;
   /** The accessible name of the navigation landmark ("Main" for organizers, "Admin"). */
@@ -495,36 +503,28 @@ export function AppShell({
             )}
             {notifications && <div className="hidden sm:flex">{notifications}</div>}
             {headerAccessory}
-            {user && (
+            {user ? (
               <>
                 <span aria-hidden className={`mx-1 hidden h-6 w-px lg:block ${c.divider}`} />
-                <div className={`flex items-center ${desk ? 'gap-3' : 'gap-2.5'}`}>
-                  <div
-                    className={`hidden h-9 w-9 shrink-0 items-center justify-center rounded-full sm:flex ${c.avatar}`}
-                    aria-hidden
-                  >
-                    {initials(user.fullName)}
-                  </div>
-                  {/*
-                    Capped and truncated, like the masthead: a long name is the other way the
-                    top bar used to push its own controls into each other. The address is in
-                    `title`, so the role can have the second line. The desk names the person from
-                    `xl` only: at 1024px the avatar says who, and the room goes to the action.
-                  */}
-                  <div
-                    data-testid="account-name"
-                    className={`hidden min-w-0 max-w-[9rem] xl:max-w-[12rem] ${desk ? 'xl:block' : 'lg:block'}`}
-                    title={[user.fullName, user.email].filter(Boolean).join(', ')}
-                  >
-                    <p className={`truncate leading-tight ${c.accountName}`}>{user.fullName}</p>
-                    <p className={`truncate leading-tight ${c.accountRole}`}>
-                      {role ?? user.email}
-                    </p>
-                  </div>
-                </div>
+                {/*
+                  The account: the avatar, the address on a wide screen, and a menu with the
+                  name, the role held here, the app's own details and Sign out. On a phone it is
+                  the avatar alone, and the menu opens on a tap.
+                */}
+                <ConsoleAccountMenu
+                  user={user}
+                  role={role}
+                  details={accountDetails}
+                  links={accountLinks}
+                  onSignOut={logout}
+                  appearance={desk ? 'desk' : 'classic'}
+                />
               </>
-            )}
-            {desk ? (
+            ) : desk ? (
+              /*
+                Until "who am I" answers there is nobody to name, but the way out stays: the same
+                Sign out the menu holds.
+              */
               <button
                 type="button"
                 onClick={logout}
@@ -795,9 +795,6 @@ const CLASSIC = {
   mastheadName:
     'font-display text-[0.9375rem] font-bold tracking-tight text-text-primary sm:text-[1.0625rem]',
   divider: 'bg-border',
-  avatar: 'bg-tint-primary text-[0.8125rem] font-semibold text-action-primary',
-  accountName: 'text-ui font-semibold text-text-primary',
-  accountRole: 'text-micro text-text-muted',
   aside: 'bg-nav text-nav-foreground',
   asideWidth: 'w-shell-sidebar',
   asideBorder: 'border-nav-border',
@@ -817,9 +814,6 @@ const DESK: Record<keyof typeof CLASSIC, string> = {
     'rounded-brand-control bg-brand-ink font-brand-display text-[0.8125rem] font-bold text-brand-canvas',
   mastheadName: 'text-brand-ui font-semibold text-brand-ink sm:text-brand-body sm:font-semibold',
   divider: 'bg-brand-line',
-  avatar: 'border border-brand-line bg-brand-surface text-brand-meta font-semibold text-brand-ink',
-  accountName: 'text-brand-ui font-semibold text-brand-ink',
-  accountRole: 'text-brand-meta text-brand-ink-3',
   // 232px: the specimen's sidebar; the page gets the rest of a 1024px laptop.
   aside: 'border-r border-brand-line bg-brand-canvas text-brand-ink',
   asideWidth: 'w-[14.5rem]',

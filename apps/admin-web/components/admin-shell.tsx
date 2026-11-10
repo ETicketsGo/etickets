@@ -1,8 +1,14 @@
 'use client';
 
 import { type ReactNode } from 'react';
-import { AppShell } from '@eticketsgo/web-kit';
+import {
+  AppShell,
+  consoleAccountMenuMetaClass,
+  useAuthUser,
+  type ConsoleAccountLink,
+} from '@eticketsgo/web-kit';
 import { adminNavItems } from '@/lib/admin-nav';
+import { adminAccountIdentity } from '@/lib/account-identity';
 import { ColorSchemeSwitch } from './color-scheme-switch';
 
 /**
@@ -23,11 +29,50 @@ import { ColorSchemeSwitch } from './color-scheme-switch';
  */
 const NAV = adminNavItems();
 
+/**
+ * The operator's own sign-in security. Every operator can open it (it needs no duty - see the
+ * "My account" group in `admin-nav.ts`), so it is safe to offer to everybody.
+ */
+const ACCOUNT_LINKS: ConsoleAccountLink[] = [
+  { label: 'Account security', href: '/admin/security' },
+];
+
+/**
+ * What this operator may do here, in the account menu: "Holds every duty" for a super admin, the
+ * duties they hold for anybody else. Words only; it opens nothing.
+ */
+function AdminDuties({ summary, duties }: { summary: string | null; duties: string[] }) {
+  const meta = consoleAccountMenuMetaClass('classic');
+  return (
+    <div className="px-4 py-2" data-testid="account-menu-duties">
+      <p className={meta}>{duties.length > 0 ? 'Your duties' : 'Duties'}</p>
+      {summary && <p className="text-ui text-text-primary">{summary}</p>}
+      {duties.length > 0 && (
+        // Capped: an operator with many duties still reaches Sign out without scrolling the page.
+        <ul className="max-h-40 overflow-y-auto text-ui text-text-primary">
+          {duties.map((d) => (
+            <li key={d}>{d}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function AdminShell({ children }: { children: ReactNode }) {
+  const { user } = useAuthUser();
+  const identity = adminAccountIdentity(user);
   return (
     <AppShell
       brand="Admin"
       nav={NAV}
+      accountRole={identity.role}
+      accountDetails={
+        identity.summary || identity.duties.length > 0 ? (
+          <AdminDuties summary={identity.summary} duties={identity.duties} />
+        ) : undefined
+      }
+      accountLinks={ACCOUNT_LINKS}
       navLabel="Admin"
       drawerLabel="Admin menu"
       width="fluid"

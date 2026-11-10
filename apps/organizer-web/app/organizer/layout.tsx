@@ -24,6 +24,9 @@ import { useOnboardingDismissed, useOnboardingProgress } from '@/lib/onboarding'
 import { WorkspaceTheme, useWorkspace } from '@/components/workspace-chrome';
 import { DeskNotificationsButton, DeskSchemeSwitch } from '@/components/desk-chrome';
 import { OrganizerLegalFooter } from '@/components/organizer-legal-footer';
+import { OrganizerAccountDetails } from '@/components/account-menu-details';
+
+const renderAccountDetails = (close: () => void) => <OrganizerAccountDetails onDone={close} />;
 
 /**
  * A page that exists to become paper gets no shell.
@@ -104,6 +107,12 @@ function OrganizerChrome({ children }: { children: React.ReactNode }) {
       workspace={{ name: workspace.name, logoUrl: workspace.logoUrl }}
       headerAccessory={<DeskSchemeSwitch />}
       accountRole={workspace.roleLabel}
+      /*
+        The account menu names the active organization and, for somebody in more than one,
+        switches it. Organizer settings are the organization's, not the account's, so the menu
+        has no settings link.
+      */
+      accountDetails={renderAccountDetails}
       sidebarNotice={setup}
       notifications={<OrganizerNotifications />}
       /*

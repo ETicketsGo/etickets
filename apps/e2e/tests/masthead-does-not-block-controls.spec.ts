@@ -88,7 +88,8 @@ for (const width of [320, 390, 412, 1440]) {
       width - that is a layout choice, not a defect - and the appearance group above is
       already asserted to be present, so this loop cannot quietly check nothing.
     */
-    for (const label of ['Toggle navigation', 'Sign out']) {
+    // The avatar holds Sign out; a bare Sign out shows only until /auth/me answers.
+    for (const label of ['Toggle navigation', 'Account menu', 'Sign out']) {
       const control = page.getByRole('button', { name: label });
       if ((await control.count()) === 0) continue;
       expect(await coveredBy(control), `"${label}" is covered at ${width}px`).toBeNull();
