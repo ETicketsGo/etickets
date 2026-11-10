@@ -54,7 +54,7 @@ export function connectWords(status: string): ConnectWords {
  * support about something only we can do, so the only action it offers is a wasted one.
  */
 export const PLATFORM_SETTLEMENTS_OFF =
-  'We are not making payouts to this account yet. Your sales are unaffected, and no action is required from you.';
+  'ETicketsGo pays your settlements by bank transfer to your verified bank account (manual settlements). Automatic payouts are not switched on. Your sales are unaffected, and no action is required from you for them.';
 
 /** Whether the organizer has any outstanding requirement of their own. */
 export function hasOrganizerRequirements(status: RazorpayAccountStatus): boolean {

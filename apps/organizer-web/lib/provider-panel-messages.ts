@@ -109,7 +109,7 @@ export function razorpayPanelMessage(f: RazorpayFacts, scope: MarketScope): Pane
     if (!scope.card) return { tone: 'info', text: PLATFORM_SETTLEMENTS_OFF };
     return {
       tone: 'info',
-      text: `We are not making payouts to this account yet. ${sales}, and no action is required from you.`,
+      text: `ETicketsGo pays your rupee settlements by bank transfer to your verified bank account (manual settlements). Automatic payouts are not switched on. ${sales}, and no action is required from you for them.`,
     };
   }
   if (stage === 'LINK_ACCOUNT') {
