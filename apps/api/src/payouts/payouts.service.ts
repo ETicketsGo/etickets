@@ -1499,24 +1499,35 @@ export class PayoutsService {
       );
       // Whose account it must be: the organizer's registered legal identity, read in the same
       // transaction so a legal-name change cannot slip between this check and the PAID.
-      // Judged against the APPROVED identity (only an independent staff decision writes it),
-      // never the editable fields: an organizer cannot rename itself into its own bank account.
+      /*
+        Judged against the APPROVED identity (only an independent staff decision writes it),
+        never the editable fields: an organizer cannot rename itself into its own bank account.
+        A change waiting for review (or refused) holds the payout. UNREVIEWED is an organization
+        that never went through review - only seeds and direct database writes produce it, since
+        approval writes the snapshot - and is judged on the identity on file, as before.
+      */
       const org = await tx.organization.findUnique({
         where: { id: payout.organizationId },
         select: {
           legalIdentityStatus: true,
           approvedLegalName: true,
           approvedLegalEntityType: true,
+          legalName: true,
+          legalEntityType: true,
         },
       });
+      const held =
+        org?.legalIdentityStatus === 'PENDING_REVIEW' ||
+        org?.legalIdentityStatus === 'CHANGES_REQUESTED';
+      const useApproved = org?.legalIdentityStatus === 'APPROVED';
       const verdict = payoutDestinationVerdict({
         netMinor: payout.netMinor,
         account: rows[0] ?? null,
         owner: org
           ? {
-              approved: org.legalIdentityStatus === 'APPROVED',
-              legalName: org.approvedLegalName,
-              legalEntityType: org.approvedLegalEntityType,
+              approved: !held,
+              legalName: useApproved ? org.approvedLegalName : org.legalName,
+              legalEntityType: useApproved ? org.approvedLegalEntityType : org.legalEntityType,
             }
           : null,
       });

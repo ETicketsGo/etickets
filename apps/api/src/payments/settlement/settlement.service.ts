@@ -440,7 +440,11 @@ export class SettlementService {
       where: { id: settlement.organizationId },
       select: { legalIdentityStatus: true },
     });
-    if (owner && owner.legalIdentityStatus !== 'APPROVED') {
+    if (
+      owner &&
+      (owner.legalIdentityStatus === 'PENDING_REVIEW' ||
+        owner.legalIdentityStatus === 'CHANGES_REQUESTED')
+    ) {
       await this.audit.record({
         actorUserId: actor.id,
         organizationId: settlement.organizationId,

@@ -1327,6 +1327,40 @@ describe('PayoutsService (markPaid hold on an unverified destination)', () => {
     });
   });
 
+  it('an organization never reviewed (seeded) is judged on the identity on file', async () => {
+    const { service, prisma } = makeService();
+    prisma.organization.findUnique.mockResolvedValue({
+      status: 'APPROVED',
+      legalIdentityStatus: 'UNREVIEWED',
+      legalName: 'DeepTrics Software Solutions Pvt Ltd',
+      legalEntityType: 'Private limited company',
+      approvedLegalName: null,
+      approvedLegalEntityType: null,
+    });
+    prisma.$queryRaw.mockResolvedValue(
+      accountRow({ verifiedAt: new Date(), holderName: 'Srinivasa Rao M' }),
+    );
+    await expect(service.markPaid(user, 'p1')).rejects.toMatchObject({
+      response: expect.objectContaining({ details: { hold: 'DESTINATION_OWNERSHIP_MISMATCH' } }),
+    });
+  });
+
+  it('changes requested holds the payout too', async () => {
+    const { service, prisma } = makeService();
+    prisma.organization.findUnique.mockResolvedValue({
+      status: 'APPROVED',
+      legalIdentityStatus: 'CHANGES_REQUESTED',
+      approvedLegalName: 'Asha Events',
+      approvedLegalEntityType: 'Sole proprietorship',
+    });
+    prisma.$queryRaw.mockResolvedValue(
+      accountRow({ verifiedAt: new Date(), holderName: 'Asha Rao' }),
+    );
+    await expect(service.markPaid(user, 'p1')).rejects.toMatchObject({
+      response: expect.objectContaining({ details: { hold: 'DESTINATION_IDENTITY_NOT_APPROVED' } }),
+    });
+  });
+
   it('pays a sole proprietor into their own personal account', async () => {
     const { service, prisma } = makeService();
     prisma.organization.findUnique.mockResolvedValue({
