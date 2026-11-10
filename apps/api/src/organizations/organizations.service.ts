@@ -98,6 +98,24 @@ function slugify(name: string): string {
     .replace(/(^-|-$)/g, '')}-${randomBytes(3).toString('hex')}`;
 }
 
+/**
+ * The admin organizer list's status filter.
+ *
+ * `ACTIVE` is every organizer that is not suspended: the list an operator works from day to
+ * day. A suspended organizer (a retired test organization, or one stopped for a compliance
+ * question) keeps all of its records and stays one filter away, under Suspended or Every
+ * status; it just no longer crowds the working list.
+ */
+export const ACTIVE_ORGANIZERS = 'ACTIVE' as const;
+
+export function organizerStatusWhere(
+  status: OrganizationStatus | typeof ACTIVE_ORGANIZERS | undefined,
+): Prisma.OrganizationWhereInput {
+  if (!status) return {};
+  if (status === ACTIVE_ORGANIZERS) return { status: { not: OrganizationStatus.SUSPENDED } };
+  return { status };
+}
+
 @Injectable()
 export class OrganizationsService {
   constructor(
@@ -1506,7 +1524,7 @@ export class OrganizationsService {
    * page, not one per row.
    */
   async adminList(
-    status: OrganizationStatus | undefined,
+    status: OrganizationStatus | typeof ACTIVE_ORGANIZERS | undefined,
     page: number,
     pageSize: number,
     query?: string,
@@ -1520,7 +1538,7 @@ export class OrganizationsService {
       dropped its scope would show every row while the summary above it named one group.
     */
       ...groupScopeWhere('organizers', scope),
-      ...(status ? { status } : {}),
+      ...organizerStatusWhere(status),
       ...(query
         ? {
             OR: [

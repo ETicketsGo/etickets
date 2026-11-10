@@ -40,6 +40,18 @@ import { CountryFilter, CountryLabel, useCountryParam } from '../../../component
  *    which until you open both.
  */
 const STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'];
+/*
+  The working list: every organizer that is not suspended. A suspended organizer (a retired
+  test organization, or one stopped for a compliance question) keeps every record and is one
+  choice away under Suspended or Every status.
+*/
+const ACTIVE = 'ACTIVE';
+const listTitle = (status: string) =>
+  status === ACTIVE
+    ? 'Active organizers'
+    : status
+      ? `${statusWords(status)} organizers`
+      : 'All organizers';
 
 export default function OrganizersPage() {
   const router = useRouter();
@@ -56,7 +68,7 @@ export default function OrganizersPage() {
     Seeded once, then editable: the filter is still a control, not a property of the URL.
   */
   const params = useSearchParams();
-  const [status, setStatus] = useState(params.get('status') ?? '');
+  const [status, setStatus] = useState(params.get('status') ?? ACTIVE);
   const [q, setQ] = useState('');
   const [applied, setApplied] = useState('');
   const [country, setCountryParam] = useCountryParam();
@@ -185,6 +197,7 @@ export default function OrganizersPage() {
               setPage(1);
             }}
           >
+            <option value={ACTIVE}>Active (not suspended)</option>
             <option value="">Every status</option>
             {STATUSES.map((s) => (
               <option key={s} value={s}>
@@ -197,7 +210,7 @@ export default function OrganizersPage() {
       </Card>
 
       <Card
-        title={status ? `${statusWords(status)} organizers` : 'All organizers'}
+        title={listTitle(status)}
         action={data ? <Badge tone="neutral">{data.meta.total} matching</Badge> : undefined}
       >
         <GroupedSummary
