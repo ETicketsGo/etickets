@@ -94,13 +94,24 @@ describe('approving an organization', () => {
       taxRegistrationNumber: null,
     });
     await service.review(admin, 'org-1', { decision: 'APPROVE' });
-    expect(updates).toEqual([{ status: 'APPROVED' }]);
+    expect(updates).toEqual([
+      expect.objectContaining({ status: 'APPROVED', legalIdentityStatus: 'APPROVED' }),
+    ]);
+    // Approving the organization approves the identity it declared: the payout snapshot.
+    expect(updates[0]).toMatchObject({
+      approvedLegalName: 'Venkat Blaze',
+      approvedLegalEntityType: 'Sole proprietorship',
+      approvedRegisteredCountry: 'India',
+      legalIdentityApprovedByUserId: 'admin-1',
+    });
   });
 
   it('approves when the declaration is complete', async () => {
     const { service, updates, notified } = serviceFor(COMPLETE);
     await service.review(admin, 'org-1', { decision: 'APPROVE' });
-    expect(updates).toEqual([{ status: 'APPROVED' }]);
+    expect(updates).toEqual([
+      expect.objectContaining({ status: 'APPROVED', legalIdentityStatus: 'APPROVED' }),
+    ]);
     expect(notified).toEqual(['ORGANIZATION_APPROVED']);
   });
 
@@ -130,7 +141,9 @@ describe('the override', () => {
       decision: 'APPROVE',
       overrideIdentityCheck: { reason: 'Verified the trust deed by email with the registrar.' },
     });
-    expect(updates).toEqual([{ status: 'APPROVED' }]);
+    expect(updates).toEqual([
+      expect.objectContaining({ status: 'APPROVED', legalIdentityStatus: 'APPROVED' }),
+    ]);
   });
 
   it('records the override, the reason and what was missing on the approval itself', async () => {

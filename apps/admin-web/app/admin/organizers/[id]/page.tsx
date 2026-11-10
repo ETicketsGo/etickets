@@ -19,6 +19,7 @@ import {
 import { StatusBadge } from '@/components/status-badge';
 import { AccountContact, accountContactText } from '../../../../components/account-contact';
 import { LegalIdentityCard } from '@/components/legal-identity-card';
+import { LegalIdentityReviewCard } from '@/components/legal-identity-review-card';
 import { OrganizerStandingCard } from '@/components/organizer-standing-card';
 import { OrganizerReviewCard } from '@/components/organizer-review-card';
 import { roleWords } from '@/lib/words';
@@ -134,6 +135,7 @@ export default function OrganizerDetail() {
           onboarding them — not a settings detail to be found later. */}
       <OrganizerStandingCard organizationId={id} name={org.name} status={org.status} />
 
+      <LegalIdentityReviewCard organizationId={id} />
       <LegalIdentityCard organizationId={id} />
 
       <Card title="Team">

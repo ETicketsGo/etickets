@@ -38,6 +38,17 @@ enum OrganizationStatus {
   SUSPENDED
 }
 
+/// Whether the payout-critical legal identity on file is the one staff approved.
+/// UNREVIEWED until the organization is approved; PENDING_REVIEW after an approved
+/// organization changes a payout-critical field; CHANGES_REQUESTED when staff turned the
+/// change down. Payouts move only while APPROVED.
+enum LegalIdentityStatus {
+  UNREVIEWED
+  APPROVED
+  PENDING_REVIEW
+  CHANGES_REQUESTED
+}
+
 enum MemberStatus {
   INVITED
   ACTIVE
@@ -1003,6 +1014,24 @@ model Organization {
   /// Registrations beyond the main one above: [{ kind, number }], e.g. a second state's sales tax ID
   /// or a PAN beside a GSTIN. Recorded only; documents print the main registration.
   additionalTaxRegistrations Json?
+
+  /// ── THE APPROVED IDENTITY (payout-critical fields as staff last approved them) ────
+  /// The fields above are editable by the organizer at any time and print on documents.
+  /// Payouts are judged against THESE, which only an independent staff decision writes.
+  /// Changing from a company to an individual (or renaming the business) therefore cannot
+  /// make a personal bank account payable: the change waits for review, and payouts with it.
+  legalIdentityStatus              LegalIdentityStatus @default(UNREVIEWED)
+  approvedLegalName                String?
+  approvedLegalEntityType          String?
+  approvedRegisteredCountry        String?
+  approvedTaxRegistrationKind      String?
+  approvedTaxRegistrationNumber    String?
+  legalIdentityApprovedAt          DateTime?
+  legalIdentityApprovedByUserId    String?
+  /// Who last changed a payout-critical field, so the reviewer can be someone else.
+  legalIdentityChangedAt           DateTime?
+  legalIdentityChangedByUserId     String?
+  legalIdentityReviewNote          String?
 
   /// Registered address, structured because an invoice needs the parts separately.
   registeredAddressLine1 String?

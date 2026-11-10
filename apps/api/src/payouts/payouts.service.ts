@@ -1499,14 +1499,26 @@ export class PayoutsService {
       );
       // Whose account it must be: the organizer's registered legal identity, read in the same
       // transaction so a legal-name change cannot slip between this check and the PAID.
-      const owner = await tx.organization.findUnique({
+      // Judged against the APPROVED identity (only an independent staff decision writes it),
+      // never the editable fields: an organizer cannot rename itself into its own bank account.
+      const org = await tx.organization.findUnique({
         where: { id: payout.organizationId },
-        select: { legalName: true, legalEntityType: true },
+        select: {
+          legalIdentityStatus: true,
+          approvedLegalName: true,
+          approvedLegalEntityType: true,
+        },
       });
       const verdict = payoutDestinationVerdict({
         netMinor: payout.netMinor,
         account: rows[0] ?? null,
-        owner,
+        owner: org
+          ? {
+              approved: org.legalIdentityStatus === 'APPROVED',
+              legalName: org.approvedLegalName,
+              legalEntityType: org.approvedLegalEntityType,
+            }
+          : null,
       });
       if (!verdict.allowed) return { held: verdict.reason };
       /*
@@ -1592,11 +1604,13 @@ export class PayoutsService {
         ErrorCodes.CONFLICT,
         outcome.held === 'NO_ACCOUNT'
           ? `This payout is on hold: there is no ${payout.currency} bank account on file for the organizer.`
-          : outcome.held === 'OWNERSHIP_MISMATCH'
-            ? `This payout is on hold: the ${payout.currency} bank account is not in the organizer's registered business name. A business is paid only into an account in its own name. The organizer must add the business account, and another staff member must verify it.`
-            : `This payout is on hold: the ${payout.currency} bank account has not been verified${
-                outcome.held === 'REJECTED' ? ' (it was turned down)' : ''
-              }. Another staff member must verify it on Bank accounts first.`,
+          : outcome.held === 'IDENTITY_NOT_APPROVED'
+            ? `This payout is on hold: the organizer's legal details changed and have not been approved yet. Another staff member must review them on the organizer's page first.`
+            : outcome.held === 'OWNERSHIP_MISMATCH'
+              ? `This payout is on hold: the ${payout.currency} bank account is not in the organizer's registered business name. A business is paid only into an account in its own name. The organizer must add the business account, and another staff member must verify it.`
+              : `This payout is on hold: the ${payout.currency} bank account has not been verified${
+                  outcome.held === 'REJECTED' ? ' (it was turned down)' : ''
+                }. Another staff member must verify it on Bank accounts first.`,
         HttpStatus.CONFLICT,
         { hold: `DESTINATION_${outcome.held}` },
       );
