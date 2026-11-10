@@ -18,6 +18,13 @@
  *                                   an organizer account, so there is NO sales gate. Payouts need
  *                                   the platform's Route switch, a linked account, and payoutsEnabled.
  *
+ *   BOTH                            a charge lands on the PLATFORM account (Stripe: separate charges
+ *                                   and transfers), so money reaches an organizer through Stripe or
+ *                                   Route only when the platform sends a transfer, and that needs
+ *                                   PAYOUT_EXECUTION_ENABLED. While it is off, every organizer is paid
+ *                                   through manual settlements (the payout ledger: a bank transfer by
+ *                                   staff to a verified bank account), whatever their provider says.
+ *
  * ── ONE SOURCE OF TRUTH ────────────────────────────────────────────────────────────
  * The API builds the account-state list with these functions, and the provider panels in the
  * organizer console read their "can this organizer sell?" and "which payout stage?" from the same
@@ -39,7 +46,13 @@ export type AcceptingState = 'ACCEPTING' | 'BLOCKED' | 'NOT_GATED';
 export type PayoutReceiving = 'AVAILABLE' | 'PENDING' | 'UNAVAILABLE';
 export type BankVerificationState = 'NONE' | 'UNDER_REVIEW' | 'VERIFIED' | 'REJECTED';
 
-export type StripeStage = 'NO_ACCOUNT' | 'SETUP_UNFINISHED' | 'PAYOUTS_NOT_ACTIVE' | 'ACTIVE';
+export type StripeStage =
+  | 'NO_ACCOUNT'
+  | 'SETUP_UNFINISHED'
+  /** The account can take payments, but the platform sends no transfers: manual settlements. */
+  | 'PLATFORM_PAYOUTS_OFF'
+  | 'PAYOUTS_NOT_ACTIVE'
+  | 'ACTIVE';
 export type RazorpayStage = 'PLATFORM_PAYOUTS_OFF' | 'LINK_ACCOUNT' | 'PAYOUTS_PENDING' | 'ACTIVE';
 
 export interface StripeReadinessFacts {
@@ -47,6 +60,12 @@ export interface StripeReadinessFacts {
   chargesEnabled: boolean;
   payoutsEnabled: boolean;
   canSellPaidTickets: boolean;
+  /**
+   * Whether the platform sends transfers to connected accounts (PAYOUT_EXECUTION_ENABLED).
+   * A Stripe account with payouts enabled receives nothing while this is off. Omitted means on,
+   * for callers that predate the switch; the API always passes it.
+   */
+  transfersEnabled?: boolean;
 }
 
 export interface RazorpayReadinessFacts {
@@ -64,6 +83,8 @@ export function stripeAccepts(f: Pick<StripeReadinessFacts, 'hasAccount' | 'canS
 export function stripeStage(f: StripeReadinessFacts): StripeStage {
   if (!f.hasAccount) return 'NO_ACCOUNT';
   if (!stripeAccepts(f)) return 'SETUP_UNFINISHED';
+  // Selling works; payouts then go through manual settlements, whatever Stripe's own flags say.
+  if (f.transfersEnabled === false) return 'PLATFORM_PAYOUTS_OFF';
   if (!f.payoutsEnabled) return 'PAYOUTS_NOT_ACTIVE';
   return 'ACTIVE';
 }
@@ -92,11 +113,13 @@ export function stripeReadiness(f: StripeReadinessFacts): ProviderReadiness<Stri
     // charges are off. Not active yet with an account that can charge is a wait; anything
     // else is the organizer's to finish.
     payouts:
-      f.hasAccount && f.payoutsEnabled
-        ? 'AVAILABLE'
-        : stage === 'PAYOUTS_NOT_ACTIVE'
-          ? 'PENDING'
-          : 'UNAVAILABLE',
+      stage === 'PLATFORM_PAYOUTS_OFF'
+        ? 'PENDING'
+        : f.hasAccount && f.payoutsEnabled
+          ? 'AVAILABLE'
+          : stage === 'PAYOUTS_NOT_ACTIVE'
+            ? 'PENDING'
+            : 'UNAVAILABLE',
     organizerActionRequired: stage === 'NO_ACCOUNT' || stage === 'SETUP_UNFINISHED',
   };
 }
@@ -183,13 +206,16 @@ export function buildProviderEntries(input: ProviderEntryInput): PayoutProviderE
     });
     const r = stripeReadiness(f);
     const bank = input.bankAccounts.filter((a) => CARD_CURRENCIES.has(a.currency.toUpperCase()));
+    // With transfers off the dollar settlements are paid by bank transfer, so the bank account is
+    // always reported (NONE when there is none), exactly as it is for rupees.
+    const manual = r.stage === 'PLATFORM_PAYOUTS_OFF';
     entries.push({
       provider: 'STRIPE',
       market: 'CARD',
       stage: r.stage,
       accepting: r.accepting,
       payouts: r.payouts,
-      bank: bank.length ? bankVerification(bank) : null,
+      bank: bank.length || manual ? bankVerification(bank) : null,
       organizerActionRequired: r.organizerActionRequired,
     });
   }

@@ -1,6 +1,6 @@
 import type { PayoutAccountState } from '@eticketsgo/web-kit';
 import type { PayoutProviderEntry } from '@eticketsgo/shared-types';
-import { isManualRupeePayout, manualPayoutLine, type BankOwnership } from './manual-payouts';
+import { isManualPayout, manualPayoutLine, type BankOwnership } from './manual-payouts';
 
 /**
  * The words for the "Payout status" summary: one line per provider/market, and a headline taken
@@ -25,7 +25,7 @@ export interface SummaryLine {
   payouts: string;
   payoutsTone: 'good' | 'waiting' | 'bad';
   bank: string | null;
-  /** Rupees only, while Razorpay Route is off: the automatic path, named so it is not mistaken for the only one. */
+  /** While the platform sends no automatic transfers for this market: the automatic path, named so it is not mistaken for the only one. */
   automatic?: string;
   organizerActionRequired: boolean;
 }
@@ -81,12 +81,18 @@ export function providerSummaryView(
 ): ProviderSummaryView {
   const lines: SummaryLine[] = state.providers.map((e) => {
     /*
-      Rupees with Razorpay Route off are paid through manual settlements, which work. The
-      server's stage describes Route only, so read here it said "Payouts have not started yet"
-      above a Settlements table that does pay the organizer.
+      A market the platform sends no automatic transfers for (rupees with Route off, dollars with
+      Stripe transfers off) is paid through manual settlements, which work. The provider's own
+      flags describe the automatic path only, so read here they said "Payouts have not started
+      yet" (rupees) or "Payouts are active" (dollars) beside a bank account the organizer had
+      not yet given us.
     */
-    if (isManualRupeePayout(e)) {
-      const m = manualPayoutLine(e.bank, opts.inrOwnership ?? 'NOT_CHECKED');
+    if (isManualPayout(e)) {
+      // Ownership is worked out on this page for the rupee account only; the API enforces it for
+      // every currency when a payout is marked paid.
+      const ownership =
+        e.provider === 'RAZORPAY' ? (opts.inrOwnership ?? 'NOT_CHECKED') : 'NOT_CHECKED';
+      const m = manualPayoutLine(e.bank, ownership, e.provider);
       return {
         key: `${e.provider}-${e.market}`,
         title: TITLE[e.provider],
@@ -135,10 +141,11 @@ export function providerSummaryView(
   }
 
   /*
-    With a manual rupee line the headline is read from the lines, not from the server's
-    level: that level was decided by the Route stage, which is exactly what is wrong here.
+    With a manual-settlement line the headline is read from the lines, not from the server's
+    level: that level was decided by the provider's automatic path, which is exactly what is
+    wrong here.
   */
-  if (state.providers.some(isManualRupeePayout) && lines.length > 0) {
+  if (state.providers.some(isManualPayout) && lines.length > 0) {
     if (!lines.some((l) => l.paymentsBlocked) && state.providers.some((e) => e.bank === 'NONE')) {
       return {
         heading: 'Add a bank account to get paid',
@@ -168,7 +175,7 @@ export function providerSummaryView(
       heading: 'Payouts are active',
       tone: 'good',
       detail:
-        'Rupee settlements are paid by ETicketsGo by bank transfer once an event has finished and its holding period has passed.',
+        'Settlements are paid by ETicketsGo by bank transfer once an event has finished and its holding period has passed.',
       lines,
     };
   }
