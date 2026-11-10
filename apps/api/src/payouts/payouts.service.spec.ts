@@ -1227,6 +1227,64 @@ describe('PayoutsService (markPaid hold on an unverified destination)', () => {
     expect(prisma.payout.updateMany).toHaveBeenCalledTimes(1);
   });
 
+  /*
+    Whose account it is. Verification says somebody checked the account; it did not say the
+    account belongs to the business being paid. Seen in PROD: a private limited company whose
+    verified rupee account is held by a person.
+  */
+  const company = {
+    legalName: 'DeepTrics Software Solutions Pvt Ltd',
+    legalEntityType: 'Private limited company',
+  };
+
+  it('holds a payout into a verified PERSONAL account of a company, and audits it', async () => {
+    const { service, prisma, audit } = makeService();
+    prisma.organization.findUnique.mockResolvedValue({ status: 'APPROVED', ...company });
+    prisma.$queryRaw.mockResolvedValue(
+      accountRow({ verifiedAt: new Date(), holderName: 'Srinivasa Rao M' }),
+    );
+    await expect(service.markPaid(user, 'p1')).rejects.toMatchObject({
+      response: expect.objectContaining({ details: { hold: 'DESTINATION_OWNERSHIP_MISMATCH' } }),
+    });
+    expect(prisma.payout.updateMany).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'PAYOUT_PAID',
+        metadata: expect.objectContaining({
+          outcome: 'REFUSED',
+          reasonCode: 'DESTINATION_OWNERSHIP_MISMATCH',
+        }),
+      }),
+    );
+  });
+
+  it("pays a company into a verified account in the company's own name", async () => {
+    const { service, prisma } = makeService();
+    prisma.organization.findUnique.mockResolvedValue({ status: 'APPROVED', ...company });
+    prisma.$queryRaw.mockResolvedValue(
+      accountRow({
+        verifiedAt: new Date(),
+        holderName: 'DEEPTRICS SOFTWARE SOLUTIONS PRIVATE LIMITED',
+      }),
+    );
+    await service.markPaid(user, 'p1');
+    expect(prisma.payout.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('pays a sole proprietor into their own personal account', async () => {
+    const { service, prisma } = makeService();
+    prisma.organization.findUnique.mockResolvedValue({
+      status: 'APPROVED',
+      legalName: 'Asha Events',
+      legalEntityType: 'Sole proprietorship',
+    });
+    prisma.$queryRaw.mockResolvedValue(
+      accountRow({ verifiedAt: new Date(), holderName: 'Asha Rao' }),
+    );
+    await service.markPaid(user, 'p1');
+    expect(prisma.payout.updateMany).toHaveBeenCalledTimes(1);
+  });
+
   it('does not hold a payout that sends no money to the organizer (net zero or a clawback)', async () => {
     const { service, prisma } = makeService({
       payout: {

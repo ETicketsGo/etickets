@@ -1488,17 +1488,25 @@ export class PayoutsService {
           rejectedAt: Date | null;
           verifiedByUserId: string | null;
           version: number;
+          holderName: string | null;
         }[]
       >(
-        Prisma.sql`SELECT "verifiedAt", "rejectedAt", "verifiedByUserId", "version"
+        Prisma.sql`SELECT "verifiedAt", "rejectedAt", "verifiedByUserId", "version", "holderName"
                    FROM "OrganizerPayoutAccount"
                    WHERE "organizationId" = ${payout.organizationId}
                      AND "currency" = ${payout.currency}
                    FOR SHARE`,
       );
+      // Whose account it must be: the organizer's registered legal identity, read in the same
+      // transaction so a legal-name change cannot slip between this check and the PAID.
+      const owner = await tx.organization.findUnique({
+        where: { id: payout.organizationId },
+        select: { legalName: true, legalEntityType: true },
+      });
       const verdict = payoutDestinationVerdict({
         netMinor: payout.netMinor,
         account: rows[0] ?? null,
+        owner,
       });
       if (!verdict.allowed) return { held: verdict.reason };
       /*
@@ -1584,9 +1592,11 @@ export class PayoutsService {
         ErrorCodes.CONFLICT,
         outcome.held === 'NO_ACCOUNT'
           ? `This payout is on hold: there is no ${payout.currency} bank account on file for the organizer.`
-          : `This payout is on hold: the ${payout.currency} bank account has not been verified${
-              outcome.held === 'REJECTED' ? ' (it was turned down)' : ''
-            }. Another staff member must verify it on Bank accounts first.`,
+          : outcome.held === 'OWNERSHIP_MISMATCH'
+            ? `This payout is on hold: the ${payout.currency} bank account is not in the organizer's registered business name. A business is paid only into an account in its own name. The organizer must add the business account, and another staff member must verify it.`
+            : `This payout is on hold: the ${payout.currency} bank account has not been verified${
+                outcome.held === 'REJECTED' ? ' (it was turned down)' : ''
+              }. Another staff member must verify it on Bank accounts first.`,
         HttpStatus.CONFLICT,
         { hold: `DESTINATION_${outcome.held}` },
       );

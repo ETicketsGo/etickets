@@ -97,3 +97,75 @@ describe('payoutDestinationVerdict (the hold)', () => {
     expect(payoutDestinationVerdict({ netMinor: -1, account: null })).toEqual({ allowed: true });
   });
 });
+
+describe('payoutDestinationVerdict: whose account it is', () => {
+  const verified = { verifiedAt: new Date(), rejectedAt: null };
+  const company = {
+    legalName: 'DeepTrics Software Solutions Pvt Ltd',
+    legalEntityType: 'Private limited company',
+  };
+
+  it("holds a company's payout into a verified account held by a person", () => {
+    expect(
+      payoutDestinationVerdict({
+        netMinor: 1000,
+        account: { ...verified, holderName: 'Srinivasa Rao M' },
+        owner: company,
+      }),
+    ).toEqual({ allowed: false, reason: 'OWNERSHIP_MISMATCH' });
+  });
+
+  it('allows the account in the company name, spelt out or abbreviated', () => {
+    for (const holderName of [
+      'DEEPTRICS SOFTWARE SOLUTIONS PRIVATE LIMITED',
+      'DeepTrics Software Solutions Pvt. Ltd.',
+    ]) {
+      expect(
+        payoutDestinationVerdict({
+          netMinor: 1000,
+          account: { ...verified, holderName },
+          owner: company,
+        }),
+      ).toEqual({
+        allowed: true,
+      });
+    }
+  });
+
+  it('does not check a sole proprietor, or an organizer whose legal identity is not on file', () => {
+    expect(
+      payoutDestinationVerdict({
+        netMinor: 1000,
+        account: { ...verified, holderName: 'Asha Rao' },
+        owner: { legalName: 'Asha Events', legalEntityType: 'Sole proprietorship' },
+      }),
+    ).toEqual({ allowed: true });
+    expect(
+      payoutDestinationVerdict({
+        netMinor: 1000,
+        account: { ...verified, holderName: 'Asha Rao' },
+        owner: { legalName: null, legalEntityType: null },
+      }),
+    ).toEqual({ allowed: true });
+  });
+
+  it('an unverified account is still held for verification first', () => {
+    expect(
+      payoutDestinationVerdict({
+        netMinor: 1000,
+        account: { verifiedAt: null, rejectedAt: null, holderName: 'Srinivasa Rao M' },
+        owner: company,
+      }),
+    ).toEqual({ allowed: false, reason: 'PENDING_VERIFICATION' });
+  });
+
+  it('a payout that sends no money is never held', () => {
+    expect(
+      payoutDestinationVerdict({
+        netMinor: 0,
+        account: { ...verified, holderName: 'Srinivasa Rao M' },
+        owner: company,
+      }),
+    ).toEqual({ allowed: true });
+  });
+});

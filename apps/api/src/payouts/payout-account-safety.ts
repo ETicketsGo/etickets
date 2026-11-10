@@ -1,3 +1,4 @@
+import { bankOwnership } from '@eticketsgo/shared-types';
 /**
  * Pure rules for payout bank-account safeguards. Nothing here reads a database, so each rule
  * can be tested on its own and cannot drift from the service that applies it.
@@ -79,16 +80,49 @@ export function independenceFailure(input: {
  */
 export type PayoutDestinationVerdict =
   | { allowed: true }
-  | { allowed: false; reason: 'NO_ACCOUNT' | 'PENDING_VERIFICATION' | 'REJECTED' };
+  | {
+      allowed: false;
+      reason: 'NO_ACCOUNT' | 'PENDING_VERIFICATION' | 'REJECTED' | 'OWNERSHIP_MISMATCH';
+    };
 
+/*
+  ── WHOSE ACCOUNT IT IS ─────────────────────────────────────────────────────────────
+  Verification says somebody checked the account; it did not say the account belongs to the
+  business being paid. A company was payable into a verified PERSONAL account (seen in PROD:
+  a private limited company whose rupee account is held by a person). A business - company,
+  LLP, LLC, trust, society, partnership - is paid only into an account whose holder carries its
+  registered legal name (`bankOwnership`, shared with the organizer console). A sole proprietor
+  or an individual is paid in their own name and is not checked. Unknown facts (no legal name
+  or legal form on file) are not guessed at: the verification rule above still applies.
+*/
 export function payoutDestinationVerdict(input: {
   netMinor: number;
-  account: { verifiedAt: Date | null; rejectedAt: Date | null } | null;
+  account: {
+    verifiedAt: Date | null;
+    rejectedAt: Date | null;
+    holderName?: string | null;
+  } | null;
+  owner?: { legalName: string | null; legalEntityType: string | null } | null;
 }): PayoutDestinationVerdict {
   if (input.netMinor <= 0) return { allowed: true };
   if (!input.account) return { allowed: false, reason: 'NO_ACCOUNT' };
-  if (input.account.verifiedAt) return { allowed: true };
-  return { allowed: false, reason: input.account.rejectedAt ? 'REJECTED' : 'PENDING_VERIFICATION' };
+  if (!input.account.verifiedAt) {
+    return {
+      allowed: false,
+      reason: input.account.rejectedAt ? 'REJECTED' : 'PENDING_VERIFICATION',
+    };
+  }
+  if (
+    input.owner &&
+    bankOwnership({
+      holderName: input.account.holderName,
+      legalName: input.owner.legalName,
+      legalEntityType: input.owner.legalEntityType,
+    }) === 'MISMATCH'
+  ) {
+    return { allowed: false, reason: 'OWNERSHIP_MISMATCH' };
+  }
+  return { allowed: true };
 }
 
 /**
