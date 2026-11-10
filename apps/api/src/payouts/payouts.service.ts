@@ -304,6 +304,56 @@ interface NotPaidOutTotals {
   feeBefore: number;
 }
 
+/** The organization facts the destination rule reads. */
+interface IdentityForPayout {
+  legalIdentityStatus: string | null;
+  approvedLegalName: string | null;
+  approvedLegalEntityType: string | null;
+  legalName: string | null;
+  legalEntityType: string | null;
+}
+
+/*
+  Judged against the APPROVED identity (only an independent staff decision writes it), never the
+  editable fields: an organizer cannot rename itself into its own bank account. A change waiting
+  for review (or refused) holds the payout. UNREVIEWED is an organization that never went through
+  review - only seeds and direct database writes produce it, since approval writes the snapshot -
+  and is judged on the identity on file. One function, so `markPaid` and the admin list agree.
+*/
+export function payoutOwnerFacts(org: IdentityForPayout | null) {
+  if (!org) return null;
+  const held =
+    org.legalIdentityStatus === 'PENDING_REVIEW' || org.legalIdentityStatus === 'CHANGES_REQUESTED';
+  const useApproved = org.legalIdentityStatus === 'APPROVED';
+  return {
+    approved: !held,
+    legalName: useApproved ? org.approvedLegalName : org.legalName,
+    legalEntityType: useApproved ? org.approvedLegalEntityType : org.legalEntityType,
+  };
+}
+
+export type PayoutHoldReason =
+  | 'NO_ACCOUNT'
+  | 'PENDING_VERIFICATION'
+  | 'REJECTED'
+  | 'OWNERSHIP_MISMATCH'
+  | 'IDENTITY_NOT_APPROVED';
+
+/** The words staff see for a held payout: the refusal of "mark paid", and the admin list. */
+export function payoutHoldMessage(held: PayoutHoldReason, currency: string): string {
+  return held === 'NO_ACCOUNT'
+    ? `This payout is on hold: there is no ${currency} bank account on file for the organizer.`
+    : held === 'IDENTITY_NOT_APPROVED'
+      ? `This payout is on hold: the organizer's legal details changed and have not been approved yet. Another staff member must review them on the organizer's page first.`
+      : held === 'OWNERSHIP_MISMATCH'
+        ? `This payout is on hold: the ${currency} bank account is not in the organizer's registered business name. A business is paid only into an account in its own name. The organizer must add the business account, and another staff member must verify it.`
+        : `This payout is on hold: the ${currency} bank account has not been verified${
+            held === 'REJECTED' ? ' (it was turned down)' : ''
+          }. Another staff member must verify it on Bank accounts first.`;
+}
+
+const OPEN_PAYOUT_STATUSES = new Set(['PENDING', 'SCHEDULED']);
+
 @Injectable()
 export class PayoutsService {
   constructor(
@@ -1420,10 +1470,68 @@ export class PayoutsService {
     });
   }
 
+  /*
+    ── WHY AN OPEN PAYOUT IS HELD, BEFORE ANYONE CLICKS ───────────────────────────────
+    The list showed every open payout as "Pending" with a "Mark paid" button. Staff learned that
+    one was held (no verified account, a changed legal identity waiting for review, an account
+    not in the business's name) only by trying, which recorded a refusal each time. Each open
+    payout now carries the hold `markPaid` would apply, from the same rule and in the same words.
+
+    Read only and advisory: `markPaid` re-reads everything under its lock and stays the only
+    authority. Who verified the account (the verifier may not pay) depends on who is looking, and
+    a provider transfer claiming an event is rare and checked at payment; neither is shown here.
+  */
   async adminList() {
-    return this.prisma.payout.findMany({
+    const payouts = await this.prisma.payout.findMany({
       orderBy: { createdAt: 'desc' },
       include: { organization: { select: { name: true } } },
+    });
+    const open = payouts.filter((p) => OPEN_PAYOUT_STATUSES.has(p.status));
+    if (open.length === 0) return payouts.map((p) => ({ ...p, hold: null }));
+    const orgIds = [...new Set(open.map((p) => p.organizationId))];
+    const [accounts, orgs] = await Promise.all([
+      this.prisma.organizerPayoutAccount.findMany({
+        where: { organizationId: { in: orgIds } },
+        select: {
+          organizationId: true,
+          currency: true,
+          verifiedAt: true,
+          rejectedAt: true,
+          holderName: true,
+        },
+      }),
+      this.prisma.organization.findMany({
+        where: { id: { in: orgIds } },
+        select: {
+          id: true,
+          legalIdentityStatus: true,
+          approvedLegalName: true,
+          approvedLegalEntityType: true,
+          legalName: true,
+          legalEntityType: true,
+        },
+      }),
+    ]);
+    const orgById = new Map(orgs.map((o) => [o.id, o]));
+    return payouts.map((p) => {
+      if (!OPEN_PAYOUT_STATUSES.has(p.status)) return { ...p, hold: null };
+      const account =
+        accounts.find((a) => a.organizationId === p.organizationId && a.currency === p.currency) ??
+        null;
+      const verdict = payoutDestinationVerdict({
+        netMinor: p.netMinor,
+        account,
+        owner: payoutOwnerFacts(orgById.get(p.organizationId) ?? null),
+      });
+      return {
+        ...p,
+        hold: verdict.allowed
+          ? null
+          : {
+              code: `DESTINATION_${verdict.reason}`,
+              message: payoutHoldMessage(verdict.reason as PayoutHoldReason, p.currency),
+            },
+      };
     });
   }
 
@@ -1516,20 +1624,10 @@ export class PayoutsService {
           legalEntityType: true,
         },
       });
-      const held =
-        org?.legalIdentityStatus === 'PENDING_REVIEW' ||
-        org?.legalIdentityStatus === 'CHANGES_REQUESTED';
-      const useApproved = org?.legalIdentityStatus === 'APPROVED';
       const verdict = payoutDestinationVerdict({
         netMinor: payout.netMinor,
         account: rows[0] ?? null,
-        owner: org
-          ? {
-              approved: !held,
-              legalName: useApproved ? org.approvedLegalName : org.legalName,
-              legalEntityType: useApproved ? org.approvedLegalEntityType : org.legalEntityType,
-            }
-          : null,
+        owner: payoutOwnerFacts(org),
       });
       if (!verdict.allowed) return { held: verdict.reason };
       /*
@@ -1613,15 +1711,7 @@ export class PayoutsService {
       });
       throw new AppException(
         ErrorCodes.CONFLICT,
-        outcome.held === 'NO_ACCOUNT'
-          ? `This payout is on hold: there is no ${payout.currency} bank account on file for the organizer.`
-          : outcome.held === 'IDENTITY_NOT_APPROVED'
-            ? `This payout is on hold: the organizer's legal details changed and have not been approved yet. Another staff member must review them on the organizer's page first.`
-            : outcome.held === 'OWNERSHIP_MISMATCH'
-              ? `This payout is on hold: the ${payout.currency} bank account is not in the organizer's registered business name. A business is paid only into an account in its own name. The organizer must add the business account, and another staff member must verify it.`
-              : `This payout is on hold: the ${payout.currency} bank account has not been verified${
-                  outcome.held === 'REJECTED' ? ' (it was turned down)' : ''
-                }. Another staff member must verify it on Bank accounts first.`,
+        payoutHoldMessage(outcome.held as PayoutHoldReason, payout.currency),
         HttpStatus.CONFLICT,
         { hold: `DESTINATION_${outcome.held}` },
       );

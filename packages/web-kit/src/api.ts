@@ -6743,6 +6743,12 @@ export interface Payout {
   failureReason?: string | null;
   createdAt: string;
   organization?: { name: string };
+  /**
+   * Admin list only, on an open payout: why "mark paid" would be refused right now (no verified
+   * bank account, a changed legal identity waiting for review, an account not in the business's
+   * name), in the words the refusal uses. Null when nothing holds it. Advisory: paying re-checks.
+   */
+  hold?: { code: string; message: string } | null;
 }
 
 /** One thing an organizer still has to complete, and what it costs them until they do. */
