@@ -32,6 +32,7 @@ import {
   EditSessionTimeDialog,
   sessionEditable,
 } from '@/components/events/session-dialogs';
+import { sessionTimeEditability } from '@/lib/event-editability';
 
 export default function SessionsTab() {
   const { id } = useParams<{ id: string }>();
@@ -104,7 +105,7 @@ export default function SessionsTab() {
     onSuccess: (session) => {
       toast.push(
         session.screenId
-          ? 'Session added. Ticket types were created from the space’s seat categories.'
+          ? "Session added. Ticket types were created from the space's seat categories."
           : 'Session added.',
         'success',
       );
@@ -146,7 +147,7 @@ export default function SessionsTab() {
               <span className="text-text-primary">Reserved seating</span>
               {s.screen ? (
                 <span className="block text-caption text-text-muted">
-                  {s.screen.venue?.name ?? s.screen.cinema?.name} · {s.screen.name}
+                  {s.screen.venue?.name ?? s.screen.cinema?.name} - {s.screen.name}
                 </span>
               ) : null}
             </>
@@ -184,16 +185,35 @@ export default function SessionsTab() {
     { key: 'tickets', header: 'Ticket types', render: (s) => s.ticketTypes?.length ?? 0 },
     {
       key: 'actions',
-      header: '',
+      header: 'Changes',
       /*
         Change time: a date still to come that nobody has bought for or is buying for; the
         server refuses the rest, because a buyer chose that time. Cancel: any date still to
         come - with buyers it refunds them and tells them, through the show cancellation.
+
+        Where Change time is not offered, the reason takes its place. It used to vanish with
+        no word, so the same page showed it on one row and not the next and nobody could say
+        why. The button still needs BOTH existing rules (`sessionEditable` and no seating
+        lock), and the words come from the same counts.
       */
-      render: (s) =>
-        sessionEditable(s, Date.now()) ? (
-          <div className="flex flex-col items-start gap-1">
-            {!lockReason(s) ? (
+      render: (s) => {
+        const now = Date.now();
+        const { sold, held } = sessionSeating({
+          session: s,
+          space: null,
+          layout: null,
+          now,
+        }).counts;
+        const time = sessionTimeEditability(
+          { status: s.status, startsAt: s.startsAt, endsAt: s.endsAt, sold, held },
+          now,
+          Boolean(event?.isFree),
+        );
+        const canCancel = sessionEditable(s, now);
+        const canRetime = canCancel && !lockReason(s) && time.kind === 'editable';
+        return (
+          <div className="flex max-w-[16rem] flex-col items-start gap-1">
+            {canRetime ? (
               <button
                 type="button"
                 onClick={(e) => {
@@ -204,23 +224,30 @@ export default function SessionsTab() {
               >
                 Change time
               </button>
+            ) : (
+              <p className="text-caption text-text-muted" data-testid="session-time-lock">
+                {time.kind === 'locked' ? time.note : 'This time cannot change right now.'}
+              </p>
+            )}
+            {canCancel ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCancelling(s);
+                }}
+                className="whitespace-nowrap rounded text-caption text-status-error underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                {/*
+                  Refund wording only where money was taken. A free event's session is cancelled
+                  and its attendees told; nothing is refunded because nothing was paid.
+                */}
+                {lockReason(s) && !event?.isFree ? 'Cancel and refund' : 'Cancel session'}
+              </button>
             ) : null}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setCancelling(s);
-              }}
-              className="whitespace-nowrap rounded text-caption text-status-error underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              {/*
-                Refund wording only where money was taken. A free event's session is cancelled
-                and its attendees told; nothing is refunded because nothing was paid.
-              */}
-              {lockReason(s) && !event?.isFree ? 'Cancel and refund' : 'Cancel session'}
-            </button>
           </div>
-        ) : null,
+        );
+      },
     },
   ];
 
@@ -236,7 +263,17 @@ export default function SessionsTab() {
     // `min-w-0` on the grid and its items: without it a grid item is as wide as its widest
     // content, and the table pushed the whole page sideways on a phone.
     <div className="grid min-w-0 gap-6 lg:grid-cols-3 [&>*]:min-w-0">
-      <div className="min-w-0 lg:col-span-2">
+      <div className="min-w-0 space-y-3 lg:col-span-2">
+        {/*
+          The rule for the whole page, said once, so a row without "Change time" reads as that
+          rule applied rather than a missing button. Dates are not tied to the event's status:
+          the server lets them change while it is on sale.
+        */}
+        <p className="text-caption text-text-secondary">
+          You can add a date at any time, even while the event is on sale. A date&apos;s time can
+          change only until someone books it. After that, cancel the date and add a new one, so
+          buyers are told.
+        </p>
         <DataTable
           columns={columns}
           rows={event?.sessions}
@@ -274,7 +311,7 @@ export default function SessionsTab() {
               disabled={rooms.isLoading}
               onChange={(e) => setForm({ ...form, layoutId: e.target.value })}
             >
-              <option value={GENERAL_ADMISSION}>General admission — no seat map</option>
+              <option value={GENERAL_ADMISSION}>General admission - no seat map</option>
               {(venueRooms ?? []).map((r) => (
                 <option key={r.layoutId} value={r.layoutId}>
                   {roomOptionLabel(r)}

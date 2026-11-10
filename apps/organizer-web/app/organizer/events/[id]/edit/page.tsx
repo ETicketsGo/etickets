@@ -11,7 +11,8 @@ import {
   CircleCheck,
   ImagePlus,
   Info,
-  Sparkles,
+  MapPin,
+  ScrollText,
   Ticket,
   Undo2,
   type LucideIcon,
@@ -40,6 +41,19 @@ import {
   type AttendanceMode,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+import { EditStateNote } from '@/components/events/edit-state-note';
+import {
+  canEditEvents,
+  datesSummary,
+  editLabel,
+  eventDetailsEditability,
+  eventSalesFacts,
+  freePaidEditability,
+  imagesEditability,
+  ROLE_LOCK_NOTE,
+  type Editability,
+  type EditKind,
+} from '@/lib/event-editability';
 import {
   categoryBody,
   categoryFieldFrom,
@@ -70,13 +84,6 @@ import {
   validateBasics,
   type FieldErrors,
 } from '@/lib/event-wizard';
-
-const EDITABLE = ['DRAFT', 'UNDER_REVIEW', 'PAUSED'];
-/*
-  Images follow a looser rule than the fields above: they can change while the event is live,
-  because a picture is not part of what a buyer agreed to. Only a finished event is locked.
-*/
-const IMAGES_LOCKED = ['CANCELLED', 'COMPLETED', 'ARCHIVED'];
 
 /*
   The refund rule is on the event (the API returns and accepts it, and review covers it) but
@@ -129,6 +136,12 @@ function formFrom(event: WithRefundRule): EditForm {
   or paid, who pays the fee, and links to the pages that hold dates, ticket types and seating).
   Save sits in a bar that stays on screen and says whether anything is unsaved, and on a wide
   screen the buyer's card sits beside the form as it does while creating.
+
+  ORDER AND LOCKS (2026-11): Details, Dates and sessions, Tickets and prices, Venue, Policies.
+  Each section says whether it can change now, can change but may go back to review, or is
+  locked and why - from lib/event-editability, which mirrors the server's rules. Controls used
+  to go grey or vanish with no word, and the page never said that dates and ticket types stay
+  changeable on their own pages while the details are locked.
 
   What is SENT is unchanged: the same update call with the same fields, plus the refund rule
   the API already accepts on update. The images still save on their own, through the same
@@ -239,12 +252,35 @@ export default function EditEvent() {
         ...eventDetailsBody(details),
       });
     },
-    onSuccess: () => {
-      toast.push('Event updated.', 'success');
+    onSuccess: (updated) => {
+      /*
+        A paused event whose reviewed details changed is marked by the server for review on
+        resume (unless the organization is trusted), so the toast says so rather than "done".
+      */
+      const marked = (updated as { needsReviewOnResume?: boolean } | undefined)
+        ?.needsReviewOnResume;
+      toast.push(
+        marked
+          ? 'Changes saved. When you resume sales, our team may review them before the event sells again.'
+          : 'Changes saved.',
+        'success',
+      );
+      setShown({});
       qc.invalidateQueries({ queryKey: ['event', id] });
     },
+    // The server's own words, as a toast and beside Save until the next try.
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
+
+  /* Cancel: put back what the server holds. Images are not included; they saved on their own. */
+  const discard = () => {
+    if (!loaded || !event) return;
+    setForm(loaded.form);
+    setDetails(loaded.details);
+    setCategoryMode(categoryFieldFrom(event).mode);
+    setShown({});
+    save.reset();
+  };
 
   /* The wizard's own title and category rule, checked before the call rather than after it. */
   const trySave = () => {
@@ -383,12 +419,55 @@ export default function EditEvent() {
       <ErrorState message="We couldn't load this. Please try again." onRetry={() => refetch()} />
     );
   if (isLoading || !event) return <Skeleton className="h-64 w-full" />;
-  const editable = EDITABLE.includes(event.status);
-  const imagesLocked = IMAGES_LOCKED.includes(event.status);
-  const statusWords = event.status.toLowerCase().replaceAll('_', ' ');
-  const hasBookings = event.sessions.some((sess) =>
-    (sess.ticketTypes ?? []).some((t) => (t.inventory?.quantitySold ?? 0) > 0),
-  );
+  /*
+    What can change, from what the page already has. The server checks every request again;
+    these only stop the page offering what it would refuse, and say why. See
+    lib/event-editability for the rule behind each answer.
+  */
+  const canEdit = canEditEvents(activeOrg.myRole);
+  const detailsState = eventDetailsEditability({
+    status: event.status,
+    canEdit,
+    needsReviewOnResume: event.needsReviewOnResume,
+    pausedByAdmin: event.pausedByAdmin,
+  });
+  const editable = detailsState.kind !== 'locked';
+  const imagesState = imagesEditability({ status: event.status, canEdit });
+  const imagesLocked = imagesState.kind === 'locked';
+  const facts = eventSalesFacts(event.sessions);
+  // Judged against the SAVED setting: the server compares the patch with what it holds.
+  const freePaidState = freePaidEditability({
+    details: detailsState,
+    isFree: event.isFree,
+    facts,
+    bookingsOnFile: event._count?.bookings ?? 0,
+  });
+  const now = Date.now();
+  const sessionFacts = event.sessions.map((sess) => ({
+    status: sess.status,
+    startsAt: sess.startsAt,
+    endsAt: sess.endsAt,
+    sold: (sess.ticketTypes ?? []).reduce((n, t) => n + (t.inventory?.quantitySold ?? 0), 0),
+    held: (sess.ticketTypes ?? []).reduce((n, t) => n + (t.inventory?.quantityHeld ?? 0), 0),
+  }));
+  const datesState: Editability = canEdit
+    ? datesSummary(sessionFacts, now, event.isFree)
+    : { kind: 'locked', note: ROLE_LOCK_NOTE };
+  const ticketsPagesState: Editability = canEdit
+    ? {
+        kind: 'editable',
+        note: event.isFree
+          ? 'Ticket types change on their own page, even while the event is on sale.'
+          : 'Ticket types change on their own page, even while the event is on sale. A price can change only until the first ticket of that type sells. Buyers who already paid or are checking out keep the price they were shown.',
+      }
+    : { kind: 'locked', note: ROLE_LOCK_NOTE };
+  const venueState: Editability = {
+    kind: 'locked',
+    note:
+      facts.sold + facts.held > 0 || (event._count?.bookings ?? 0) > 0
+        ? 'The venue is not changed from this page. This event has bookings, so it cannot move to another venue: add a new event there instead.'
+        : 'The venue is not changed from this page. It sets the currency, the tax and the time zone of every date.',
+  };
   const base = `/organizer/events/${id}`;
 
   /* The buyer's card, from what is saved plus what is being typed. */
@@ -403,18 +482,12 @@ export default function EditEvent() {
   const cover = eventImageSource(event.images?.[0], 'card');
   const ticketTypeCount = event.sessions.reduce((n, s) => n + (s.ticketTypes ?? []).length, 0);
   const seatedCount = event.sessions.filter((s) => s.seatMapId).length;
-  const ways: readonly [string, LucideIcon, string, string][] = [
+  const datesLinks: readonly [string, LucideIcon, string, string][] = [
     [
       'sessions',
       CalendarClock,
       'Dates and times',
       `${event.sessions.length} ${event.sessions.length === 1 ? 'date' : 'dates'}`,
-    ],
-    [
-      'tickets',
-      Ticket,
-      'Ticket types and prices',
-      `${ticketTypeCount} ${ticketTypeCount === 1 ? 'ticket type' : 'ticket types'}`,
     ],
     [
       'seating',
@@ -425,37 +498,66 @@ export default function EditEvent() {
         : 'General admission',
     ],
   ];
+  const ticketLinks: readonly [string, LucideIcon, string, string][] = [
+    [
+      'tickets',
+      Ticket,
+      'Ticket types and prices',
+      `${ticketTypeCount} ${ticketTypeCount === 1 ? 'ticket type' : 'ticket types'}`,
+    ],
+  ];
+  const sections: readonly [string, string][] = [
+    ['edit-details', 'Details'],
+    ['edit-dates', 'Dates and sessions'],
+    ['edit-tickets', 'Tickets and prices'],
+    ['edit-venue', 'Venue'],
+    ['edit-policies', 'Policies'],
+  ];
 
   return (
     <div className="mx-auto max-w-[76rem] pb-6">
       <div className="xl:grid xl:grid-cols-[minmax(0,45rem)_minmax(18rem,21rem)] xl:items-start xl:justify-between xl:gap-8">
         <div className="min-w-0 space-y-5">
-          {!editable && (
-            <p
-              role="note"
-              className="rounded-md border border-status-warning/40 bg-tint-warning p-3 text-sm text-text-primary"
-            >
-              This event is {statusWords}, so its details cannot be changed.
-              {event.status === 'PUBLISHED'
-                ? ' Pause sales to change them. When you resume, it may go back to our team for review before it sells again.'
-                : ''}
-              {imagesLocked ? '' : ' Its images can still change.'}
-              {event.status === 'PUBLISHED' ? (
-                <span className="mt-2 block">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    loading={pauseToEdit.isPending}
-                    onClick={() => pauseToEdit.mutate()}
-                  >
-                    Pause sales and edit
-                  </Button>
-                </span>
-              ) : null}
-            </p>
-          )}
+          {/*
+            The answer for the event's own details, first and in words. The pause button sits
+            with it: the lock note used to say "pause it first" and offer no way to.
+          */}
+          <EditStateNote state={detailsState} id="edit-state">
+            {event.status === 'PUBLISHED' && canEdit ? (
+              <Button
+                size="sm"
+                variant="outline"
+                loading={pauseToEdit.isPending}
+                onClick={() => pauseToEdit.mutate()}
+              >
+                Pause sales and edit
+              </Button>
+            ) : null}
+          </EditStateNote>
 
-          <Section id="edit-basics" icon={Sparkles} tone="teal" title="Basics">
+          <nav aria-label="Sections of this page">
+            <ul className="flex flex-wrap gap-x-4 gap-y-1 text-caption">
+              {sections.map(([anchor, label]) => (
+                <li key={anchor}>
+                  <a
+                    href={`#${anchor}`}
+                    className={`rounded text-action-primary underline ${FOCUS_RING}`}
+                  >
+                    {label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+
+          <Section
+            id="edit-details"
+            icon={Info}
+            tone="teal"
+            title="Details"
+            intro="What the event is and what buyers should know."
+            kind={detailsState.kind}
+          >
             <Input
               id="title"
               label="Event title"
@@ -534,64 +636,178 @@ export default function EditEvent() {
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               disabled={!editable}
             />
-          </Section>
-
-          <Section
-            id="edit-images"
-            icon={ImagePlus}
-            tone="blue"
-            title="Images"
-            intro="Changes to images save at once. They do not wait for Save changes."
-          >
-            <PendingImageUploads eventId={id} onUploaded={refreshEvent} />
-            <EventGalleryEditor
-              tiles={[
-                ...(event.images ?? []).map((image) => ({
-                  key: image.id,
-                  url: apiAssetUrl(image.path) ?? '',
-                })),
-                ...pending,
-              ]}
-              disabled={imagesLocked}
-              // Order and removal wait for uploads, so a reorder never names a half-saved list.
-              busy={uploadingCount > 0 || removeImage.isPending || reorderImages.isPending}
-              error={imageError}
-              note={
-                imagesLocked
-                  ? `This event is ${statusWords}, so its images can no longer be changed.`
-                  : null
-              }
-              onAdd={addImages}
-              onRemove={(key) => {
-                const failed = pending.find((tile) => tile.key === key);
-                if (failed) {
-                  setPending((tiles) => tiles.filter((tile) => tile.key !== key));
-                  release(failed.url);
-                } else {
-                  removeImage.mutate(key);
-                }
-              }}
-              onReorder={(imageIds) => reorderImages.mutate(imageIds)}
-            />
-            {(event.images?.length ?? 0) > 0 && (
-              <EventImageFocus
-                images={event.images ?? []}
-                disabled={imagesLocked}
-                saving={setFocalPoint.isPending}
-                error={focusError}
-                onSave={(imageId, point) => setFocalPoint.mutate({ imageId, ...point })}
-              />
-            )}
-          </Section>
-
-          <Section
-            id="edit-details"
-            icon={Info}
-            tone="amber"
-            title="Details"
-            intro="What buyers should know, and your refund rule."
-          >
             <EventDetailsFields value={details} onChange={setDetails} disabled={!editable} />
+
+            {/*
+              Images follow a looser rule than the fields above: they change while the event is
+              live and skip review, because a picture is not part of what a buyer agreed to.
+            */}
+            <div className="space-y-3 border-t border-border pt-4">
+              <h3 className="flex items-center gap-2 text-ui font-semibold text-text-primary">
+                <ImagePlus aria-hidden="true" className="h-4 w-4 text-text-muted" />
+                Images
+              </h3>
+              <EditStateNote state={imagesState} />
+              <PendingImageUploads eventId={id} onUploaded={refreshEvent} />
+              <EventGalleryEditor
+                tiles={[
+                  ...(event.images ?? []).map((image) => ({
+                    key: image.id,
+                    url: apiAssetUrl(image.path) ?? '',
+                  })),
+                  ...pending,
+                ]}
+                disabled={imagesLocked}
+                // Order and removal wait for uploads, so a reorder never names a half-saved list.
+                busy={uploadingCount > 0 || removeImage.isPending || reorderImages.isPending}
+                error={imageError}
+                note={null}
+                onAdd={addImages}
+                onRemove={(key) => {
+                  const failed = pending.find((tile) => tile.key === key);
+                  if (failed) {
+                    setPending((tiles) => tiles.filter((tile) => tile.key !== key));
+                    release(failed.url);
+                  } else {
+                    removeImage.mutate(key);
+                  }
+                }}
+                onReorder={(imageIds) => reorderImages.mutate(imageIds)}
+              />
+              {(event.images?.length ?? 0) > 0 && (
+                <EventImageFocus
+                  images={event.images ?? []}
+                  disabled={imagesLocked}
+                  saving={setFocalPoint.isPending}
+                  error={focusError}
+                  onSave={(imageId, point) => setFocalPoint.mutate({ imageId, ...point })}
+                />
+              )}
+            </div>
+          </Section>
+
+          <Section
+            id="edit-dates"
+            icon={CalendarClock}
+            tone="blue"
+            title="Dates and sessions"
+            intro="When it happens and where people sit. Each has its own page."
+            kind={datesState.kind}
+          >
+            <EditStateNote state={datesState} />
+            <PageLinks label="Dates and seating" base={base} links={datesLinks} />
+          </Section>
+
+          <Section
+            id="edit-tickets"
+            icon={Ticket}
+            tone="purple"
+            title="Tickets and prices"
+            intro="Free or paid, who pays the booking fee, and tax. Ticket types and their prices have their own page."
+            kind={detailsState.kind}
+          >
+            {/*
+              Switching between free and paid is refused by the API once anybody has booked, is
+              checking out, or a payment, receipt or refund is on file; and turning free on is
+              refused while a ticket type has a price. The control is disabled with the reason
+              where the page can see the cause, rather than left to fail on save.
+            */}
+            <div className="space-y-2">
+              <label className="flex items-start gap-3 rounded-md border border-border p-3">
+                <input
+                  id="is-free"
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 accent-action-primary"
+                  checked={form.isFree}
+                  disabled={freePaidState.kind === 'locked'}
+                  aria-describedby={
+                    freePaidState.note !== detailsState.note ? 'is-free-state' : undefined
+                  }
+                  onChange={(e) => setForm({ ...form, isFree: e.target.checked })}
+                />
+                <span className="text-sm">
+                  <span className="font-medium">Free event</span>
+                  <span className="mt-1 block text-caption text-text-muted">
+                    Nobody is charged, so there is no checkout, no booking fee and no platform
+                    share. Attendees still book, get tickets and QR codes, and can cancel.
+                  </span>
+                </span>
+              </label>
+              {freePaidState.note !== detailsState.note && (
+                <EditStateNote state={freePaidState} id="is-free-state" />
+              )}
+            </div>
+            {!form.isFree && (
+              <Select
+                id="fee"
+                label="Who pays the booking fee?"
+                value={form.feeMode}
+                onChange={(e) => setForm({ ...form, feeMode: e.target.value })}
+                disabled={!editable}
+              >
+                {FEE_MODE_CHOICES.map((f) => (
+                  <option key={f.value} value={f.value}>
+                    {f.label}
+                  </option>
+                ))}
+              </Select>
+            )}
+            {/* Shown only where tax depends on it - see TaxClassificationField. */}
+            <TaxClassificationField
+              venueId={event?.venue?.id}
+              value={form.taxCategory}
+              onChange={(taxCategory) => setForm({ ...form, taxCategory })}
+              disabled={!editable}
+            />
+            <EditStateNote state={ticketsPagesState} />
+            <PageLinks label="Ticket types" base={base} links={ticketLinks} />
+          </Section>
+
+          <Section
+            id="edit-venue"
+            icon={MapPin}
+            tone="teal"
+            title="Venue"
+            intro="Where the event is held."
+            kind={venueState.kind}
+          >
+            {event.venue ? (
+              <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[8rem_minmax(0,1fr)]">
+                <dt className="text-text-muted">Name</dt>
+                <dd className="break-words text-text-primary">{event.venue.name}</dd>
+                <dt className="text-text-muted">Address</dt>
+                <dd className="break-words text-text-primary">
+                  {[event.venue.address, event.venue.city, event.venue.region]
+                    .filter(Boolean)
+                    .join(', ')}
+                </dd>
+                <dt className="text-text-muted">Time zone</dt>
+                <dd className="break-words text-text-primary">{event.venue.timezone}</dd>
+              </dl>
+            ) : (
+              <p className="text-sm text-text-muted">No venue yet.</p>
+            )}
+            <EditStateNote state={venueState} />
+            <p className="text-caption text-text-secondary">
+              To correct the venue&apos;s own address or time zone, go to{' '}
+              <Link
+                href="/organizer/venues"
+                className={`rounded text-action-primary underline ${FOCUS_RING}`}
+              >
+                Venues
+              </Link>
+              .
+            </p>
+          </Section>
+
+          <Section
+            id="edit-policies"
+            icon={ScrollText}
+            tone="amber"
+            title="Policies"
+            intro="Your refund rule. Terms and conditions are under Details, with what buyers should know."
+            kind={detailsState.kind}
+          >
             {/*
               The same refund controls as the wizard: the two that DECIDE first (enforced by the
               refund path), then the words shown beside them. The edit page used to offer only
@@ -654,102 +870,24 @@ export default function EditEvent() {
             </fieldset>
           </Section>
 
-          <Section
-            id="edit-tickets"
-            icon={Ticket}
-            tone="purple"
-            title="Tickets"
-            intro="Free or paid, and who pays the booking fee. Dates, ticket types and seats each have their own page."
-          >
-            {/*
-              Switching between free and paid is refused by the API once anybody has booked, so
-              the control is disabled with the reason rather than left to fail on save. A
-              confirmed booking with no payment behind it cannot be re-read as a paid one.
-            */}
-            <label className="flex items-start gap-3 rounded-md border border-border p-3">
-              <input
-                id="is-free"
-                type="checkbox"
-                className="mt-1 h-4 w-4 accent-action-primary"
-                checked={form.isFree}
-                disabled={!editable || hasBookings}
-                onChange={(e) => setForm({ ...form, isFree: e.target.checked })}
-              />
-              <span className="text-sm">
-                <span className="font-medium">Free event</span>
-                <span className="mt-1 block text-caption text-text-muted">
-                  {hasBookings
-                    ? 'This event already has bookings, so it can no longer be switched between free and paid.'
-                    : 'Nobody is charged, so there is no checkout, no booking fee and no platform share. Attendees still book, get tickets and QR codes, and can cancel.'}
-                </span>
-              </span>
-            </label>
-            {!form.isFree && (
-              <Select
-                id="fee"
-                label="Who pays the booking fee?"
-                value={form.feeMode}
-                onChange={(e) => setForm({ ...form, feeMode: e.target.value })}
-                disabled={!editable}
-              >
-                {FEE_MODE_CHOICES.map((f) => (
-                  <option key={f.value} value={f.value}>
-                    {f.label}
-                  </option>
-                ))}
-              </Select>
-            )}
-            {/* Shown only where tax depends on it - see TaxClassificationField. */}
-            <TaxClassificationField
-              venueId={event?.venue?.id}
-              value={form.taxCategory}
-              onChange={(taxCategory) => setForm({ ...form, taxCategory })}
-              disabled={!editable}
-            />
-            {/*
-              The way to what most people come back to change. Ticket types, dates and seats
-              are saved on their own pages, each with its own rules; listed here with what each
-              holds now, so the organizer can see which one they need.
-            */}
-            <nav aria-label="Dates, ticket types and seating">
-              <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
-                {ways.map(([seg, Icon, label, fact]) => (
-                  <li key={seg}>
-                    <Link
-                      href={`${base}/${seg}`}
-                      className={`flex min-h-12 items-center gap-3 px-3 py-2.5 text-sm transition-colors hover:bg-background-subtle ${FOCUS_RING}`}
-                    >
-                      <Icon aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
-                      <span className="flex-1 font-medium text-text-primary">{label}</span>
-                      <span className="text-right text-caption tabular-nums text-text-muted">
-                        {fact}
-                      </span>
-                      <ArrowRight aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </nav>
-          </Section>
-
-          {/*
-            Said before Save rather than after Resume: an organizer fixing a typo on a live event
-            should know the edit costs a trip through review while they can still choose not to.
-          */}
-          {event.status === 'PAUSED' && event.publishedAt && (
-            <p className="text-caption text-text-muted">
-              Changes to these details send the event back for review when you resume.
-            </p>
-          )}
-
           {/* Save stays on screen, as Continue does while creating. One primary action. */}
           <div className="sticky bottom-0 z-20 -mx-4 border-t border-border bg-background-surface/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background-surface/85 sm:mx-0 sm:rounded-lg sm:border sm:shadow-md">
+            {save.isError ? (
+              // The server's refusal, word for word, until the next save or cancel.
+              <p role="alert" className="mb-2 text-caption text-status-error">
+                Not saved: {errorMessage(save.error)}
+              </p>
+            ) : null}
             <div className="flex flex-wrap items-center gap-2">
               <p role="status" className="min-w-0 flex-1 text-caption text-text-secondary">
                 {!editable ? (
-                  `Details are locked while the event is ${statusWords}.`
+                  'Details are locked. See the note at the top of this page.'
                 ) : dirty ? (
-                  'You have unsaved changes.'
+                  detailsState.kind === 'review' ? (
+                    'You have unsaved changes. Saving them may send the event back for review when you resume.'
+                  ) : (
+                    'You have unsaved changes.'
+                  )
                 ) : (
                   <span className="inline-flex items-center gap-1.5">
                     <CircleCheck aria-hidden="true" className="h-3.5 w-3.5 text-status-success" />
@@ -757,6 +895,13 @@ export default function EditEvent() {
                   </span>
                 )}
               </p>
+              <Button
+                variant="outline"
+                disabled={!editable || !dirty || save.isPending}
+                onClick={discard}
+              >
+                Cancel
+              </Button>
               <Button loading={save.isPending} disabled={!editable} onClick={trySave}>
                 Save changes
               </Button>
@@ -812,6 +957,7 @@ function Section({
   tone,
   title,
   intro,
+  kind,
   children,
 }: {
   id: string;
@@ -819,26 +965,74 @@ function Section({
   tone: TileTone;
   title: string;
   intro?: string;
+  /** Whether this group can change now; said as words beside the heading. */
+  kind: EditKind;
   children: ReactNode;
 }) {
+  const badge =
+    kind === 'editable'
+      ? 'border-status-success/40 bg-tint-success text-text-primary'
+      : kind === 'review'
+        ? 'border-status-warning/40 bg-tint-warning text-text-primary'
+        : 'border-border bg-background-subtle text-text-secondary';
   return (
     <section
-      aria-labelledby={id}
-      className="rounded-lg border border-border bg-background-surface p-4 shadow-xs sm:p-6"
+      id={id}
+      aria-labelledby={`${id}-title`}
+      className="scroll-mt-20 rounded-lg border border-border bg-background-surface p-4 shadow-xs sm:p-6"
     >
       <div className="mb-5 flex items-start gap-3">
         <IconTile icon={icon} tone={tone} />
-        <div className="min-w-0">
-          <h2
-            id={id}
-            className="font-display text-title font-bold tracking-tight text-text-primary"
-          >
-            {title}
-          </h2>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h2
+              id={`${id}-title`}
+              className="font-display text-title font-bold tracking-tight text-text-primary"
+            >
+              {title}
+            </h2>
+            <span
+              className={`rounded-full border px-2 py-0.5 text-micro font-semibold ${badge}`}
+              data-testid={`${id}-state`}
+            >
+              {editLabel(kind)}
+            </span>
+          </div>
           {intro ? <p className="mt-0.5 text-caption text-text-secondary">{intro}</p> : null}
         </div>
       </div>
       <div className="space-y-4">{children}</div>
     </section>
+  );
+}
+
+/** The pages that hold what this form does not: listed with what each holds now. */
+function PageLinks({
+  label,
+  base,
+  links,
+}: {
+  label: string;
+  base: string;
+  links: readonly (readonly [string, LucideIcon, string, string])[];
+}) {
+  return (
+    <nav aria-label={label}>
+      <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+        {links.map(([seg, Icon, text, fact]) => (
+          <li key={seg}>
+            <Link
+              href={`${base}/${seg}`}
+              className={`flex min-h-12 items-center gap-3 px-3 py-2.5 text-sm transition-colors hover:bg-background-subtle ${FOCUS_RING}`}
+            >
+              <Icon aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
+              <span className="min-w-0 flex-1 font-medium text-text-primary">{text}</span>
+              <span className="text-right text-caption tabular-nums text-text-muted">{fact}</span>
+              <ArrowRight aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </nav>
   );
 }

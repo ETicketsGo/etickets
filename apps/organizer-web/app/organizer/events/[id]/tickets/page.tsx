@@ -43,6 +43,7 @@ import {
   type TicketTypeErrors,
   type TicketTypeFields,
 } from '@/lib/ticket-type-form';
+import { ticketPriceEditability } from '@/lib/event-editability';
 
 /** The add form's input ids, so a problem found on submit can put the cursor on its field. */
 const ADD_IDS: Record<keyof TicketTypeFields, string> = {
@@ -188,6 +189,12 @@ export default function TicketsTab() {
   const committed = (t: TicketType) =>
     (t.inventory?.quantitySold ?? 0) + (t.inventory?.quantityHeld ?? 0);
   const priceLocked = (editing?.inventory?.quantitySold ?? 0) > 0;
+  // Why the price can or cannot change, in words. The lock itself is unchanged: first sale.
+  const priceState = ticketPriceEditability({
+    isFree,
+    sold: editing?.inventory?.quantitySold ?? 0,
+    held: editing?.inventory?.quantityHeld ?? 0,
+  });
   const editCurrency = editing?.currency ?? currency;
   const editErrors: TicketTypeErrors = validateTicketTypeEdit(editForm, {
     isFree,
@@ -300,6 +307,17 @@ export default function TicketsTab() {
   return (
     <div className="grid gap-6 lg:grid-cols-3">
       <div className="space-y-4 lg:col-span-2">
+        {/*
+          The rule for every row, said once. Ticket types are not tied to the event's status:
+          the server lets them change while it is on sale. What a buyer agreed to is protected
+          by the first sale (price) and by what is sold or held (quantity, delete), and a booking
+          keeps the unit price it was quoted, so a later price change never reaches it.
+        */}
+        <p className="text-caption text-text-secondary" data-testid="tt-rules">
+          {isFree
+            ? `You can add and change ${pluralOf(ticketLower)} at any time, even while the event is on sale. Quantity cannot go below what is already booked.`
+            : `You can add and change ${pluralOf(ticketLower)} at any time, even while the event is on sale. A price can change only until the first ticket of that type sells. Buyers who already paid or are checking out keep the price they were shown. Quantity cannot go below what is already sold or held.`}
+        </p>
         {sessions.map((s, i) => {
           const isChosen = sessions.length > 1 && s.id === sessionId;
           const label = `${words.session} ${i + 1}`;
@@ -551,7 +569,11 @@ export default function TicketsTab() {
             error={shownEdit('name')}
             onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
           />
-          {!isFree && (
+          {isFree ? (
+            <p className="text-caption text-text-muted">
+              This is a free event, so there is no price to set.
+            </p>
+          ) : (
             <Input
               id={EDIT_IDS.priceMajor}
               label={priceLabel(editCurrency, currencySymbol(editCurrency))}
@@ -562,7 +584,11 @@ export default function TicketsTab() {
               value={editForm.priceMajor}
               disabled={priceLocked}
               error={shownEdit('priceMajor')}
-              hint={priceLocked ? 'Price is locked because tickets have sold.' : undefined}
+              hint={
+                priceLocked || (editing?.inventory?.quantityHeld ?? 0) > 0
+                  ? priceState.note
+                  : undefined
+              }
               onChange={(e) => setEditForm({ ...editForm, priceMajor: e.target.value })}
             />
           )}
