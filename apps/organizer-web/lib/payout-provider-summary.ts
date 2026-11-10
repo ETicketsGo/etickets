@@ -1,5 +1,6 @@
 import type { PayoutAccountState } from '@eticketsgo/web-kit';
 import type { PayoutProviderEntry } from '@eticketsgo/shared-types';
+import { isManualRupeePayout, manualPayoutLine, type BankOwnership } from './manual-payouts';
 
 /**
  * The words for the "Payout status" summary: one line per provider/market, and a headline taken
@@ -24,6 +25,8 @@ export interface SummaryLine {
   payouts: string;
   payoutsTone: 'good' | 'waiting' | 'bad';
   bank: string | null;
+  /** Rupees only, while Razorpay Route is off: the automatic path, named so it is not mistaken for the only one. */
+  automatic?: string;
   organizerActionRequired: boolean;
 }
 
@@ -69,17 +72,79 @@ const BANK: Record<NonNullable<PayoutProviderEntry['bank']>, string> = {
 
 export function providerSummaryView(
   state: Pick<PayoutAccountState, 'providers' | 'providerSummary'>,
+  /** Whether the rupee bank account is in the business's own name (see lib/manual-payouts). */
+  opts: { inrOwnership?: BankOwnership } = {},
 ): ProviderSummaryView {
-  const lines: SummaryLine[] = state.providers.map((e) => ({
-    key: `${e.provider}-${e.market}`,
-    title: TITLE[e.provider],
-    payments: PAYMENTS[e.accepting],
-    paymentsBlocked: e.accepting === 'BLOCKED',
-    payouts: e.payouts === 'PENDING' && e.bank === 'NONE' ? PAYOUTS_NO_BANK : PAYOUTS[e.payouts],
-    payoutsTone: e.payouts === 'AVAILABLE' ? 'good' : e.payouts === 'PENDING' ? 'waiting' : 'bad',
-    bank: e.bank ? BANK[e.bank] : null,
-    organizerActionRequired: e.organizerActionRequired,
-  }));
+  const lines: SummaryLine[] = state.providers.map((e) => {
+    /*
+      Rupees with Razorpay Route off are paid through manual settlements, which work. The
+      server's stage describes Route only, so read here it said "Payouts have not started yet"
+      above a Settlements table that does pay the organizer.
+    */
+    if (isManualRupeePayout(e)) {
+      const m = manualPayoutLine(e.bank, opts.inrOwnership ?? 'NOT_CHECKED');
+      return {
+        key: `${e.provider}-${e.market}`,
+        title: TITLE[e.provider],
+        payments: PAYMENTS[e.accepting],
+        paymentsBlocked: e.accepting === 'BLOCKED',
+        payouts: m.payouts,
+        payoutsTone: m.payoutsTone,
+        bank: m.bank,
+        automatic: m.automatic,
+        organizerActionRequired: m.organizerActionRequired,
+      };
+    }
+    return {
+      key: `${e.provider}-${e.market}`,
+      title: TITLE[e.provider],
+      payments: PAYMENTS[e.accepting],
+      paymentsBlocked: e.accepting === 'BLOCKED',
+      payouts: e.payouts === 'PENDING' && e.bank === 'NONE' ? PAYOUTS_NO_BANK : PAYOUTS[e.payouts],
+      payoutsTone: e.payouts === 'AVAILABLE' ? 'good' : e.payouts === 'PENDING' ? 'waiting' : 'bad',
+      bank: e.bank ? BANK[e.bank] : null,
+      organizerActionRequired: e.organizerActionRequired,
+    };
+  });
+
+  /*
+    With a manual rupee line the headline is read from the lines, not from the server's
+    level: that level was decided by the Route stage, which is exactly what is wrong here.
+  */
+  if (state.providers.some(isManualRupeePayout) && lines.length > 0) {
+    if (!lines.some((l) => l.paymentsBlocked) && state.providers.some((e) => e.bank === 'NONE')) {
+      return {
+        heading: 'Add a bank account to get paid',
+        tone: 'attention',
+        detail:
+          'Your ticket sales are not affected. We cannot pay your settlements until we know where to send them.',
+        lines,
+      };
+    }
+    if (lines.some((l) => l.payoutsTone === 'bad' || l.paymentsBlocked)) {
+      return {
+        heading: 'Action needed on your payout setup',
+        tone: lines.some((l) => l.paymentsBlocked) ? 'stopped' : 'attention',
+        detail: 'The lines below show what is holding your payouts and where to fix it.',
+        lines,
+      };
+    }
+    if (lines.some((l) => l.payoutsTone === 'waiting')) {
+      return {
+        heading: 'Payouts start once we have checked your bank account',
+        tone: 'waiting',
+        detail: 'Nothing is blocked on your side right now.',
+        lines,
+      };
+    }
+    return {
+      heading: 'Payouts are active',
+      tone: 'good',
+      detail:
+        'Rupee settlements are paid by ETicketsGo by bank transfer once an event has finished and its holding period has passed.',
+      lines,
+    };
+  }
 
   switch (state.providerSummary.level) {
     case 'NONE':

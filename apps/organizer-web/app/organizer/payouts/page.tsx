@@ -41,6 +41,7 @@ import {
   type PanelMessage,
 } from '@/lib/provider-panel-messages';
 import { payoutSetupErrorMessage } from '@/lib/payout-setup-errors';
+import { settlementStatusWords } from '@/lib/manual-payouts';
 import { BankAccount } from './bank-account';
 import { PayoutStatus } from './payout-status';
 import { SetupFailure } from './setup-failure';
@@ -83,6 +84,16 @@ function PayoutsInner() {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['payouts', activeOrg.id],
     queryFn: () => api.payouts.forOrg(activeOrg.id),
+  });
+
+  /*
+    Where the money stands, in the four steps of a manual settlement: held (the event has not
+    finished or its holding period has not passed), ready to settle, waiting for our team to pay,
+    paid. Read from the same summary the Finance page uses; one figure per currency.
+  */
+  const summaryQ = useQuery({
+    queryKey: ['payouts', 'summary', activeOrg.id],
+    queryFn: () => api.payouts.summary(activeOrg.id),
   });
 
   const generate = useMutation({
@@ -129,7 +140,11 @@ function PayoutsInner() {
       header: 'Net',
       render: (p) => <span className="font-semibold">{money(p.netMinor, p.currency)}</span>,
     },
-    { key: 'status', header: 'Status', render: (p) => <StatusBadge status={p.status} /> },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (p) => <StatusBadge status={p.status} label={settlementStatusWords(p.status)} />,
+    },
     { key: 'paid', header: 'Paid', render: (p) => (p.paidAt ? dateOnly(p.paidAt) : '—') },
   ];
 
@@ -191,8 +206,29 @@ function PayoutsInner() {
         */}
         <p className="text-caption text-text-muted">
           An event&rsquo;s revenue can be settled once the event has finished and its holding period
+          {summaryQ.data
+            ? ` (${summaryQ.data.holdDays} day${summaryQ.data.holdDays === 1 ? '' : 's'})`
+            : ''}{' '}
           has passed. Refunds from that event come off the settlement that covers it.
         </p>
+        {(summaryQ.data?.currencies ?? []).length > 0 ? (
+          <div className="grid gap-3 sm:grid-cols-2" data-testid="settlement-position">
+            {summaryQ.data!.currencies.map((c) => (
+              <Card key={c.currency} title={`Settlement position (${c.currency})`} padding="md">
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                  <dt className="text-text-muted">Held</dt>
+                  <dd className="text-right">{money(c.held, c.currency)}</dd>
+                  <dt className="text-text-muted">Ready to settle</dt>
+                  <dd className="text-right">{money(Math.max(0, c.net), c.currency)}</dd>
+                  <dt className="text-text-muted">Pending approval</dt>
+                  <dd className="text-right">{money(c.pending, c.currency)}</dd>
+                  <dt className="text-text-muted">Paid</dt>
+                  <dd className="text-right font-semibold">{money(c.paid, c.currency)}</dd>
+                </dl>
+              </Card>
+            ))}
+          </div>
+        ) : null}
         <p className="text-caption text-text-muted">
           Net is what you are paid: gross ticket sales less discounts, your platform fee and
           refunds. Buyer fees are the booking and payment fees your buyers paid on top of the ticket
@@ -476,6 +512,41 @@ function RazorpayPayoutSetup({ orgId, scope }: { orgId: string; scope: MarketSco
   }
 
   const canLink = status.routeEnabled && !status.hasAccount;
+
+  /*
+    Route off: rupee payouts are manual settlements, which work. The card used to show the
+    automatic-transfer account instead - "Payout not ready", Charges and Payouts switched off,
+    "Payouts are settled via Razorpay Route" - none of which is how this organizer is paid.
+  */
+  if (!status.routeEnabled) {
+    return (
+      <Card
+        title="Payouts (India, rupees)"
+        action={<Badge tone="neutral">Manual settlements</Badge>}
+      >
+        <div className="space-y-3" data-testid="razorpay-manual">
+          <PanelNotice message={razorpayPanelMessage(status, scope)} />
+          <dl className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <dt className="text-caption text-text-muted">How you are paid</dt>
+              <dd className="mt-1 text-[0.9375rem] text-text-primary">
+                Bank transfer from ETicketsGo, for each settlement you generate below
+              </dd>
+            </div>
+            <div>
+              <dt className="text-caption text-text-muted">Automatic payouts</dt>
+              <dd className="mt-1 text-[0.9375rem] text-text-primary">Not enabled</dd>
+            </div>
+          </dl>
+          <p className="text-caption text-text-muted">
+            A settlement can be generated once an event has finished and its holding period has
+            passed. A member of our team who did not check your bank account pays it and records the
+            bank reference, and it then shows as Paid.
+          </p>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Card

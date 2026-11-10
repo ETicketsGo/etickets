@@ -9,6 +9,7 @@ import {
   type ProviderSummaryView,
   type SummaryTone,
 } from '@/lib/payout-provider-summary';
+import { bankOwnership } from '@/lib/manual-payouts';
 
 /**
  * Where this organizer's payouts stand, provider by provider.
@@ -71,7 +72,23 @@ function Lines({ view }: { view: ProviderSummaryView }) {
             {l.bank ? (
               <div className="flex flex-wrap gap-x-2">
                 <dt className="text-text-muted">Bank account:</dt>
-                <dd className="text-text-secondary">{l.bank}</dd>
+                <dd
+                  className={
+                    l.bank.startsWith('Ownership mismatch')
+                      ? 'text-status-error'
+                      : 'text-text-secondary'
+                  }
+                >
+                  {l.bank}
+                </dd>
+              </div>
+            ) : null}
+            {l.automatic ? (
+              <div className="flex flex-wrap gap-x-2">
+                <dt className="text-text-muted">Automatic payouts:</dt>
+                <dd className="text-text-secondary">
+                  {l.automatic.replace(/^Automatic payouts \(Razorpay Route\): /, '')}
+                </dd>
               </div>
             ) : null}
           </dl>
@@ -82,7 +99,21 @@ function Lines({ view }: { view: ProviderSummaryView }) {
 }
 
 export function PayoutStatus({ orgId }: { orgId: string }) {
-  const { activeOrgSentenceName } = useOrg();
+  const { activeOrgSentenceName, activeOrg } = useOrg();
+  /*
+    The rupee bank account, to check it is in the business's own name (lib/manual-payouts).
+    The same request the Bank account card below makes, so it is answered once.
+  */
+  const accounts = useQuery({
+    queryKey: ['organizer', 'payout-accounts', orgId],
+    queryFn: () => api.payouts.accounts(orgId),
+  });
+  const inr = (accounts.data ?? []).find((a) => a.currency.toUpperCase() === 'INR');
+  const inrOwnership = bankOwnership({
+    holderName: inr?.holderName,
+    legalName: activeOrg?.legalName,
+    legalEntityType: activeOrg?.legalEntityType,
+  });
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['organizer', 'payout-account-state', orgId],
     queryFn: () => api.payouts.accountState(orgId),
@@ -133,7 +164,7 @@ export function PayoutStatus({ orgId }: { orgId: string }) {
     );
   }
 
-  const view = providerSummaryView(data);
+  const view = providerSummaryView(data, { inrOwnership });
   const Icon = ICON[view.tone];
 
   return (
