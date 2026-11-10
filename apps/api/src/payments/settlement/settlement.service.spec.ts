@@ -153,6 +153,33 @@ const approved = (over: Record<string, unknown> = {}) => ({
 const actor = { id: 'admin1', email: 'a@b.c', fullName: 'Admin', roles: ['ADMIN'] } as never;
 
 describe('SettlementService.release', () => {
+  it.each(['PENDING_REVIEW', 'CHANGES_REQUESTED'])(
+    'refuses to release while the legal identity is %s, moves no money and audits it',
+    async (legalIdentityStatus) => {
+      const createTransfer = jest.fn();
+      const { service, prisma, audit, updated } = makeDeps({
+        settlement: approved(),
+        createTransfer,
+      });
+      (
+        prisma as unknown as { organization: { findUnique: jest.Mock } }
+      ).organization.findUnique.mockResolvedValue({
+        legalIdentityStatus,
+      });
+      await expect(service.release(actor, 's1')).rejects.toMatchObject({
+        response: expect.objectContaining({ details: { hold: 'IDENTITY_NOT_APPROVED' } }),
+      });
+      expect(createTransfer).not.toHaveBeenCalled();
+      expect(updated).toEqual([]);
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'SETTLEMENT_RELEASE_REFUSED',
+          metadata: expect.objectContaining({ reasonCode: 'IDENTITY_NOT_APPROVED' }),
+        }),
+      );
+    },
+  );
+
   it('recomputes payable (minus reserve) and transfers to the connected account', async () => {
     const createTransfer = jest.fn().mockResolvedValue({ transferId: 'tr_1', status: 'COMPLETED' });
     const { service, updated } = makeDeps({
