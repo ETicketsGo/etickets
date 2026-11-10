@@ -54,3 +54,4 @@ export * from './tax-classification';
 export * from './phone-identity';
 export * from './entitlements';
 export * from './organizer-contact';
+export * from './bank-ownership';
