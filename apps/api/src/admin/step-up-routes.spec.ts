@@ -70,7 +70,12 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
     ['route', 'country', 'provider', 'failover', 'maintenance'],
   ],
   ['payment promotion', PromotionController, ['approve', 'apply']],
-  ['organizers', AdminOrganizationsController, ['setSuspension', 'removeOrganization']],
+  [
+    'organizers',
+    AdminOrganizationsController,
+    // reviewLegalIdentity: approving a changed legal identity is what lets payouts resume.
+    ['setSuspension', 'removeOrganization', 'reviewLegalIdentity'],
+  ],
   ['accounts', AdminUsersController, ['suspend', 'reinstate', 'revokeSessions']],
   /*
     Organizer billing: what organizers pay (plans, prices) and what they get without paying
@@ -208,6 +213,29 @@ describe('staff writes that now need a recent second-factor check', () => {
       });
     }
   }
+
+  /*
+    Approving a changed legal identity (or asking for changes) decides whether an organizer's
+    payouts resume, so it needs a recent second-factor check like a payout. Beside the table
+    above: a session that never passed MFA, or carries no MFA state at all, is refused too.
+  */
+  it('legal identity review: refuses a stale, unverified or missing MFA session', async () => {
+    const h = 'reviewLegalIdentity';
+    expect(await guardRun(AdminOrganizationsController, h, verified(11 * 60_000))).toBe(
+      'MFA_STEP_UP_REQUIRED',
+    );
+    expect(
+      await guardRun(AdminOrganizationsController, h, {
+        ...verified(0),
+        verified: false,
+        verifiedAt: null,
+      }),
+    ).toBe('MFA_REQUIRED');
+    expect(await guardRun(AdminOrganizationsController, h, undefined as never)).toBe(
+      'MFA_REQUIRED',
+    );
+    expect(await guardRun(AdminOrganizationsController, h, verified(60_000))).toBe('PASS');
+  });
 
   it('does not ask an organizer refunding their own customer for a code they do not have', async () => {
     const guard = new MfaGuard(new Reflector(), { stepUpMs: 10 * 60_000 } as never);
