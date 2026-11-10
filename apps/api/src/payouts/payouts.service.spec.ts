@@ -54,7 +54,11 @@ function makeService(
   let created = 0;
   const prisma = withTransaction({
     // An approved organizer: a SUSPENDED one may not raise payouts (suspended-organization-money.spec.ts).
-    organization: { findUnique: jest.fn().mockResolvedValue({ status: 'APPROVED' }) },
+    organization: {
+      findUnique: jest
+        .fn()
+        .mockResolvedValue({ status: 'APPROVED', legalIdentityStatus: 'APPROVED' }),
+    },
     // Read by `generate` to leave out events a provider transfer has already claimed, and by
     // the "why is nothing due" path. Empty is the ordinary case: no transfers, nothing held.
     settlement: { findMany: jest.fn().mockResolvedValue([]) },
@@ -344,7 +348,11 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
     const allocations: Row[] = [];
     const prisma = withTransaction({
       // An approved organizer: a SUSPENDED one may not raise payouts (suspended-organization-money.spec.ts).
-      organization: { findUnique: jest.fn().mockResolvedValue({ status: 'APPROVED' }) },
+      organization: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ status: 'APPROVED', legalIdentityStatus: 'APPROVED' }),
+      },
       settlement: {
         findMany: jest.fn(async ({ where }: { where: Row }) =>
           settlements.filter((row) => matches(row, where)),
@@ -1233,8 +1241,9 @@ describe('PayoutsService (markPaid hold on an unverified destination)', () => {
     verified rupee account is held by a person.
   */
   const company = {
-    legalName: 'DeepTrics Software Solutions Pvt Ltd',
-    legalEntityType: 'Private limited company',
+    legalIdentityStatus: 'APPROVED',
+    approvedLegalName: 'DeepTrics Software Solutions Pvt Ltd',
+    approvedLegalEntityType: 'Private limited company',
   };
 
   it('holds a payout into a verified PERSONAL account of a company, and audits it', async () => {
@@ -1271,12 +1280,94 @@ describe('PayoutsService (markPaid hold on an unverified destination)', () => {
     expect(prisma.payout.updateMany).toHaveBeenCalledTimes(1);
   });
 
+  it('holds every payout while a changed legal identity waits for review', async () => {
+    const { service, prisma, audit } = makeService();
+    prisma.organization.findUnique.mockResolvedValue({
+      status: 'APPROVED',
+      legalIdentityStatus: 'PENDING_REVIEW',
+      approvedLegalName: 'DeepTrics Software Solutions Pvt Ltd',
+      approvedLegalEntityType: 'Private limited company',
+    });
+    prisma.$queryRaw.mockResolvedValue(
+      accountRow({
+        verifiedAt: new Date(),
+        holderName: 'DEEPTRICS SOFTWARE SOLUTIONS PRIVATE LIMITED',
+      }),
+    );
+    await expect(service.markPaid(user, 'p1')).rejects.toMatchObject({
+      response: expect.objectContaining({ details: { hold: 'DESTINATION_IDENTITY_NOT_APPROVED' } }),
+    });
+    expect(prisma.payout.updateMany).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          outcome: 'REFUSED',
+          reasonCode: 'DESTINATION_IDENTITY_NOT_APPROVED',
+        }),
+      }),
+    );
+  });
+
+  it('ignores an unapproved switch to "Individual": the approved company still needs a company account', async () => {
+    // The 2026-11-10 bypass: the editable fields now say a person, the approved snapshot a company.
+    const { service, prisma } = makeService();
+    prisma.organization.findUnique.mockResolvedValue({
+      status: 'APPROVED',
+      legalIdentityStatus: 'APPROVED',
+      legalName: 'Srinivasa Rao M',
+      legalEntityType: 'Individual',
+      approvedLegalName: 'DeepTrics Software Solutions Pvt Ltd',
+      approvedLegalEntityType: 'Private limited company',
+    });
+    prisma.$queryRaw.mockResolvedValue(
+      accountRow({ verifiedAt: new Date(), holderName: 'Srinivasa Rao M' }),
+    );
+    await expect(service.markPaid(user, 'p1')).rejects.toMatchObject({
+      response: expect.objectContaining({ details: { hold: 'DESTINATION_OWNERSHIP_MISMATCH' } }),
+    });
+  });
+
+  it('an organization never reviewed (seeded) is judged on the identity on file', async () => {
+    const { service, prisma } = makeService();
+    prisma.organization.findUnique.mockResolvedValue({
+      status: 'APPROVED',
+      legalIdentityStatus: 'UNREVIEWED',
+      legalName: 'DeepTrics Software Solutions Pvt Ltd',
+      legalEntityType: 'Private limited company',
+      approvedLegalName: null,
+      approvedLegalEntityType: null,
+    });
+    prisma.$queryRaw.mockResolvedValue(
+      accountRow({ verifiedAt: new Date(), holderName: 'Srinivasa Rao M' }),
+    );
+    await expect(service.markPaid(user, 'p1')).rejects.toMatchObject({
+      response: expect.objectContaining({ details: { hold: 'DESTINATION_OWNERSHIP_MISMATCH' } }),
+    });
+  });
+
+  it('changes requested holds the payout too', async () => {
+    const { service, prisma } = makeService();
+    prisma.organization.findUnique.mockResolvedValue({
+      status: 'APPROVED',
+      legalIdentityStatus: 'CHANGES_REQUESTED',
+      approvedLegalName: 'Asha Events',
+      approvedLegalEntityType: 'Sole proprietorship',
+    });
+    prisma.$queryRaw.mockResolvedValue(
+      accountRow({ verifiedAt: new Date(), holderName: 'Asha Rao' }),
+    );
+    await expect(service.markPaid(user, 'p1')).rejects.toMatchObject({
+      response: expect.objectContaining({ details: { hold: 'DESTINATION_IDENTITY_NOT_APPROVED' } }),
+    });
+  });
+
   it('pays a sole proprietor into their own personal account', async () => {
     const { service, prisma } = makeService();
     prisma.organization.findUnique.mockResolvedValue({
       status: 'APPROVED',
-      legalName: 'Asha Events',
-      legalEntityType: 'Sole proprietorship',
+      legalIdentityStatus: 'APPROVED',
+      approvedLegalName: 'Asha Events',
+      approvedLegalEntityType: 'Sole proprietorship',
     });
     prisma.$queryRaw.mockResolvedValue(
       accountRow({ verifiedAt: new Date(), holderName: 'Asha Rao' }),

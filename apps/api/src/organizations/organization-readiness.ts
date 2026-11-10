@@ -53,6 +53,8 @@ export interface ReadinessInput {
   payoutAccountVerified?: boolean;
   logoUrl?: string | null;
   description?: string | null;
+  /** Whether the payout-critical legal identity on file is the one staff approved. */
+  legalIdentityStatus?: string | null;
 }
 
 const blank = (value?: string | null) => !value || !value.trim();
@@ -147,6 +149,31 @@ export function organizationReadiness(org: ReadinessInput): ReadinessItem[] {
       consequence:
         'Ticket holders are shown this address when they need to reach you about an event.',
       fixPath: SETTINGS_PROFILE,
+    });
+  }
+
+  /*
+    A changed legal identity holds PAYOUTS only - sales, events and everything else carry on.
+    Said here so the organizer is not left wondering why a settlement is not paid.
+  */
+  if (org.legalIdentityStatus === 'PENDING_REVIEW') {
+    items.push({
+      key: 'legal-identity-review',
+      severity: 'IMPORTANT',
+      title: 'We are checking your changed legal details',
+      consequence:
+        'Payouts are on hold until a member of our team approves them. Your sales are not affected.',
+      fixPath: SETTINGS_LEGAL,
+    });
+  }
+  if (org.legalIdentityStatus === 'CHANGES_REQUESTED') {
+    items.push({
+      key: 'legal-identity-review',
+      severity: 'BLOCKING',
+      title: 'Correct your legal details',
+      consequence:
+        'We could not approve your changed legal details, so payouts are on hold. Your sales are not affected.',
+      fixPath: SETTINGS_LEGAL,
     });
   }
 

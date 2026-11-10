@@ -47,6 +47,17 @@ import { NotificationTemplateService } from '../notifications/templates/notifica
 import { messageContentLoggable } from '../notifications/channels/transports/content-logging';
 import { EmailVerificationService } from '../auth/email-verification.service';
 import { revokeReasonEntry } from '../checkins/offline/revocation-reasons';
+import {
+  PAYOUT_CRITICAL_FIELDS,
+  approvedIdentity,
+  changedCriticalFields,
+  currentIdentity,
+  identityReviewerFailure,
+  identityStatusAfterEdit,
+  ownershipBasisChanged,
+  type LegalIdentity,
+  type LegalIdentityStatusValue,
+} from './legal-identity-review';
 
 /**
  * How long an invitation stays valid: seven days.
@@ -404,13 +415,15 @@ export class OrganizationsService {
         grievanceOfficerName: true,
         grievanceOfficerPhone: true,
         additionalTaxRegistrations: true,
+        ...IDENTITY_REVIEW_SELECT,
       },
     });
     const data = legalIdentityData(input);
     assertLegalChanges(before, data);
+    const review = before ? identityReviewAfter(before, data, user.id) : null;
     const updated = await this.prisma.organization.update({
       where: { id },
-      data: toLegalWrite(data),
+      data: { ...toLegalWrite(data), ...(review?.write ?? {}) },
     });
     await this.audit.record({
       actorUserId: user.id,
@@ -420,6 +433,7 @@ export class OrganizationsService {
       entityId: id,
       metadata: {
         fields: Object.keys(data),
+        ...(review ? { identityReview: review.summary } : {}),
         // Documents already issued keep the old values — they are snapshots. Recording the
         // change here is what lets anyone explain why two invoices name the seller
         // differently.
@@ -469,6 +483,7 @@ export class OrganizationsService {
         grievanceOfficerName: true,
         grievanceOfficerPhone: true,
         additionalTaxRegistrations: true,
+        ...IDENTITY_REVIEW_SELECT,
       },
     });
     if (!before) {
@@ -477,9 +492,12 @@ export class OrganizationsService {
 
     const data = legalIdentityData(input);
     assertLegalChanges(before, data);
+    // Staff entering details on an organizer's behalf are the maker of that change: another
+    // member of staff reviews it, exactly as for the organizer's own edit.
+    const review = identityReviewAfter(before, data, admin.id);
     const updated = await this.prisma.organization.update({
       where: { id },
-      data: toLegalWrite(data),
+      data: { ...toLegalWrite(data), ...review.write },
     });
 
     await this.audit.record({
@@ -491,6 +509,7 @@ export class OrganizationsService {
       metadata: {
         onBehalfOf: id,
         fields: Object.keys(data),
+        ...(review ? { identityReview: review.summary } : {}),
         // Documents already issued keep the old values — they are snapshots. Recording the
         // change is what lets anyone explain why two invoices name the seller differently.
         previousTaxRegistrationNumber: before.taxRegistrationNumber ?? null,
@@ -498,6 +517,151 @@ export class OrganizationsService {
       },
     });
     return updated;
+  }
+
+  /**
+   * An independent decision on a changed legal identity.
+   *
+   * APPROVE writes the snapshot payouts are judged against. When the legal name or the legal
+   * form changed, every bank account verified under the old identity is sent back for
+   * verification as a NEW version (the verified version stays in its history), recorded as
+   * saved by this reviewer - so the same person cannot also verify the account.
+   *
+   * REQUEST_CHANGES leaves the identity, and the organizer's payouts, on hold. Nothing else
+   * about the organizer stops: they keep selling and running events.
+   */
+  async reviewLegalIdentity(
+    admin: RequestUser,
+    orgId: string,
+    input: { decision: 'APPROVE' | 'REQUEST_CHANGES'; note?: string },
+  ) {
+    const org = await this.prisma.organization.findUnique({ where: { id: orgId } });
+    if (!org) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
+    }
+    if (org.legalIdentityStatus !== 'PENDING_REVIEW') {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'There is no legal-identity change waiting for review on this organization.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    const isMember =
+      (await this.prisma.organizationMember.count({
+        where: { organizationId: orgId, userId: admin.id, status: 'ACTIVE' },
+      })) > 0;
+    const failure = identityReviewerFailure({
+      actorUserId: admin.id,
+      changedByUserId: org.legalIdentityChangedByUserId,
+      actorIsMember: isMember,
+    });
+    if (failure) {
+      await this.audit.record({
+        actorUserId: admin.id,
+        organizationId: orgId,
+        action: 'ORGANIZATION_LEGAL_IDENTITY_REVIEW_REFUSED',
+        entityType: 'Organization',
+        entityId: orgId,
+        metadata: { reasonCode: failure, decision: input.decision },
+      });
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        failure === 'SAME_PERSON'
+          ? 'You made this change, so someone else must review it.'
+          : 'You belong to this organization, so someone else must review its legal details.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const previous = approvedIdentity(org);
+    const proposed = currentIdentity(org);
+    if (input.decision === 'REQUEST_CHANGES') {
+      await this.prisma.organization.update({
+        where: { id: orgId },
+        data: {
+          legalIdentityStatus: 'CHANGES_REQUESTED',
+          legalIdentityReviewNote: input.note ?? null,
+        },
+      });
+      await this.audit.record({
+        actorUserId: admin.id,
+        organizationId: orgId,
+        action: 'ORGANIZATION_LEGAL_IDENTITY_CHANGES_REQUESTED',
+        entityType: 'Organization',
+        entityId: orgId,
+        metadata: { note: input.note ?? null, previousApproved: previous, proposed },
+      });
+      return { status: 'CHANGES_REQUESTED' as const, bankAccountsToReverify: [] as string[] };
+    }
+
+    const reverify = ownershipBasisChanged(previous, proposed);
+    const reset = await this.prisma.$transaction(async (tx) => {
+      await tx.organization.update({
+        where: { id: orgId },
+        data: approvedSnapshotWrite(org, admin.id, input.note),
+      });
+      if (!reverify) return [] as { id: string; currency: string; version: number }[];
+      const accounts = await tx.organizerPayoutAccount.findMany({
+        where: { organizationId: orgId, verifiedAt: { not: null } },
+      });
+      const out: { id: string; currency: string; version: number }[] = [];
+      for (const a of accounts) {
+        const row = await tx.organizerPayoutAccount.update({
+          where: { id: a.id },
+          data: {
+            verifiedAt: null,
+            verifiedByUserId: null,
+            updatedByUserId: admin.id,
+            version: { increment: 1 },
+          },
+        });
+        await tx.organizerPayoutAccountVersion.updateMany({
+          where: { accountId: a.id, status: 'PENDING_VERIFICATION' },
+          data: { status: 'SUPERSEDED' },
+        });
+        await tx.organizerPayoutAccountVersion.create({
+          data: {
+            accountId: a.id,
+            organizationId: orgId,
+            currency: a.currency,
+            version: row.version,
+            holderName: a.holderName,
+            bankName: a.bankName,
+            bankCode: a.bankCode,
+            accountLast4: a.accountLast4,
+            changedFields: ['legalIdentity'],
+            savedByUserId: admin.id,
+          },
+        });
+        out.push({ id: a.id, currency: a.currency, version: row.version });
+      }
+      return out;
+    });
+
+    await this.audit.record({
+      actorUserId: admin.id,
+      organizationId: orgId,
+      action: 'ORGANIZATION_LEGAL_IDENTITY_APPROVED',
+      entityType: 'Organization',
+      entityId: orgId,
+      metadata: {
+        note: input.note ?? null,
+        previousApproved: previous,
+        approved: proposed,
+        bankReverificationRequired: reset.map((r) => r.id),
+      },
+    });
+    for (const r of reset) {
+      await this.audit.record({
+        actorUserId: admin.id,
+        organizationId: orgId,
+        action: 'PAYOUT_ACCOUNT_REVERIFICATION_REQUIRED',
+        entityType: 'OrganizerPayoutAccount',
+        entityId: r.id,
+        metadata: { reason: 'LEGAL_IDENTITY_CHANGED', currency: r.currency, version: r.version },
+      });
+    }
+    return { status: 'APPROVED' as const, bankAccountsToReverify: reset.map((r) => r.id) };
   }
 
   /** The tax-invoice readiness of one organization, read by a platform administrator. */
@@ -522,6 +686,17 @@ export class OrganizationsService {
         grievanceOfficerEmail: true,
         grievanceOfficerPhone: true,
         additionalTaxRegistrations: true,
+        legalIdentityStatus: true,
+        approvedLegalName: true,
+        approvedLegalEntityType: true,
+        approvedRegisteredCountry: true,
+        approvedTaxRegistrationKind: true,
+        approvedTaxRegistrationNumber: true,
+        legalIdentityApprovedAt: true,
+        legalIdentityApprovedByUserId: true,
+        legalIdentityChangedAt: true,
+        legalIdentityChangedByUserId: true,
+        legalIdentityReviewNote: true,
       },
     });
     if (!org) {
@@ -539,8 +714,28 @@ export class OrganizationsService {
       .filter(([field]) => !org[field])
       .map(([, label]) => label);
 
+    /*
+      The review a payout waits on: what staff approved, what is on file now, which payout-
+      critical fields differ, and who changed them (so the reviewer can be someone else).
+    */
+    const approved = approvedIdentity(org);
+    const identityReview = {
+      status: org.legalIdentityStatus,
+      approved,
+      proposed: currentIdentity(org),
+      changedFields:
+        org.legalIdentityStatus === 'APPROVED'
+          ? []
+          : changedCriticalFields(approved, currentIdentity(org)),
+      approvedAt: org.legalIdentityApprovedAt,
+      approvedByUserId: org.legalIdentityApprovedByUserId,
+      changedAt: org.legalIdentityChangedAt,
+      changedByUserId: org.legalIdentityChangedByUserId,
+      note: org.legalIdentityReviewNote,
+    };
     return {
       ...org,
+      identityReview,
       missing,
       canIssueTaxInvoice:
         Boolean(org.taxRegistrationNumber?.trim()) &&
@@ -1768,7 +1963,12 @@ export class OrganizationsService {
       input.decision === 'APPROVE' ? OrganizationStatus.APPROVED : OrganizationStatus.REJECTED;
     const updated = await this.prisma.organization.update({
       where: { id: orgId },
-      data: { status },
+      data: {
+        status,
+        // Approving the organization approves the legal identity it declared: this is the
+        // snapshot payouts are judged against until a later change is reviewed.
+        ...(input.decision === 'APPROVE' ? approvedSnapshotWrite(org, admin.id, input.note) : {}),
+      },
     });
     await this.audit.record({
       actorUserId: admin.id,
@@ -1878,6 +2078,90 @@ function toLegalWrite(data: LegalData): Prisma.OrganizationUpdateInput {
       : Prisma.DbNull;
   }
   return write as Prisma.OrganizationUpdateInput;
+}
+
+/** What the identity review needs to read alongside a legal-identity edit. */
+const IDENTITY_REVIEW_SELECT = {
+  status: true,
+  legalIdentityStatus: true,
+  approvedLegalName: true,
+  approvedLegalEntityType: true,
+  approvedRegisteredCountry: true,
+  approvedTaxRegistrationKind: true,
+  approvedTaxRegistrationNumber: true,
+  legalIdentityApprovedAt: true,
+} as const;
+
+type IdentityReviewBefore = {
+  status: string;
+  legalIdentityStatus: LegalIdentityStatusValue;
+  approvedLegalName: string | null;
+  approvedLegalEntityType: string | null;
+  approvedRegisteredCountry: string | null;
+  approvedTaxRegistrationKind: string | null;
+  approvedTaxRegistrationNumber: string | null;
+  legalIdentityApprovedAt: Date | null;
+  legalName: string | null;
+  legalEntityType: string | null;
+  registeredCountry: string | null;
+  taxRegistrationKind: string | null;
+  taxRegistrationNumber: string | null;
+};
+
+/**
+ * Whether this edit puts the legal identity (and with it, payouts) on hold for review.
+ *
+ * Applied to EVERY write of the legal identity - the organizer's own and staff's on their
+ * behalf - so no route can change who is paid without an independent decision.
+ */
+function identityReviewAfter(before: IdentityReviewBefore, data: LegalData, actorUserId: string) {
+  const next = currentIdentity({
+    ...currentIdentity(before),
+    ...(Object.fromEntries(
+      PAYOUT_CRITICAL_FIELDS.filter((f) => f in data).map((f) => [f, data[f] as string | null]),
+    ) as Partial<LegalIdentity>),
+  });
+  const { status, changed } = identityStatusAfterEdit({
+    organizationStatus: before.status,
+    current: before.legalIdentityStatus,
+    approved: approvedIdentity(before),
+    next,
+  });
+  const write: Prisma.OrganizationUpdateInput =
+    status === before.legalIdentityStatus && changed.length === 0
+      ? {}
+      : status === 'PENDING_REVIEW'
+        ? {
+            legalIdentityStatus: 'PENDING_REVIEW',
+            legalIdentityChangedAt: new Date(),
+            legalIdentityChangedByUserId: actorUserId,
+            legalIdentityReviewNote: null,
+          }
+        : { legalIdentityStatus: status };
+  return {
+    write,
+    summary: { status, changedCriticalFields: changed, previousStatus: before.legalIdentityStatus },
+  };
+}
+
+/** The approved snapshot written from the identity on file. */
+function approvedSnapshotWrite(
+  org: Partial<LegalIdentity>,
+  approverUserId: string,
+  note?: string | null,
+): Prisma.OrganizationUpdateInput {
+  const id = currentIdentity(org);
+  return {
+    legalIdentityStatus: 'APPROVED',
+    approvedLegalName: id.legalName,
+    approvedLegalEntityType: id.legalEntityType,
+    approvedRegisteredCountry: id.registeredCountry,
+    approvedTaxRegistrationKind: id.taxRegistrationKind,
+    approvedTaxRegistrationNumber: id.taxRegistrationNumber,
+    legalIdentityApprovedAt: new Date(),
+    legalIdentityApprovedByUserId: approverUserId,
+    legalIdentityReviewNote: note ?? null,
+  };
 }
 
 function fieldErrors(fields: Record<string, string>): AppException {

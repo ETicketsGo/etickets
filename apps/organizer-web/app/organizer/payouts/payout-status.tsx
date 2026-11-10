@@ -109,11 +109,18 @@ export function PayoutStatus({ orgId }: { orgId: string }) {
     queryFn: () => api.payouts.accounts(orgId),
   });
   const inr = (accounts.data ?? []).find((a) => a.currency.toUpperCase() === 'INR');
+  // Judged against the APPROVED identity, as the API does, never the editable fields.
+  const approved = activeOrg?.legalIdentityStatus === 'APPROVED';
   const inrOwnership = bankOwnership({
     holderName: inr?.holderName,
-    legalName: activeOrg?.legalName,
-    legalEntityType: activeOrg?.legalEntityType,
+    legalName: approved ? activeOrg?.approvedLegalName : activeOrg?.legalName,
+    legalEntityType: approved ? activeOrg?.approvedLegalEntityType : activeOrg?.legalEntityType,
   });
+  const identityHold =
+    activeOrg?.legalIdentityStatus === 'PENDING_REVIEW' ||
+    activeOrg?.legalIdentityStatus === 'CHANGES_REQUESTED'
+      ? activeOrg.legalIdentityStatus
+      : null;
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['organizer', 'payout-account-state', orgId],
     queryFn: () => api.payouts.accountState(orgId),
@@ -164,7 +171,7 @@ export function PayoutStatus({ orgId }: { orgId: string }) {
     );
   }
 
-  const view = providerSummaryView(data, { inrOwnership });
+  const view = providerSummaryView(data, { inrOwnership, identityHold });
   const Icon = ICON[view.tone];
 
   return (

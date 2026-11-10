@@ -3229,6 +3229,19 @@ export const api = {
       }),
     organizerLegalIdentity: (id: string) =>
       request<OrganizationLegalIdentity>(`/admin/organizers/${id}/legal-identity`),
+    /**
+     * An independent decision on a changed legal identity. Refused (403) for whoever made the
+     * change or a member of the organization. Approving a new name or legal form sends the
+     * organizer's verified bank accounts back for verification.
+     */
+    reviewOrganizerLegalIdentity: (
+      id: string,
+      body: { decision: 'APPROVE' | 'REQUEST_CHANGES'; note?: string },
+    ) =>
+      request<{ status: 'APPROVED' | 'CHANGES_REQUESTED'; bankAccountsToReverify: string[] }>(
+        `/admin/organizers/${id}/legal-identity/review`,
+        { method: 'POST', body: JSON.stringify(body) },
+      ),
     updateOrganizerLegalIdentity: (id: string, patch: Partial<OrganizationLegalIdentityFields>) =>
       request<Organization>(`/admin/organizers/${id}/legal-identity`, {
         method: 'PATCH',
@@ -4577,11 +4590,35 @@ export interface OrganizationLegalIdentityFields {
   additionalTaxRegistrations?: { kind: string; number: string }[] | null;
 }
 
+/** The payout-critical identity fields, as approved or as proposed. */
+export interface LegalIdentitySnapshot {
+  legalName: string | null;
+  legalEntityType: string | null;
+  registeredCountry: string | null;
+  taxRegistrationKind: string | null;
+  taxRegistrationNumber: string | null;
+}
+
+/** The review a payout waits on (admin read only). */
+export interface LegalIdentityReview {
+  status: 'UNREVIEWED' | 'APPROVED' | 'PENDING_REVIEW' | 'CHANGES_REQUESTED';
+  approved: LegalIdentitySnapshot | null;
+  proposed: LegalIdentitySnapshot;
+  changedFields: (keyof LegalIdentitySnapshot)[];
+  approvedAt: string | null;
+  approvedByUserId: string | null;
+  changedAt: string | null;
+  changedByUserId: string | null;
+  note: string | null;
+}
+
 export interface OrganizationLegalIdentity extends OrganizationLegalIdentityFields {
   /** Human-readable labels for the fields still blank. */
   missing: string[];
   /** A registration on file AND nothing missing. Below that, documents are plain receipts. */
   canIssueTaxInvoice: boolean;
+  /** Present on the admin read: whether the identity payouts are judged against is approved. */
+  identityReview?: LegalIdentityReview;
 }
 
 /** Both organization pictures are uploaded the same way; only the path differs. */
@@ -4634,6 +4671,13 @@ export interface Organization {
   registeredRegion?: string | null;
   /** What they registered as: sole proprietorship, Pvt Ltd, LLC. */
   legalEntityType?: string | null;
+  /**
+   * Whether the payout-critical legal identity on file is the one staff approved. Payouts are
+   * judged against the approved snapshot below, never the editable fields above.
+   */
+  legalIdentityStatus?: 'UNREVIEWED' | 'APPROVED' | 'PENDING_REVIEW' | 'CHANGES_REQUESTED';
+  approvedLegalName?: string | null;
+  approvedLegalEntityType?: string | null;
   /** Whether this organizer takes cash at the venue. Off unless deliberately turned on. */
   cashPaymentsEnabled?: boolean;
   // Public organizer profile (v1.2 WS6).

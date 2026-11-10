@@ -125,3 +125,53 @@ describe('settlementStatusWords', () => {
     expect(settlementStatusWords('FAILED')).toBe('Failed');
   });
 });
+
+describe('payout status while a changed legal identity waits for review', () => {
+  // Imported here to keep this file's other tests independent of the summary view.
+  it('every line reads on hold, never active', async () => {
+    const { providerSummaryView } = await import('./payout-provider-summary');
+    const view = providerSummaryView(
+      {
+        providers: [
+          {
+            provider: 'RAZORPAY',
+            market: 'INR',
+            stage: 'PLATFORM_PAYOUTS_OFF',
+            accepting: 'NOT_GATED',
+            payouts: 'PENDING',
+            bank: 'VERIFIED',
+            organizerActionRequired: false,
+          },
+        ],
+        providerSummary: { level: 'WAITING', decidedBy: 'RAZORPAY' },
+      },
+      { inrOwnership: 'NOT_CHECKED', identityHold: 'PENDING_REVIEW' },
+    );
+    expect(view.heading).toMatch(/on hold/);
+    expect(view.lines[0].payouts).toMatch(/On hold/);
+    expect(JSON.stringify(view)).not.toMatch(/Manual settlements: active|Payouts are active/);
+  });
+
+  it('changes requested asks the organizer to correct their details', async () => {
+    const { providerSummaryView } = await import('./payout-provider-summary');
+    const view = providerSummaryView(
+      {
+        providers: [
+          {
+            provider: 'STRIPE',
+            market: 'CARD',
+            stage: 'ACTIVE',
+            accepting: 'ACCEPTING',
+            payouts: 'AVAILABLE',
+            bank: null,
+            organizerActionRequired: false,
+          },
+        ],
+        providerSummary: { level: 'READY', decidedBy: 'STRIPE' },
+      },
+      { identityHold: 'CHANGES_REQUESTED' },
+    );
+    expect(view.heading).toMatch(/Correct your legal details/);
+    expect(view.lines[0].payoutsTone).toBe('bad');
+  });
+});

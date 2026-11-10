@@ -73,7 +73,11 @@ const BANK: Record<NonNullable<PayoutProviderEntry['bank']>, string> = {
 export function providerSummaryView(
   state: Pick<PayoutAccountState, 'providers' | 'providerSummary'>,
   /** Whether the rupee bank account is in the business's own name (see lib/manual-payouts). */
-  opts: { inrOwnership?: BankOwnership } = {},
+  opts: {
+    inrOwnership?: BankOwnership;
+    /** A changed legal identity waiting for (or refused at) staff review holds every payout. */
+    identityHold?: 'PENDING_REVIEW' | 'CHANGES_REQUESTED' | null;
+  } = {},
 ): ProviderSummaryView {
   const lines: SummaryLine[] = state.providers.map((e) => {
     /*
@@ -106,6 +110,29 @@ export function providerSummaryView(
       organizerActionRequired: e.organizerActionRequired,
     };
   });
+
+  /*
+    A changed legal identity holds every payout, whichever provider: the API refuses to record
+    a payout paid or release a settlement until staff approve it. Said on every line, so no line
+    reads "active" while the money cannot move.
+  */
+  if (opts.identityHold && lines.length > 0) {
+    const pending = opts.identityHold === 'PENDING_REVIEW';
+    for (const l of lines) {
+      l.payouts = pending
+        ? 'On hold while we check your changed legal details.'
+        : 'On hold: we could not approve your changed legal details. Correct them in Settings.';
+      l.payoutsTone = pending ? 'waiting' : 'bad';
+    }
+    return {
+      heading: pending
+        ? 'Payouts are on hold while we check your legal details'
+        : 'Correct your legal details to resume payouts',
+      tone: pending ? 'waiting' : 'attention',
+      detail: 'Your sales are not affected. Only payouts wait for this review.',
+      lines,
+    };
+  }
 
   /*
     With a manual rupee line the headline is read from the lines, not from the server's

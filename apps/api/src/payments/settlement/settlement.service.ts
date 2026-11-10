@@ -431,6 +431,40 @@ export class SettlementService {
     await this.assertIndependentReleaser(actor, settlement);
 
     /*
+      ── WHOSE MONEY IT IS ─────────────────────────────────────────────────────────────
+      A changed legal identity waits for an independent review before any money moves to the
+      organizer - by this provider transfer exactly as by the payout ledger (markPaid). The
+      settlement is left as it was and the refusal is audited.
+    */
+    const owner = await this.prisma.organization.findUnique({
+      where: { id: settlement.organizationId },
+      select: { legalIdentityStatus: true },
+    });
+    if (
+      owner &&
+      (owner.legalIdentityStatus === 'PENDING_REVIEW' ||
+        owner.legalIdentityStatus === 'CHANGES_REQUESTED')
+    ) {
+      await this.audit.record({
+        actorUserId: actor.id,
+        organizationId: settlement.organizationId,
+        action: 'SETTLEMENT_RELEASE_REFUSED',
+        entityType: 'Settlement',
+        entityId: id,
+        metadata: {
+          reasonCode: 'IDENTITY_NOT_APPROVED',
+          legalIdentityStatus: owner.legalIdentityStatus,
+        },
+      });
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        "This settlement cannot be released: the organizer's legal details changed and have not been approved yet.",
+        HttpStatus.CONFLICT,
+        { hold: 'IDENTITY_NOT_APPROVED' },
+      );
+    }
+
+    /*
       ── THE OTHER WAY AN ORGANIZER CAN ALREADY HAVE BEEN PAID ──────────────────────────
       This platform pays two ways: a provider transfer (here) and the `Payout` ledger, which
       records what is owed and is settled by a bank transfer somebody makes by hand. Nothing

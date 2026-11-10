@@ -503,6 +503,31 @@ export class AdminOrganizationsController {
     return this.orgs.adminUpdateLegalIdentity(admin, id, body);
   }
 
+  /*
+    An independent decision on a changed legal identity. Until it is approved the
+    organizer's payouts are on hold (markPaid and settlement release both refuse); their
+    sales and events are untouched. The reviewer may not be whoever made the change or a
+    member of the organization (checked in the service).
+  */
+  @Post(':id/legal-identity/review')
+  @RequiresRecentMfa()
+  @ApiOperation({ summary: 'Approve a changed legal identity, or ask for changes (admin).' })
+  reviewLegalIdentity(
+    @CurrentUser() admin: RequestUser,
+    @Param('id') id: string,
+    @Body(
+      new ZodValidationPipe(
+        z.object({
+          decision: z.enum(['APPROVE', 'REQUEST_CHANGES']),
+          note: z.string().trim().max(500).optional(),
+        }),
+      ),
+    )
+    body: { decision: 'APPROVE' | 'REQUEST_CHANGES'; note?: string },
+  ) {
+    return this.orgs.reviewLegalIdentity(admin, id, body);
+  }
+
   @Patch(':id/auto-approve')
   @ApiOperation({
     summary: 'Let a trusted organizer publish events without review, or stop them (admin).',

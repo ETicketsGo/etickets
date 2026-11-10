@@ -82,7 +82,12 @@ export type PayoutDestinationVerdict =
   | { allowed: true }
   | {
       allowed: false;
-      reason: 'NO_ACCOUNT' | 'PENDING_VERIFICATION' | 'REJECTED' | 'OWNERSHIP_MISMATCH';
+      reason:
+        | 'NO_ACCOUNT'
+        | 'PENDING_VERIFICATION'
+        | 'REJECTED'
+        | 'OWNERSHIP_MISMATCH'
+        | 'IDENTITY_NOT_APPROVED';
     };
 
 /*
@@ -102,9 +107,20 @@ export function payoutDestinationVerdict(input: {
     rejectedAt: Date | null;
     holderName?: string | null;
   } | null;
-  owner?: { legalName: string | null; legalEntityType: string | null } | null;
+  /**
+   * The organizer's APPROVED legal identity (the snapshot staff approved, never the editable
+   * fields). `approved: false` while a change waits for review: nothing is paid out then.
+   */
+  owner?: {
+    approved?: boolean;
+    legalName: string | null;
+    legalEntityType: string | null;
+  } | null;
 }): PayoutDestinationVerdict {
   if (input.netMinor <= 0) return { allowed: true };
+  if (input.owner && input.owner.approved === false) {
+    return { allowed: false, reason: 'IDENTITY_NOT_APPROVED' };
+  }
   if (!input.account) return { allowed: false, reason: 'NO_ACCOUNT' };
   if (!input.account.verifiedAt) {
     return {

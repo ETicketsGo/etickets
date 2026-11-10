@@ -24,6 +24,8 @@ function makeDeps(overrides: {
   /** Transfer attempt rows, the durable record of asking a provider to move money. */
   const transferAttempts: Array<Record<string, unknown>> = [];
   const prisma = {
+    // An organizer whose legal identity is approved; release refuses otherwise.
+    organization: { findUnique: jest.fn().mockResolvedValue({ legalIdentityStatus: 'APPROVED' }) },
     /*
       The reversal ledger. The service now writes an attempt BEFORE calling the provider and
       updates it from what the provider proved, so a stub without this model makes every
