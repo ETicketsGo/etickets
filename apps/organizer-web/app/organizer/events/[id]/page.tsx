@@ -4,9 +4,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
+import { Pencil } from 'lucide-react';
 import {
   api,
   Button,
+  ButtonLink,
   Card,
   Dialog,
   Skeleton,
@@ -26,6 +28,7 @@ import {
   SessionsSection,
   TicketsSection,
 } from '@/components/events/overview-sections';
+import { TicketPricesSection } from '@/components/events/ticket-prices-section';
 import { ManageTiles, OverviewLead } from '@/components/events/overview-lead';
 import { CancelEventDialog } from '@/components/events/cancel-event-dialog';
 import { CancelEventResultDialog } from '@/components/events/cancel-event-result-dialog';
@@ -183,6 +186,17 @@ export default function EventOverview() {
 
   return (
     <div className="min-w-0 space-y-6">
+      {/*
+        Editing the event was only in the "More" menu, behind the next step. It is the thing an
+        organizer most often comes back to do, so it has its own button at the top.
+      */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-title font-semibold text-text-primary">Overview</h2>
+        <ButtonLink href={`/organizer/events/${id}/edit`} icon={Pencil}>
+          Edit event
+        </ButtonLink>
+      </div>
+
       <OverviewLead
         event={event}
         sale={state.sale}
@@ -217,6 +231,7 @@ export default function EventOverview() {
             </section>
           ) : null}
 
+          <TicketPricesSection event={event} />
           <TicketsSection event={event} />
           <SalesSection event={event} />
           <SessionsSection event={event} />
