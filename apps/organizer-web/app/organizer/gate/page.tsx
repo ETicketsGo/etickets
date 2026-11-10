@@ -152,6 +152,13 @@ export default function GatePage() {
     hardware scanner's next code starts in an empty box instead of being glued onto the last.
   */
   const scan = useMutation({
+    /*
+      'always', not the default 'online'. With the default, a scan made while the browser is
+      offline is PAUSED: the screen sits on "Checking..." and the scan is sent when the signal
+      returns, admitting a ticket minutes after the door had to decide without an answer.
+      Here it fails at once and reads "Not checked: no connection".
+    */
+    networkMode: 'always',
     mutationFn: (value: string) =>
       api.checkins.scan({
         token: value,
