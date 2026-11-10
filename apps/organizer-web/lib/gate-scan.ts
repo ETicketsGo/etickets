@@ -41,3 +41,12 @@ export type GateFailure = 'NO_CONNECTION' | 'NOT_CHECKED';
 export function classifyGateFailure(err: unknown): GateFailure {
   return err instanceof ApiRequestError ? 'NOT_CHECKED' : 'NO_CONNECTION';
 }
+
+/**
+ * Whether a key ends a hardware scanner's code. Enter is handled by the form; Tab is the other
+ * common scanner suffix and must submit too, or the code sits in the field unchecked while
+ * focus moves away. A Tab on an empty field is a person moving focus, and is left alone.
+ */
+export function isScanTerminator(key: string, value: string): boolean {
+  return key === 'Tab' && value.trim().length > 0;
+}

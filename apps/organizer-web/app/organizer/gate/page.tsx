@@ -15,7 +15,7 @@ import {
 import { useOrg } from '@/components/org-context';
 import { AdmitByEye } from '@/components/admit-by-eye';
 import { api, Button, Card, PageHeader, errorMessage, recordedAt } from '@eticketsgo/web-kit';
-import { classifyGateFailure, classifyGateInput } from '@/lib/gate-scan';
+import { classifyGateFailure, classifyGateInput, isScanTerminator } from '@/lib/gate-scan';
 import { useCameraQrScan } from '@/lib/use-camera-qr-scan';
 
 /**
@@ -152,6 +152,13 @@ export default function GatePage() {
     hardware scanner's next code starts in an empty box instead of being glued onto the last.
   */
   const scan = useMutation({
+    /*
+      'always', not the default 'online'. With the default, a scan made while the browser is
+      offline is PAUSED: the screen sits on "Checking..." and the scan is sent when the signal
+      returns, admitting a ticket minutes after the door had to decide without an answer.
+      Here it fails at once and reads "Not checked: no connection".
+    */
+    networkMode: 'always',
     mutationFn: (value: string) =>
       api.checkins.scan({
         token: value,
@@ -345,10 +352,17 @@ export default function GatePage() {
             value={token}
             onChange={(e) => setToken(e.target.value)}
             /*
-              A hardware scanner types the code and presses Enter, so the field stays focused
-              and the form submits on Enter. Nobody at a door should have to tap a button
-              between every person.
+              A hardware scanner types the code and then a terminator: Enter (submits the form)
+              or, on scanners configured that way, Tab. Tab would move focus off the field and
+              the code would sit there unchecked, so a Tab after a code submits too. Tab on an
+              empty field still moves focus, for keyboard users.
             */
+            onKeyDown={(e) => {
+              if (isScanTerminator(e.key, token)) {
+                e.preventDefault();
+                submit(token);
+              }
+            }}
             autoComplete="off"
             inputMode="text"
             className="w-full rounded-lg border border-border bg-background-surface px-4 py-4 text-lg text-text-primary focus:border-action-primary focus:outline-none focus:ring-2 focus:ring-ring/40"

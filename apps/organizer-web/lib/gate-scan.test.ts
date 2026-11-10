@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApiRequestError } from '@eticketsgo/web-kit';
-import { classifyGateFailure, classifyGateInput } from './gate-scan';
+import { classifyGateFailure, classifyGateInput, isScanTerminator } from './gate-scan';
 
 describe('classifyGateInput', () => {
   it('treats an empty or blank field as nothing to check', () => {
@@ -46,5 +46,21 @@ describe('classifyGateFailure', () => {
       500,
     );
     expect(classifyGateFailure(fault)).toBe('NOT_CHECKED');
+  });
+});
+
+describe('isScanTerminator', () => {
+  it('a Tab after a scanned code submits it', () => {
+    expect(isScanTerminator('Tab', 'eyJ.payload.sig')).toBe(true);
+  });
+
+  it('a Tab on an empty field is left to move focus', () => {
+    expect(isScanTerminator('Tab', '')).toBe(false);
+    expect(isScanTerminator('Tab', '   ')).toBe(false);
+  });
+
+  it('other keys are not terminators here (Enter is the form submit)', () => {
+    expect(isScanTerminator('a', 'abc')).toBe(false);
+    expect(isScanTerminator('Enter', 'abc')).toBe(false);
   });
 });
