@@ -21,6 +21,7 @@ export * from './brand';
 export * from './hooks';
 export * from './nav';
 export * from './shell';
+export * from './console-account-menu';
 export * from './shell-preferences';
 export * from './console';
 export * from './toggle';

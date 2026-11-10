@@ -73,6 +73,21 @@ export const activeOrgStore = {
   },
 };
 
+/**
+ * Make another organization the active one, remembered on this device.
+ *
+ * The one way to switch: the switcher above the page and the account menu in the top bar (which
+ * sits outside the provider) both call it, so they cannot remember different things.
+ */
+export function selectActiveOrganization(id: string): void {
+  try {
+    localStorage.setItem(KEY, id);
+  } catch {
+    // A private window can refuse storage; the switch still holds for this page.
+  }
+  activeOrgStore.set(id);
+}
+
 export function useActiveOrgId(): string | null {
   return useSyncExternalStore(
     activeOrgStore.subscribe,
@@ -108,10 +123,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     activeOrgStore.set(valid);
   }, [orgs]);
 
-  const setActiveOrgId = (id: string) => {
-    localStorage.setItem(KEY, id);
-    activeOrgStore.set(id);
-  };
+  const setActiveOrgId = selectActiveOrganization;
 
   if (isLoading) {
     return (

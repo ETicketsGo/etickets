@@ -9,6 +9,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { useActiveOrgId } from './org-context';
 import { usableOrganizations } from '@/lib/suspension';
+import { orgRoleLabel } from '@/lib/account-identity';
 
 /**
  * Who this workspace belongs to, read from above the organization provider.
@@ -43,7 +44,7 @@ export function useWorkspace(): {
    * deciding; this only stops the console offering what will be refused.
    */
   can: OrgPermissions;
-  /** This member's role in THIS organization, in words: the line under their name. */
+  /** This member's role in THIS organization, in words: shown in the top bar's account menu. */
   roleLabel: string | null;
   /** Where the organization is registered: decides which DeepTrics company the footer names. */
   registeredCountry: string | null;
@@ -73,17 +74,10 @@ export function useWorkspace(): {
       while briefly hiding one a person is entitled to looks like the feature is missing.
     */
     can: orgPermissions(org?.myRole),
-    roleLabel: ORG_ROLE_LABEL[org?.myRole ?? ''] ?? null,
+    roleLabel: orgRoleLabel(org?.myRole),
     registeredCountry: org?.registeredCountry ?? null,
   };
 }
-
-/** A member's role in an organization, as the top bar says it under their name. */
-const ORG_ROLE_LABEL: Record<string, string> = {
-  ORGANIZER_OWNER: 'Owner',
-  ORGANIZER_MANAGER: 'Manager',
-  CHECKIN_STAFF: 'Check-in staff',
-};
 
 /** Applies the organization's palette. Renders nothing. */
 export function WorkspaceTheme() {
