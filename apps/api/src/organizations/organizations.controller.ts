@@ -34,7 +34,7 @@ import {
   type UpdateOrganizationLegalIdentityInput,
   type UpdateOrganizationProfileInput,
 } from '@eticketsgo/validation';
-import { OrganizationsService } from './organizations.service';
+import { ACTIVE_ORGANIZERS, OrganizationsService } from './organizations.service';
 import { OrganizationLifecycleService } from './organization-lifecycle.service';
 import { ORG_REGISTRATION_THROTTLE } from './organization-limits';
 import {
@@ -388,7 +388,10 @@ export class AdminOrganizationsController {
     @Query(
       new ZodValidationPipe(
         paginationSchema.extend({
-          status: z.nativeEnum(OrganizationStatus).optional(),
+          // ACTIVE = every status except SUSPENDED (the admin console's default list).
+          status: z
+            .union([z.nativeEnum(OrganizationStatus), z.literal(ACTIVE_ORGANIZERS)])
+            .optional(),
           // Searched in the DATABASE. The console used to filter the fetched page.
           q: z.string().trim().optional(),
           // Scope to one row of the grouped summary. See `admin/group-scope.ts`.
@@ -401,7 +404,7 @@ export class AdminOrganizationsController {
     q: {
       page: number;
       pageSize: number;
-      status?: OrganizationStatus;
+      status?: OrganizationStatus | typeof ACTIVE_ORGANIZERS;
       q?: string;
       country?: string;
     } & GroupScope,

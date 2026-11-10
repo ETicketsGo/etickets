@@ -345,13 +345,20 @@ const FILTERS: Record<
  * Postgres enums and the value arrives as a string - comparing an enum to an untyped parameter is
  * an "operator does not exist" error, which is the raw-SQL trap this codebase has hit before.
  */
-function filterClause(resource: string, filters: GroupFilters): { sql: string; params: unknown[] } {
+export function filterClause(
+  resource: string,
+  filters: GroupFilters,
+): { sql: string; params: unknown[] } {
   const spec = FILTERS[resource];
   const conditions: string[] = [];
   const params: unknown[] = [];
   if (!spec) return { sql: '', params };
 
-  if (filters.status) {
+  if (filters.status === 'ACTIVE' && resource === 'organizers') {
+    // The organizer list's default: every organizer except suspended ones (see
+    // `organizerStatusWhere`). Without this the summary counted nothing above a full list.
+    conditions.push(`${spec.status}::text <> 'SUSPENDED'`);
+  } else if (filters.status) {
     params.push(filters.status);
     conditions.push(`${spec.status}::text = $${params.length}`);
   }
