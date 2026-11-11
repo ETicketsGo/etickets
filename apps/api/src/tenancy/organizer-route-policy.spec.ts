@@ -316,6 +316,10 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'GET /payouts/accounts': 'NONE',
   'GET /payouts/accounts/history': 'NONE',
   'POST /payouts/accounts': 'ORGANIZER_ONLY',
+  // The organizer's own confirmation and dispute of the bank account (founder-operated payouts):
+  // never platform staff, who could otherwise confirm an account on the organizer's behalf.
+  'POST /payouts/accounts/:id/confirm': 'ORGANIZER_ONLY',
+  'POST /payouts/accounts/:id/dispute': 'ORGANIZER_ONLY',
   'POST /payouts/generate': 'ORGANIZER_ONLY',
   'GET /receipts/mine': 'SELF',
   /** The buyer, or a member of the selling organization. */
