@@ -28,6 +28,7 @@ import { SettlementTerms } from './settlement-terms';
 import { BankAccounts } from './bank-accounts';
 import { MoneyStatusPill } from '../../../components/money-status';
 import { moneyStatusLabel } from '../../../lib/money-status';
+import { payoutRowAction } from '../../../lib/payout-row-action';
 
 const STATUSES = ['PENDING', 'SCHEDULED', 'PAID', 'FAILED'];
 const PAGE_SIZE = 15;
@@ -164,42 +165,59 @@ export default function AdminPayouts() {
         nothing else. Offering the button on a FAILED payout invited a click that could only
         ever come back as an error.
       */
-      render: (p) =>
-        (p.status === 'PENDING' || p.status === 'SCHEDULED') && !mayExecute ? (
-          <p className="text-right text-caption text-text-muted">
-            {missingDutyNote('mark payouts paid', 'PAYOUT_EXECUTE')}
-          </p>
-        ) : p.status === 'PENDING' || p.status === 'SCHEDULED' ? (
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={() => setConfirm(p)}>
-              Mark paid
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setFailing(p)}>
-              Failed
-            </Button>
-          </div>
-        ) : p.status === 'PAID' ? (
-          <div className="text-right">
-            <p className="text-caption text-text-secondary">Paid {dateOnly(p.paidAt)}</p>
-            {/* The reference is what reconciles this row to a bank statement. */}
-            {p.paidReference ? (
-              <p className="text-caption text-text-muted">{p.paidReference}</p>
-            ) : null}
-            {mayExecute ? (
-              <button
-                type="button"
-                className="text-caption text-action-primary hover:underline"
-                onClick={() => setFailing(p)}
-              >
-                Returned by bank
-              </button>
-            ) : null}
-          </div>
-        ) : p.status === 'FAILED' ? (
-          <span className="text-caption text-status-error">{p.failureReason ?? 'Failed'}</span>
-        ) : (
-          <span className="text-text-muted">—</span>
-        ),
+      render: (p) => {
+        const action = payoutRowAction(p, mayExecute);
+        if (action === 'MISSING_DUTY') {
+          return (
+            <p className="text-right text-caption text-text-muted">
+              {missingDutyNote('mark payouts paid', 'PAYOUT_EXECUTE')}
+            </p>
+          );
+        }
+        if (action === 'PAYABLE' || action === 'HELD') {
+          return (
+            <div className="flex items-center justify-end gap-2">
+              {action === 'PAYABLE' ? (
+                <Button variant="outline" size="sm" onClick={() => setConfirm(p)}>
+                  Mark paid
+                </Button>
+              ) : (
+                // The reason is under the status; nothing here suggests it can be paid yet.
+                <span className="text-caption font-medium text-status-warning">On hold</span>
+              )}
+              <Button variant="ghost" size="sm" onClick={() => setFailing(p)}>
+                Failed
+              </Button>
+            </div>
+          );
+        }
+        if (action === 'PAID') {
+          return (
+            <div className="text-right">
+              <p className="text-caption text-text-secondary">Paid {dateOnly(p.paidAt)}</p>
+              {/* The reference is what reconciles this row to a bank statement. */}
+              {p.paidReference ? (
+                <p className="text-caption text-text-muted">{p.paidReference}</p>
+              ) : null}
+              {mayExecute ? (
+                <button
+                  type="button"
+                  className="text-caption text-action-primary hover:underline"
+                  onClick={() => setFailing(p)}
+                >
+                  Returned by bank
+                </button>
+              ) : null}
+            </div>
+          );
+        }
+        if (action === 'FAILED') {
+          return (
+            <span className="text-caption text-status-error">{p.failureReason ?? 'Failed'}</span>
+          );
+        }
+        return <span className="text-text-muted">—</span>;
+      },
     },
   ];
 
