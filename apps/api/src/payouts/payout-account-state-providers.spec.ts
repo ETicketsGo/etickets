@@ -11,6 +11,11 @@ interface Fixture {
   rows?: Record<string, unknown>[];
   banks?: { currency: string; verifiedAt: Date | null; rejectedAt?: Date | null }[];
   routeEnabled?: boolean;
+  /**
+   * PAYOUT_EXECUTION_ENABLED. Left out it is on, so the older cases keep their meaning; null is
+   * "not set in the environment", which is what QA and PROD run with.
+   */
+  execution?: boolean | string | null;
 }
 
 function service(f: Fixture) {
@@ -28,7 +33,16 @@ function service(f: Fixture) {
     { assertMember: async () => undefined } as never,
     {} as never,
     {} as never,
-    { get: () => f.routeEnabled ?? false } as never,
+    {
+      get: (key: string) =>
+        key === 'PAYOUT_EXECUTION_ENABLED'
+          ? f.execution === null
+            ? undefined
+            : (f.execution ?? true)
+          : key === 'RAZORPAY_ROUTE_ENABLED'
+            ? (f.routeEnabled ?? false)
+            : undefined,
+    } as never,
   );
 }
 
@@ -44,6 +58,52 @@ const row = (provider: string, over: Record<string, unknown> = {}) => ({
   ...over,
 });
 const user = { id: 'u' } as never;
+
+/*
+  A Stripe charge lands on the platform account, and the settlement release refuses every
+  transfer unless PAYOUT_EXECUTION_ENABLED is on. With it unset (QA and PROD today) an enabled
+  Stripe account must not be reported as paying the organizer.
+*/
+describe('GET /payouts/account-state: platform transfers off', () => {
+  it('unset or false: an enabled Stripe account is manual settlements, with the dollar bank account', async () => {
+    for (const off of [null, false, 'false', ''] as const) {
+      const s = await service({
+        country: 'United States',
+        rows: [row('stripe')],
+        execution: off,
+      }).accountState(user, 'o');
+      expect(s.providers[0]).toMatchObject({
+        provider: 'STRIPE',
+        stage: 'PLATFORM_PAYOUTS_OFF',
+        accepting: 'ACCEPTING',
+        payouts: 'PENDING',
+        bank: 'NONE',
+      });
+      expect(s.providerSummary.level).toBe('WAITING');
+    }
+  });
+
+  it('on: the Stripe account is active, as before', async () => {
+    for (const on of [true, 'true'] as const) {
+      const s = await service({
+        country: 'United States',
+        rows: [row('stripe')],
+        execution: on,
+      }).accountState(user, 'o');
+      expect(s.providers[0]).toMatchObject({ stage: 'ACTIVE', payouts: 'AVAILABLE' });
+    }
+  });
+
+  it('Route on is not enough for rupees either: no transfer is sent while execution is off', async () => {
+    const r = await service({
+      country: 'India',
+      rows: [row('razorpay')],
+      routeEnabled: true,
+      execution: null,
+    }).accountState(user, 'o');
+    expect(r.providers[0]).toMatchObject({ provider: 'RAZORPAY', stage: 'PLATFORM_PAYOUTS_OFF' });
+  });
+});
 
 describe('GET /payouts/account-state: per-provider entries', () => {
   it('US only: a single Stripe entry that blocks dollar sales until charges are on', async () => {

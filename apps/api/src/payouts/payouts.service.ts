@@ -1115,7 +1115,17 @@ export class PayoutsService {
       .filter((c): c is string => Boolean(c));
     const home = marketFor(org?.registeredCountry ?? '');
     const homeIsIndia = home?.code === 'IN';
-    const routeEnabled = this.config?.get<boolean>('RAZORPAY_ROUTE_ENABLED') ?? false;
+    /*
+      Money reaches an organizer through a provider only when the platform sends a transfer, and
+      the settlement release refuses every transfer unless PAYOUT_EXECUTION_ENABLED is on (see
+      SettlementService.payoutExecutionEnabled). Read with the same rule, so this screen cannot
+      call a Stripe account "active" while no transfer can be sent: the organizer is then paid
+      by manual settlement, which needs a bank account on file.
+    */
+    const execution = this.config?.get<string | boolean>('PAYOUT_EXECUTION_ENABLED');
+    const transfersEnabled = execution === true || execution === 'true';
+    const routeEnabled =
+      (this.config?.get<boolean>('RAZORPAY_ROUTE_ENABLED') ?? false) && transfersEnabled;
     const providers = buildProviderEntries({
       markets: {
         inr: homeIsIndia || currencies.includes('INR'),
@@ -1127,6 +1137,7 @@ export class PayoutsService {
             chargesEnabled: stripeRow.chargesEnabled,
             payoutsEnabled: stripeRow.payoutsEnabled,
             canSellPaidTickets: stripeRow.chargesEnabled,
+            transfersEnabled,
           }
         : null,
       razorpay: razorpayRow

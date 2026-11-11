@@ -67,6 +67,64 @@ describe('Stripe readiness (the dollar sales gate)', () => {
   });
 });
 
+/*
+  Separate charges and transfers: the charge lands on the platform, so an organizer is paid through
+  Stripe only when the platform sends a transfer (PAYOUT_EXECUTION_ENABLED). With that off the
+  account must not read "active": it is paid by manual settlement, which needs a bank account.
+*/
+describe('Stripe with platform transfers off (manual settlements)', () => {
+  it('an account that can sell is PLATFORM_PAYOUTS_OFF, a wait, nothing for the organizer to do', () => {
+    const r = stripeReadiness(stripe({ transfersEnabled: false }));
+    expect([r.stage, r.accepting, r.payouts, r.organizerActionRequired]).toEqual([
+      'PLATFORM_PAYOUTS_OFF',
+      'ACCEPTING',
+      'PENDING',
+      false,
+    ]);
+  });
+
+  it('the sales gate still comes first: no account, or charges off, is not hidden by it', () => {
+    const noAccount = stripe({
+      transfersEnabled: false,
+      hasAccount: false,
+      chargesEnabled: false,
+      canSellPaidTickets: false,
+    });
+    expect(stripeReadiness(noAccount).stage).toBe('NO_ACCOUNT');
+    const chargesOff = stripe({
+      transfersEnabled: false,
+      chargesEnabled: false,
+      canSellPaidTickets: false,
+    });
+    expect(stripeReadiness(chargesOff).stage).toBe('SETUP_UNFINISHED');
+  });
+
+  it('omitted means on, for callers that predate the switch', () => {
+    expect(stripeReadiness(stripe()).stage).toBe('ACTIVE');
+    expect(stripeReadiness(stripe({ transfersEnabled: true })).stage).toBe('ACTIVE');
+  });
+
+  it('always reports the dollar bank account, NONE when there is none', () => {
+    const none = buildProviderEntries({
+      markets: { card: true, inr: false },
+      stripe: stripe({ transfersEnabled: false }),
+      bankAccounts: [],
+    });
+    expect(none[0]).toMatchObject({
+      provider: 'STRIPE',
+      stage: 'PLATFORM_PAYOUTS_OFF',
+      bank: 'NONE',
+    });
+    expect(summarizeProviderEntries(none).level).toBe('WAITING');
+    const usd = buildProviderEntries({
+      markets: { card: true, inr: false },
+      stripe: stripe({ transfersEnabled: false }),
+      bankAccounts: [{ currency: 'USD', verifiedAt: new Date() }],
+    });
+    expect(usd[0].bank).toBe('VERIFIED');
+  });
+});
+
 describe('Razorpay readiness (never gates sales)', () => {
   const cases: [string, Partial<RazorpayReadinessFacts>, string, string][] = [
     [
