@@ -143,7 +143,17 @@ export default function AdminPayouts() {
     {
       key: 'status',
       header: 'Status',
-      render: (p) => <MoneyStatusPill entity="payout" status={p.status} />,
+      render: (p) => (
+        <div className="space-y-1">
+          <MoneyStatusPill entity="payout" status={p.status} />
+          {/* Why "Mark paid" would be refused, before anyone tries (the API re-checks on pay). */}
+          {p.hold ? (
+            <p className="max-w-xs text-caption text-status-warning" data-testid="payout-hold">
+              {p.hold.message}
+            </p>
+          ) : null}
+        </div>
+      ),
     },
     {
       key: 'action',
@@ -197,7 +207,7 @@ export default function AdminPayouts() {
     <div className="space-y-6">
       <PageHeader
         title="Payouts"
-        description="Organizer settlements across the platform. A payout to a bank account must be marked paid by someone other than the person who verified that account."
+        description="Manual settlements: organizers paid by bank transfer, recorded here with the bank reference. A payout to a bank account must be marked paid by someone other than the person who verified that account."
       />
 
       <Card

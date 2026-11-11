@@ -145,7 +145,7 @@ export default function AdminSettlements() {
     <div className="space-y-6">
       <PageHeader
         title="Settlements"
-        description="Marketplace payout ledger. Review, approve, release or block organizer settlements."
+        description="Automatic provider transfers (Stripe Connect, Razorpay Route), per event. While automatic payouts are switched off a release is refused and nothing is sent; organizers are paid by bank transfer from Payouts."
       />
       <Card>
         <FilterBar
