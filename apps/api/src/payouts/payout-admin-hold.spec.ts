@@ -31,11 +31,15 @@ function payout(id: string, organizationId: string, over: Record<string, unknown
   };
 }
 
-function service(rows: {
-  payouts: ReturnType<typeof payout>[];
-  accounts: Record<string, unknown>[];
-  orgs: Record<string, unknown>[];
-}) {
+function service(
+  rows: {
+    payouts: ReturnType<typeof payout>[];
+    accounts: Record<string, unknown>[];
+    orgs: Record<string, unknown>[];
+    memberOf?: string[];
+  },
+  mode?: 'on',
+) {
   const calls = { accounts: 0, orgs: 0 };
   const prisma = {
     payout: { findMany: async () => rows.payouts },
@@ -51,13 +55,16 @@ function service(rows: {
         return rows.orgs;
       },
     },
+    organizationMember: {
+      findMany: async () => (rows.memberOf ?? []).map((organizationId) => ({ organizationId })),
+    },
   };
   const svc = new PayoutsService(
     prisma as never,
     {} as never,
     {} as never,
     {} as never,
-    { get: () => undefined } as never,
+    { get: (k: string) => (k === 'SOLE_OPERATOR_MODE' ? mode : undefined) } as never,
   );
   return { svc, calls };
 }
@@ -162,6 +169,72 @@ describe('admin payout list: why an open payout is held', () => {
     });
     const [z] = (await zero.svc.adminList()) as Array<{ hold: unknown }>;
     expect(z.hold).toBeNull();
+  });
+});
+
+describe('admin payout list: an account the viewer verified (founder-operated payouts)', () => {
+  const OLD = new Date(Date.now() - 49 * 60 * 60 * 1000);
+  const founder = { id: 'founder', roles: ['ADMIN', 'SUPER_ADMIN'] } as never;
+  const ready = {
+    organizationId: 'org-a',
+    currency: 'INR',
+    holderName: 'Acme Events Pvt Ltd',
+    version: 2,
+    verifiedAt: OLD,
+    rejectedAt: null,
+    verifiedByUserId: 'founder',
+    ownerConfirmedAt: OLD,
+    ownerConfirmedVersion: 2,
+    verificationMethod: 'PENNY_DROP',
+    verificationEvidence: 'PD-1',
+  };
+  const list = async (
+    account: Record<string, unknown>,
+    mode?: 'on',
+    viewer = founder,
+    memberOf: string[] = [],
+  ) => {
+    const { svc } = service(
+      {
+        payouts: [payout('p', 'org-a')],
+        accounts: [account],
+        orgs: [{ id: 'org-a', ...COMPANY }],
+        memberOf,
+      },
+      mode,
+    );
+    const [p] = (await svc.adminList(viewer)) as Array<{
+      hold: { code: string; message: string; unmet?: string[] } | null;
+    }>;
+    return p.hold;
+  };
+
+  it('all conditions met: no hold, so Mark paid shows (the dialog asks the rest)', async () => {
+    expect(await list(ready, 'on')).toBeNull();
+  });
+
+  it('switch off: held for the verifier, payable for anyone else', async () => {
+    expect((await list(ready))?.unmet).toEqual(['MODE_OFF']);
+    expect(await list(ready, undefined, { id: 'other', roles: ['ADMIN'] } as never)).toBeNull();
+  });
+
+  it('names each unmet condition: confirmation, evidence, 48 hours, membership', async () => {
+    const h = await list(
+      { ...ready, ownerConfirmedVersion: 1, verificationEvidence: null, verifiedAt: new Date() },
+      'on',
+    );
+    expect(h?.code).toBe('VERIFIER_CANNOT_PAY');
+    expect(h?.unmet).toEqual([
+      'NOT_CONFIRMED_BY_ORGANIZER',
+      'NO_VERIFICATION_EVIDENCE',
+      'WAITING_PERIOD',
+    ]);
+    expect(h?.message).toMatch(/has not confirmed/);
+    expect((await list(ready, 'on', founder, ['org-a']))?.unmet).toEqual(['ORGANIZATION_MEMBER']);
+  });
+
+  it('a destination hold still wins (bank or identity first)', async () => {
+    expect((await list({ ...ready, disputedAt: OLD }, 'on'))?.code).toBe('DESTINATION_DISPUTED');
   });
 });
 

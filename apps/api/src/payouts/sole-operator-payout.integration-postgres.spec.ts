@@ -279,6 +279,18 @@ describe('integration-real-postgres: sole-operator payouts', () => {
       expect.arrayContaining(['NOT_CONFIRMED_BY_ORGANIZER', 'WAITING_PERIOD']),
     );
 
+    // The list says so before anyone clicks: held for the founder, with the reasons.
+    let row = (await call('founder', 'GET', '/admin/payouts')).body.find(
+      (x: { id: string }) => x.id === p.id,
+    );
+    expect(row.hold.code).toBe('VERIFIER_CANNOT_PAY');
+    expect(row.hold.unmet).toEqual(['NOT_CONFIRMED_BY_ORGANIZER', 'WAITING_PERIOD']);
+    // Anyone who did not verify it sees it payable.
+    row = (await call('payerB', 'GET', '/admin/payouts')).body.find(
+      (x: { id: string }) => x.id === p.id,
+    );
+    expect(row.hold).toBeNull();
+
     // The organizer cannot confirm with the wrong number; staff cannot confirm at all.
     expect((await confirm('o1', NUMBER_2)).status).toBe(400);
     expect((await confirm('o1', NUMBER_1, 'founder')).status).toBe(403);
@@ -307,6 +319,12 @@ describe('integration-real-postgres: sole-operator payouts', () => {
     expect(res.status).toBe(400);
     expect(res.body.details.reason).toBe('AMOUNT_MISMATCH');
     expect((await payoutRow(p.id)).status).toBe('PENDING');
+
+    // Everything known before the dialog is met: the founder's row offers Mark paid.
+    row = (await call('founder', 'GET', '/admin/payouts')).body.find(
+      (x: { id: string }) => x.id === p.id,
+    );
+    expect(row.hold).toBeNull();
 
     // Everything met.
     res = await soloPay(p.id);

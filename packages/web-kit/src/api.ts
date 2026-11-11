@@ -6796,7 +6796,12 @@ export interface Payout {
    * bank account, a changed legal identity waiting for review, an account not in the business's
    * name), in the words the refusal uses. Null when nothing holds it. Advisory: paying re-checks.
    */
-  hold?: { code: string; message: string } | null;
+  hold?: {
+    code: string;
+    message: string;
+    /** VERIFIER_CANNOT_PAY only: the sole-operator conditions still unmet for this viewer. */
+    unmet?: string[];
+  } | null;
   /**
    * Recorded paid under founder-operated controls: the person who verified the bank account
    * also recorded the payment, after the organizer's confirmation and the 48-hour wait.

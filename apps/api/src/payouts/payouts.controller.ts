@@ -268,8 +268,9 @@ export class AdminPayoutsController {
 
   @Get()
   @ApiOperation({ summary: 'List all payouts (admin).' })
-  list() {
-    return this.payouts.adminList();
+  list(@CurrentUser() admin: RequestUser) {
+    // The viewer decides one hold: an account they verified themselves (see adminList).
+    return this.payouts.adminList(admin);
   }
 
   @RequiresRecentMfa()
