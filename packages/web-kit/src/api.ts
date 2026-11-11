@@ -459,9 +459,8 @@ async function request<T>(path: string, options: Options = {}): Promise<T> {
   // A file upload sets its own multipart boundary; forcing JSON onto it makes the body unreadable.
   const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData;
   if (options.body && !isForm) headers.set('content-type', 'application/json');
-  if (options.auth !== false && tokenStore.access) {
-    headers.set('authorization', `Bearer ${tokenStore.access}`);
-  }
+  const sentToken = options.auth !== false && !!tokenStore.access;
+  if (sentToken) headers.set('authorization', `Bearer ${tokenStore.access}`);
 
   // Reachability signal (ADR-034): a network-level fetch failure means our API origin is
   // unreachable; any HTTP response — including 4xx/5xx — means it IS reachable (an application
@@ -503,6 +502,16 @@ async function request<T>(path: string, options: Options = {}): Promise<T> {
     if (await tryRefresh()) {
       return request<T>(path, { ...options, _retried: true });
     }
+  } else if (res.status === 401 && sentToken && !tokenStore.refresh) {
+    /*
+      ── A SESSION THAT CANNOT BE RECOVERED ─────────────────────────────────────────────
+      The API rejected the access token and there is no refresh token to try. Keeping the token
+      left the console "signed in" with nobody behind it: the guard drew the page, every query on
+      it failed, and "who am I" was asked again and again (335 times in 20 s on QA). Closing the
+      session here sends the person to sign in. Only a token we sent is cleared; a 401 from a
+      sign-in attempt (auth: false) never is.
+    */
+    tokenStore.clear();
   }
 
   if (!res.ok) {

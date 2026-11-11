@@ -69,9 +69,29 @@ export function useAuthUser() {
     queryFn: () => api.auth.me(),
     enabled: typeof window !== 'undefined' && !!tokenStore.access,
     retry: false,
+    /*
+      A failed "who am I" is not asked again just because another component starts reading it.
+      With the default, the guard's spinner unmounted the page, the page mounted again when the
+      request failed, its own reader re-ran the request, and the spinner came back: an endless
+      loop of /auth/me (rate limited, refused or offline alike). A retry is now the person's
+      choice (`refetch`, the "Try again" button below).
+    */
+    retryOnMount: false,
     staleTime: 60_000,
   });
-  return { user: query.data ?? null, isLoading: query.isLoading, error: query.error };
+  return {
+    user: query.data ?? null,
+    isLoading: query.isLoading,
+    error: query.error,
+    refetch: query.refetch,
+    isFetching: query.isFetching,
+  };
+}
+
+/** The HTTP status of a failed request, when the API answered at all. */
+function failureStatus(error: unknown): number | null {
+  const status = (error as { status?: unknown } | null)?.status;
+  return typeof status === 'number' ? status : null;
 }
 
 export function useLogout() {
@@ -118,7 +138,7 @@ export function RequireAuth({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, isLoading } = useAuthUser();
+  const { user, isLoading, error, refetch, isFetching } = useAuthUser();
   const hydrated = useHydrated();
   const hint = useContext(SessionHintContext);
   const hasToken = typeof window !== 'undefined' && !!tokenStore.access;
@@ -154,6 +174,42 @@ export function RequireAuth({
     // A fragment in both places, like the return below, so the frame keeps its place in the
     // tree when the page replaces the spinner inside it.
     return <>{framed && frame ? frame(spinner) : spinner}</>;
+  }
+
+  /*
+    "Who am I" failed and nobody is known. The page is never drawn without a user: it would only
+    fail request by request. A refused session (401) has already been closed by `request`, and
+    the effect above sends the person to sign in. What is left is a refusal (403) or a failure to
+    answer at all (rate limited, server error, offline), which waits for the person to try again.
+  */
+  if (!user && error) {
+    const status = failureStatus(error);
+    const refused = status === 403;
+    const notice = (
+      <div className="mx-auto max-w-md p-10 text-center" role="alert">
+        <h1 className="text-lg font-semibold text-text-primary">
+          {refused ? 'Access denied' : 'We could not confirm your session'}
+        </h1>
+        <p className="mt-2 text-sm text-text-muted">
+          {refused
+            ? 'Your account cannot open this area.'
+            : status === 429
+              ? 'Too many requests just now. Wait a moment, then try again.'
+              : 'Check your connection, then try again.'}
+        </p>
+        {refused ? null : (
+          <button
+            type="button"
+            className="mt-4 text-sm font-medium text-action-primary hover:underline disabled:opacity-60"
+            disabled={isFetching}
+            onClick={() => void refetch()}
+          >
+            {isFetching ? 'Trying again...' : 'Try again'}
+          </button>
+        )}
+      </div>
+    );
+    return <>{framed && frame ? frame(notice) : notice}</>;
   }
 
   if (roles && user && !user.roles.some((r) => roles.includes(r)) && roleMismatchRedirect) {
