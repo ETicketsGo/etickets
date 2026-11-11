@@ -20,6 +20,13 @@ export const ErrorCodes = {
   VALIDATION_FAILED: 'VALIDATION_FAILED',
   UNAUTHORIZED: 'UNAUTHORIZED',
   FORBIDDEN: 'FORBIDDEN',
+  /**
+   * Separation of duties: the caller HOLDS the duty, but is the wrong PERSON for this decision
+   * (they verified the account, made the change, or belong to the organization). Kept apart from
+   * FORBIDDEN, which means a missing duty, so a console can say which rule applied and what would
+   * satisfy it. Always HTTP 403 with `details.rule`.
+   */
+  SEPARATION_OF_DUTIES: 'SEPARATION_OF_DUTIES',
   /** Back-office session that has not passed (or has not enrolled) the second factor. */
   MFA_REQUIRED: 'MFA_REQUIRED',
   /** A sensitive action needs a second-factor check newer than the session has. */

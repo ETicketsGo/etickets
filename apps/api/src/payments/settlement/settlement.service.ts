@@ -356,12 +356,12 @@ export class SettlementService {
       metadata: { outcome: 'REFUSED', reasonCode: failure },
     });
     throw new AppException(
-      ErrorCodes.FORBIDDEN,
+      ErrorCodes.SEPARATION_OF_DUTIES,
       failure === 'SAME_PERSON'
         ? 'You approved this settlement, so someone else must release it.'
         : 'You belong to this organization, so someone else must release its settlement.',
       HttpStatus.FORBIDDEN,
-      { hold: failure },
+      { hold: failure, rule: 'SETTLEMENT_RELEASER_INDEPENDENT', reason: failure },
     );
   }
 

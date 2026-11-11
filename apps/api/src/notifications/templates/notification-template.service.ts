@@ -622,7 +622,9 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
   */
   [NotificationType.PAYOUT_ACCOUNT_UPDATED]: (l, p) => {
     const change = str(p, 'change', 'SAVED').toLowerCase();
-    const kind = change === 'verified' || change === 'rejected' ? change : 'saved';
+    const kind = ['verified', 'rejected', 'confirmed', 'disputed'].includes(change)
+      ? change
+      : 'saved';
     const raw = p.changedFields;
     const names = Array.isArray(raw) ? raw.map(String) : [];
     const changes = names.map((n) => t(l, `emails.PAYOUT_ACCOUNT_UPDATED.fields.${n}`)).join(', ');

@@ -117,6 +117,144 @@ function History({ orgId }: { orgId: string }) {
   );
 }
 
+/*
+  ── CONFIRMING OR DISPUTING THE ACCOUNT ON FILE ─────────────────────────────────────
+  ETicketsGo is run by one person. Before that person may both check an account and record a
+  payment into it, an owner here confirms the account is theirs by typing the full number and
+  bank code again, so the confirmation is about these exact details. "Report a problem" holds
+  every payout to the account at once, until an owner saves the correct details.
+*/
+function ConfirmOrDispute({ orgId, account }: { orgId: string; account: PayoutAccount }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [mode, setMode] = useState<'idle' | 'confirm' | 'dispute'>('idle');
+  const [number, setNumber] = useState('');
+  const [code, setCode] = useState('');
+  const [reason, setReason] = useState('');
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ['organizer', 'payout-accounts', orgId] });
+    void qc.invalidateQueries({ queryKey: ['organizer', 'payout-account-state', orgId] });
+  };
+  const confirm = useMutation({
+    mutationFn: () =>
+      api.payouts.confirmAccount(account.id, {
+        version: account.version,
+        accountNumber: number,
+        bankCode: code,
+      }),
+    onSuccess: () => {
+      toast.push('Thank you. You confirmed this is your account.', 'success');
+      setMode('idle');
+      setNumber('');
+      setCode('');
+      refresh();
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
+  const dispute = useMutation({
+    mutationFn: () => api.payouts.disputeAccount(account.id, { version: account.version, reason }),
+    onSuccess: () => {
+      toast.push('Reported. Nothing will be paid into this account.', 'success');
+      setMode('idle');
+      setReason('');
+      refresh();
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
+
+  if (account.disputedAt) {
+    return (
+      <p className="mt-1 text-caption text-status-error" data-testid="bank-account-disputed">
+        You reported a problem on {dateOnly(account.disputedAt)}
+        {account.disputeReason ? `: ${account.disputeReason}` : ''}. Payouts to this account are on
+        hold. Save the correct details to start a new check.
+      </p>
+    );
+  }
+  if (account.status === 'REJECTED') return null;
+  return (
+    <div className="mt-2 space-y-2">
+      {account.ownerConfirmedAt ? (
+        <p className="text-caption text-status-success" data-testid="bank-account-confirmed">
+          You confirmed this is your account on {dateOnly(account.ownerConfirmedAt)}.
+        </p>
+      ) : (
+        <p className="text-caption text-text-secondary">
+          Please confirm this is your account. Settlements may wait for your confirmation.
+        </p>
+      )}
+      {mode === 'confirm' ? (
+        <div className="space-y-2">
+          <Input
+            label="Full account number"
+            value={number}
+            maxLength={34}
+            inputMode="numeric"
+            autoComplete="off"
+            hint="Type it from your bank statement. It must match the account on file."
+            onChange={(e) => setNumber(e.target.value)}
+          />
+          <Input
+            label="IFSC, routing number or SWIFT"
+            value={code}
+            maxLength={34}
+            onChange={(e) => setCode(e.target.value)}
+          />
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              loading={confirm.isPending}
+              disabled={number.replace(/\D/g, '').length < 6 || code.trim().length < 4}
+              onClick={() => confirm.mutate()}
+            >
+              Confirm account
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setMode('idle')}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : mode === 'dispute' ? (
+        <div className="space-y-2">
+          <Input
+            label="What is wrong?"
+            value={reason}
+            maxLength={300}
+            placeholder="This is not our account"
+            hint="Every owner is emailed. Do not type an account number."
+            onChange={(e) => setReason(e.target.value)}
+          />
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="danger"
+              loading={dispute.isPending}
+              disabled={!reason.trim()}
+              onClick={() => dispute.mutate()}
+            >
+              Report and stop payouts
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setMode('idle')}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {account.ownerConfirmedAt ? null : (
+            <Button size="sm" variant="secondary" onClick={() => setMode('confirm')}>
+              Confirm this is our account
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={() => setMode('dispute')}>
+            Report a problem
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function BankAccount({ orgId }: { orgId: string }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -182,6 +320,7 @@ export function BankAccount({ orgId }: { orgId: string }) {
                   {account.accountLast4} &middot; version {account.version}
                 </p>
                 <p className="mt-1 text-caption text-text-secondary">{reviewLine(account)}</p>
+                <ConfirmOrDispute orgId={orgId} account={account} />
               </div>
               {/*
                 This badge says where THIS version of the details stands. It does not say whether

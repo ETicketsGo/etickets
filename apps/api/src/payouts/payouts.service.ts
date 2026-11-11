@@ -25,7 +25,14 @@ import {
 import type { RequestUser } from '../common/decorators';
 import { PayoutSettingsService } from './payout-settings.service';
 import { derivePayoutAccountState, type PayoutAccountState } from './payout-account-state';
-import { payoutDestinationVerdict, verifierMayNotPay } from './payout-account-safety';
+import {
+  SOLE_OPERATOR_UNMET_MESSAGES,
+  payoutDestinationVerdict,
+  soleOperatorUnmet,
+  verifierMayNotPay,
+  type SoleOperatorUnmet,
+} from './payout-account-safety';
+import { OpsAlertService } from '../ops/alerts/ops-alert.service';
 import { lockPayoutGeneration } from './payout-generate-lock';
 import {
   calculateCurrencySettlement,
@@ -337,19 +344,22 @@ export type PayoutHoldReason =
   | 'PENDING_VERIFICATION'
   | 'REJECTED'
   | 'OWNERSHIP_MISMATCH'
-  | 'IDENTITY_NOT_APPROVED';
+  | 'IDENTITY_NOT_APPROVED'
+  | 'DISPUTED';
 
 /** The words staff see for a held payout: the refusal of "mark paid", and the admin list. */
 export function payoutHoldMessage(held: PayoutHoldReason, currency: string): string {
   return held === 'NO_ACCOUNT'
     ? `This payout is on hold: there is no ${currency} bank account on file for the organizer.`
-    : held === 'IDENTITY_NOT_APPROVED'
-      ? `This payout is on hold: the organizer's legal details changed and have not been approved yet. Another staff member must review them on the organizer's page first.`
-      : held === 'OWNERSHIP_MISMATCH'
-        ? `This payout is on hold: the ${currency} bank account is not in the organizer's registered business name. A business is paid only into an account in its own name. The organizer must add the business account, and another staff member must verify it.`
-        : `This payout is on hold: the ${currency} bank account has not been verified${
-            held === 'REJECTED' ? ' (it was turned down)' : ''
-          }. Another staff member must verify it on Bank accounts first.`;
+    : held === 'DISPUTED'
+      ? `This payout is on hold: an owner of the organization reported that the ${currency} bank account is not theirs or is wrong. Nothing can be paid into it until an owner saves the details again and they are checked from the start.`
+      : held === 'IDENTITY_NOT_APPROVED'
+        ? `This payout is on hold: the organizer's legal details changed and have not been approved yet. Another staff member must review them on the organizer's page first.`
+        : held === 'OWNERSHIP_MISMATCH'
+          ? `This payout is on hold: the ${currency} bank account is not in the organizer's registered business name. A business is paid only into an account in its own name. The organizer must add the business account, and another staff member must verify it.`
+          : `This payout is on hold: the ${currency} bank account has not been verified${
+              held === 'REJECTED' ? ' (it was turned down)' : ''
+            }. Another staff member must verify it on Bank accounts first.`;
 }
 
 const OPEN_PAYOUT_STATUSES = new Set(['PENDING', 'SCHEDULED']);
@@ -364,7 +374,14 @@ export class PayoutsService {
     // Read only for the Razorpay Route switch the Razorpay status endpoint reports; optional so
     // the many hand-built instances in specs keep working (absent means "off", as in config).
     @Optional() private readonly config?: ConfigService,
+    // Founder-operated payouts: every use of the sole-operator exception is mailed to the ops inbox.
+    @Optional() private readonly alerts?: OpsAlertService,
   ) {}
+
+  /** SOLE_OPERATOR_MODE: off unless exactly "on". */
+  private soleOperatorModeOn(): boolean {
+    return this.config?.get<string>('SOLE_OPERATOR_MODE') === 'on';
+  }
 
   /**
    * Which events' revenue may be paid out at `until`, as a Prisma filter.
@@ -1509,6 +1526,7 @@ export class PayoutsService {
           verifiedAt: true,
           rejectedAt: true,
           holderName: true,
+          disputedAt: true,
         },
       }),
       this.prisma.organization.findMany({
@@ -1549,11 +1567,48 @@ export class PayoutsService {
   async markPaid(
     admin: RequestUser,
     payoutId: string,
-    evidence: { reference?: string | null; note?: string | null } = {},
+    evidence: {
+      reference?: string | null;
+      note?: string | null;
+      /** The amount the admin typed, in minor units. When sent it must equal the payout. */
+      amountConfirmedMinor?: number | null;
+      /** Sole-operator attestation: "I am the only operator; I checked the bank statement." */
+      soleOperatorAttestation?: boolean;
+    } = {},
   ) {
     const payout = await this.prisma.payout.findUnique({ where: { id: payoutId } });
     if (!payout)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Payout not found.', HttpStatus.NOT_FOUND);
+    /*
+      A typed amount that differs from the payout is refused on every path: the person is about
+      to record a transfer of a different sum than the ledger says, and one of the two is wrong.
+    */
+    if (
+      evidence.amountConfirmedMinor !== undefined &&
+      evidence.amountConfirmedMinor !== null &&
+      evidence.amountConfirmedMinor !== payout.netMinor
+    ) {
+      await this.audit.record({
+        actorUserId: admin.id,
+        organizationId: payout.organizationId,
+        action: 'PAYOUT_PAID',
+        entityType: 'Payout',
+        entityId: payoutId,
+        metadata: {
+          outcome: 'REFUSED',
+          reasonCode: 'AMOUNT_MISMATCH',
+          currency: payout.currency,
+          netMinor: payout.netMinor,
+          amountConfirmedMinor: evidence.amountConfirmedMinor,
+        },
+      });
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'The amount you typed does not match this payout. Check the transfer; nothing was recorded.',
+        HttpStatus.BAD_REQUEST,
+        { reason: 'AMOUNT_MISMATCH' },
+      );
+    }
 
     /*
       ── THE HOLD ───────────────────────────────────────────────────────────────────────
@@ -1608,9 +1663,16 @@ export class PayoutsService {
           verifiedByUserId: string | null;
           version: number;
           holderName: string | null;
+          disputedAt: Date | null;
+          ownerConfirmedAt: Date | null;
+          ownerConfirmedVersion: number | null;
+          verificationMethod: string | null;
+          verificationEvidence: string | null;
         }[]
       >(
-        Prisma.sql`SELECT "verifiedAt", "rejectedAt", "verifiedByUserId", "version", "holderName"
+        Prisma.sql`SELECT "verifiedAt", "rejectedAt", "verifiedByUserId", "version", "holderName",
+                          "disputedAt", "ownerConfirmedAt", "ownerConfirmedVersion",
+                          "verificationMethod", "verificationEvidence"
                    FROM "OrganizerPayoutAccount"
                    WHERE "organizationId" = ${payout.organizationId}
                      AND "currency" = ${payout.currency}
@@ -1653,7 +1715,37 @@ export class PayoutsService {
         payout.netMinor > 0 &&
         verifierMayNotPay({ actorUserId: admin.id, verifiedByUserId: rows[0]?.verifiedByUserId })
       ) {
-        return { verifier: { version: rows[0]?.version ?? null } };
+        /*
+          ── THE FOUNDER-OPERATED EXCEPTION (R1 ONLY) ──────────────────────────────────
+          See `soleOperatorUnmet`. Membership is read here, inside the same transaction, in
+          any status: an invited or suspended seat still makes this person an insider.
+        */
+        const account = rows[0]!;
+        const memberships = await tx.organizationMember.count({
+          where: { organizationId: payout.organizationId, userId: admin.id },
+        });
+        const unmet = soleOperatorUnmet({
+          modeOn: this.soleOperatorModeOn(),
+          actorIsSuperAdmin: admin.roles.includes(Role.SUPER_ADMIN),
+          actorIsMember: memberships > 0,
+          account,
+          reference: trimmed(evidence.reference),
+          amountConfirmedMinor: evidence.amountConfirmedMinor,
+          netMinor: payout.netMinor,
+          attested: evidence.soleOperatorAttestation === true,
+          now: new Date(),
+        });
+        if (unmet.length > 0) return { verifier: { version: account.version, unmet } };
+        return {
+          claim: await this.claimPaid(tx, payoutId, evidence, true),
+          soleOperator: {
+            accountVersion: account.version,
+            verifiedAt: account.verifiedAt,
+            ownerConfirmedAt: account.ownerConfirmedAt,
+            verificationMethod: account.verificationMethod,
+            verificationEvidence: account.verificationEvidence,
+          },
+        };
       }
       // Atomic finalize: only an un-paid payout can be marked PAID, so the same
       // payout can never be paid twice (idempotent under concurrent admins).
@@ -1697,13 +1789,28 @@ export class PayoutsService {
           accountVersion: outcome.verifier.version,
           currency: payout.currency,
           netMinor: payout.netMinor,
+          soleOperatorUnmet: outcome.verifier.unmet,
         },
       });
+      const unmet: SoleOperatorUnmet[] = outcome.verifier.unmet;
+      const soleOperatorAvailable = !(
+        ['MODE_OFF', 'NOT_SUPER_ADMIN', 'ORGANIZATION_MEMBER'] as SoleOperatorUnmet[]
+      ).includes(unmet[0]);
       throw new AppException(
-        ErrorCodes.FORBIDDEN,
-        'You verified this bank account, so someone else must mark this payout paid.',
+        ErrorCodes.SEPARATION_OF_DUTIES,
+        soleOperatorAvailable
+          ? `You verified this bank account. To record this payout yourself under sole-operator controls: ${unmet
+              .map((u) => SOLE_OPERATOR_UNMET_MESSAGES[u])
+              .join(' ')}`
+          : unmet[0] === 'MODE_OFF'
+            ? 'You verified this bank account, so someone else must mark this payout paid.'
+            : `You verified this bank account, so someone else must mark this payout paid. ${SOLE_OPERATOR_UNMET_MESSAGES[unmet[0]]}`,
         HttpStatus.FORBIDDEN,
-        { hold: 'VERIFIER_CANNOT_PAY' },
+        {
+          rule: 'VERIFIER_CANNOT_PAY',
+          hold: 'VERIFIER_CANNOT_PAY',
+          soleOperator: { available: soleOperatorAvailable, unmet },
+        },
       );
     }
     if ('held' in outcome) {
@@ -1735,6 +1842,7 @@ export class PayoutsService {
         HttpStatus.CONFLICT,
       );
     }
+    const sole = 'soleOperator' in outcome ? outcome.soleOperator : null;
     await this.audit.record({
       actorUserId: admin.id,
       organizationId: payout.organizationId,
@@ -1745,8 +1853,52 @@ export class PayoutsService {
         netMinor: payout.netMinor,
         currency: payout.currency,
         paidReference: trimmed(evidence.reference),
+        ...(sole ? { soleOperator: true, rule: 'VERIFIER_CANNOT_PAY' } : {}),
       },
     });
+    if (sole) {
+      /*
+        The dedicated record and the ops email: the exception is never used quietly. Ids,
+        amounts, dates and codes only. The evidence reference is the verifier's own pointer (a
+        penny-drop id, a document name), refused at verification if it looks like an account
+        number.
+      */
+      await this.audit.record({
+        actorUserId: admin.id,
+        organizationId: payout.organizationId,
+        action: 'PAYOUT_PAID_SOLE_OPERATOR',
+        entityType: 'Payout',
+        entityId: payoutId,
+        metadata: {
+          rule: 'VERIFIER_CANNOT_PAY',
+          netMinor: payout.netMinor,
+          currency: payout.currency,
+          paidReference: trimmed(evidence.reference),
+          accountVersion: sole.accountVersion,
+          verifiedAt: sole.verifiedAt?.toISOString() ?? null,
+          ownerConfirmedAt: sole.ownerConfirmedAt?.toISOString() ?? null,
+          verificationMethod: sole.verificationMethod,
+          verificationEvidence: sole.verificationEvidence,
+          attestation: 'I am the only operator. I checked the transfer on the bank statement.',
+        },
+      });
+      void this.alerts?.notify({
+        kind: 'SOLE_OPERATOR_PAYOUT',
+        key: payoutId,
+        summary: 'A payout was recorded paid under sole-operator controls',
+        facts: {
+          payoutId,
+          organizationId: payout.organizationId,
+          currency: payout.currency,
+          netMinor: payout.netMinor,
+          accountVersion: sole.accountVersion,
+          verifiedAt: sole.verifiedAt?.toISOString() ?? null,
+          ownerConfirmedAt: sole.ownerConfirmedAt?.toISOString() ?? null,
+          verificationMethod: sole.verificationMethod,
+        },
+        where: 'Admin > Payouts (row marked Sole operator); audit PAYOUT_PAID_SOLE_OPERATOR',
+      });
+    }
     return this.prisma.payout.findUnique({ where: { id: payoutId } });
   }
 
@@ -1758,6 +1910,7 @@ export class PayoutsService {
     tx: Prisma.TransactionClient,
     payoutId: string,
     evidence: { reference?: string | null; note?: string | null },
+    soleOperator = false,
   ) {
     return tx.payout.updateMany({
       where: { id: payoutId, status: { in: [PayoutStatus.PENDING, PayoutStatus.SCHEDULED] } },
@@ -1774,6 +1927,7 @@ export class PayoutsService {
         note: trimmed(evidence.note),
         // A payout that failed and was retried successfully must not keep the old reason.
         failureReason: null,
+        soleOperator,
       },
     });
   }

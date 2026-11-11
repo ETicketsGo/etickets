@@ -1,6 +1,7 @@
 # Founder-operated administration: separation-of-duties review and proposed controls
 
-**Status: PROPOSAL for owner approval. Nothing here is implemented or switched on.**
+**Status: approved by the owner 2026-11-11 and IMPLEMENTED (see section 4). Off by default;
+switched on only in QA for certification. Not in UAT or PROD.**
 Owner decision (2026-11-11): ETicketsGo has no operating staff team. The super admin is the
 platform operator. Launch must not depend on hiring or extra accounts.
 
@@ -85,3 +86,28 @@ founder's own organization (DeepTrics stays independent-review only; non-blockin
 Delivery after approval: one PR (API rule + organizer email + admin evidence fields + error
 code), QA certification of verify -> 48 h -> pay and the dispute path, then a pinned PROD
 release.
+
+## 4. What was built
+
+Switch: `SOLE_OPERATOR_MODE=on` on the **api** service. Unset or anything else is off.
+
+| Control                | Where                                                                                                                                                                                                                                        |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Super admin only       | `soleOperatorUnmet` (`payout-account-safety.ts`): `NOT_SUPER_ADMIN`                                                                                                                                                                          |
+| Never for own org      | membership of any status, read in the payment transaction: `ORGANIZATION_MEMBER`                                                                                                                                                             |
+| Organizer confirmation | `POST /payouts/accounts/:id/confirm` (owner, organizer-only): full number and bank code typed again, must match; bound to the version. `NOT_CONFIRMED_BY_ORGANIZER`                                                                          |
+| Change restarts        | a save clears verification, evidence, confirmation and any dispute (new version)                                                                                                                                                             |
+| Evidence               | `POST /admin/payouts/accounts/:id/verified` takes `method` (PENNY_DROP, BANK_LETTER, CANCELLED_CHEQUE, BANK_STATEMENT), `evidenceReference`, `accountLast4` (must match). `NO_VERIFICATION_EVIDENCE`                                         |
+| 48 hours               | `SOLE_OPERATOR_WAIT_MS`, from `verifiedAt`. `WAITING_PERIOD`                                                                                                                                                                                 |
+| Dispute                | `POST /payouts/accounts/:id/dispute` (owner). Holds every payout into the account for every payer (`DESTINATION_DISPUTED`), withdraws the confirmation, ops alert. Ends only by a new save                                                   |
+| Fresh MFA              | `@RequiresRecentMfa` on the pay route (unchanged)                                                                                                                                                                                            |
+| Reference, amount      | `reference` required (`BANK_REFERENCE_REQUIRED`), `amountConfirmedMinor` must equal the payout (`AMOUNT_NOT_CONFIRMED`; a wrong amount is refused on every path, 400 `AMOUNT_MISMATCH`)                                                      |
+| Attestation            | `soleOperatorAttestation: true` (`ATTESTATION_REQUIRED`)                                                                                                                                                                                     |
+| Unchanged protections  | ownership match, approved identity, provider-transfer claim and the duplicate-payment claim run before the exception                                                                                                                         |
+| Audit and alert        | `PAYOUT_PAID` with `soleOperator: true`, plus `PAYOUT_PAID_SOLE_OPERATOR` with the evidence; ops alert `SOLE_OPERATOR_PAYOUT` per use; `Payout.soleOperator` shown as "Sole operator"                                                        |
+| Distinct refusals      | separation of duties returns `SEPARATION_OF_DUTIES` with `details.rule` (R1 `VERIFIER_CANNOT_PAY`, R2 `BANK_VERIFIER_INDEPENDENT`, R3 `IDENTITY_REVIEWER_INDEPENDENT`, R5, R6, R7); a missing duty stays `FORBIDDEN` with `details.required` |
+
+R2 and R3 are unchanged: the founder still cannot verify bank details they entered or that
+belong to their own organization, and cannot approve their own identity change.
+
+Not built: a weekly digest email (the audit log and the ops alert per use cover it for now).

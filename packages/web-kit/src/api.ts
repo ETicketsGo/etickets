@@ -2620,6 +2620,24 @@ export const api = {
     }) =>
       request<PayoutAccount>('/payouts/accounts', { method: 'POST', body: JSON.stringify(body) }),
     /**
+     * An owner confirms the CURRENT version is theirs by typing the full number and bank code
+     * again. Refused (400) when they do not match what is on file.
+     */
+    confirmAccount: (
+      id: string,
+      body: { version: number; accountNumber: string; bankCode: string },
+    ) =>
+      request<PayoutAccount>(`/payouts/accounts/${id}/confirm`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    /** An owner reports the details are not theirs or are wrong. Holds every payout into it. */
+    disputeAccount: (id: string, body: { version: number; reason: string }) =>
+      request<PayoutAccount>(`/payouts/accounts/${id}/dispute`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    /**
      * Where payout setup stands, decided by the server.
      *
      * The console renders this; it never re-derives a state from raw provider flags.
@@ -3327,7 +3345,20 @@ export const api = {
         body: JSON.stringify(body),
       }),
     payouts: () => request<Payout[]>('/admin/payouts'),
-    markPayoutPaid: (id: string, body: { reference?: string; note?: string } = {}) =>
+    /**
+     * `amountConfirmedMinor` (the amount typed again) is refused when it differs from the payout.
+     * `soleOperatorAttestation` is needed only when the payer also verified the bank account and
+     * founder-operated controls are on; the refusal (SEPARATION_OF_DUTIES) says what is missing.
+     */
+    markPayoutPaid: (
+      id: string,
+      body: {
+        reference?: string;
+        note?: string;
+        amountConfirmedMinor?: number;
+        soleOperatorAttestation?: boolean;
+      } = {},
+    ) =>
       request<Payout>(`/admin/payouts/${id}/pay`, { method: 'POST', body: JSON.stringify(body) }),
     markPayoutFailed: (id: string, reason: string) =>
       request<Payout>(`/admin/payouts/${id}/fail`, {
@@ -3362,10 +3393,18 @@ export const api = {
      * Maker-checker: refused for whoever entered the details and for members of the organization.
      * `version` is the version the reviewer was looking at; a newer one is refused (409).
      */
-    verifyPayoutAccount: (id: string, version: number) =>
+    verifyPayoutAccount: (
+      id: string,
+      version: number,
+      evidence: {
+        method?: PayoutVerificationMethod;
+        evidenceReference?: string;
+        accountLast4?: string;
+      } = {},
+    ) =>
       request<PayoutAccount>(`/admin/payouts/accounts/${id}/verified`, {
         method: 'POST',
-        body: JSON.stringify({ version }),
+        body: JSON.stringify({ version, ...evidence }),
       }),
     /** Turn the details down. The reason is stored and emailed to the owners. */
     rejectPayoutAccount: (id: string, reason: string, version: number) =>
@@ -6758,6 +6797,11 @@ export interface Payout {
    * name), in the words the refusal uses. Null when nothing holds it. Advisory: paying re-checks.
    */
   hold?: { code: string; message: string } | null;
+  /**
+   * Recorded paid under founder-operated controls: the person who verified the bank account
+   * also recorded the payment, after the organizer's confirmation and the 48-hour wait.
+   */
+  soleOperator?: boolean;
 }
 
 /** One thing an organizer still has to complete, and what it costs them until they do. */
@@ -7110,6 +7154,14 @@ export interface PayoutAccount {
   rejectedAt: string | null;
   /** Why staff turned the details down, in their words. */
   rejectionReason: string | null;
+  /** How the verifier checked this version, and their evidence reference. */
+  verificationMethod?: PayoutVerificationMethod | null;
+  verificationEvidence?: string | null;
+  /** An owner confirmed THIS version in their own console. Null when not (or for an older one). */
+  ownerConfirmedAt?: string | null;
+  /** An owner reported these details are not theirs or are wrong. Every payout into it is held. */
+  disputedAt?: string | null;
+  disputeReason?: string | null;
   organization?: { id: string; name: string };
   /** Admin list only: who entered these details. */
   savedBy?: { id: string; email: string } | null;
@@ -7122,6 +7174,10 @@ export interface PayoutAccount {
    */
   independenceBlock?: 'SAME_PERSON' | 'ORGANIZATION_MEMBER' | null;
 }
+
+/** How a verifier checked a payout bank account. */
+export type PayoutVerificationMethod =
+  'PENNY_DROP' | 'BANK_LETTER' | 'CANCELLED_CHEQUE' | 'BANK_STATEMENT';
 
 /** One saved version of a payout bank account. Masked: nothing here can hold a full number. */
 export interface PayoutAccountVersion {

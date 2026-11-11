@@ -39,7 +39,16 @@ export type OpsAlertKind =
   /** Many different accounts started a sign-in wait in one window: password guessing at scale. */
   | 'LOGIN_BACKOFF_BURST'
   /** A plan price in the admin catalogue no longer matches its price at the billing provider. */
-  | 'BILLING_PRICE_MISMATCH';
+  | 'BILLING_PRICE_MISMATCH'
+  /*
+    Founder-operated payouts (docs/go-live/FOUNDER-OPERATED-CONTROLS.md). Not failures: the
+    exception to "the verifier may not pay" is never used without the ops inbox hearing of it,
+    and an organizer saying a bank account is not theirs is read the same day.
+  */
+  /** A payout was recorded paid by the person who verified its bank account. */
+  | 'SOLE_OPERATOR_PAYOUT'
+  /** An organizer owner disputed a payout bank account: every payout into it is held. */
+  | 'PAYOUT_ACCOUNT_DISPUTED';
 
 /** A fact printed in the alert. Ids, amounts, codes and statuses only - never a person. */
 export type OpsAlertFact = string | number | boolean | null | undefined;
@@ -116,6 +125,10 @@ const THROTTLE_MS: Record<OpsAlertKind, number> = {
   LOGIN_BACKOFF_BURST: DEFAULT_THROTTLE_MS,
   // Keyed by key mode; the check runs daily, so one email a day while the drift lasts.
   BILLING_PRICE_MISMATCH: PER_DAY_THROTTLE_MS,
+  // Keyed by payout: one email per use, and a payout can be paid only once.
+  SOLE_OPERATOR_PAYOUT: PER_ENTITY_THROTTLE_MS,
+  // Keyed by account version: one email per dispute.
+  PAYOUT_ACCOUNT_DISPUTED: PER_ENTITY_THROTTLE_MS,
 };
 
 /**

@@ -950,12 +950,12 @@ function notPending() {
 
 function independenceError(reject = false) {
   return new AppException(
-    ErrorCodes.FORBIDDEN,
+    ErrorCodes.SEPARATION_OF_DUTIES,
     reject
       ? 'You worked on this draft, so you cannot reject it. Withdraw it instead.'
       : 'You worked on this draft, so you cannot approve it. Another administrator who holds the approval duty must approve it.',
     HttpStatus.FORBIDDEN,
-    { reason: 'NOT_INDEPENDENT' },
+    { reason: 'NOT_INDEPENDENT', rule: 'FEE_SCHEDULE_APPROVER_INDEPENDENT' },
   );
 }
 
