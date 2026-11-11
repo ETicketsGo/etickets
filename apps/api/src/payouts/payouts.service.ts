@@ -1506,10 +1506,17 @@ export class PayoutsService {
     payout now carries the hold `markPaid` would apply, from the same rule and in the same words.
 
     Read only and advisory: `markPaid` re-reads everything under its lock and stays the only
-    authority. Who verified the account (the verifier may not pay) depends on who is looking, and
-    a provider transfer claiming an event is rare and checked at payment; neither is shown here.
+    authority. A provider transfer claiming an event is rare and checked at payment only.
+
+    ── THE VIEWER'S OWN VERIFICATION ─────────────────────────────────────────────────
+    Who verified the account depends on who is looking. When `viewer` verified it, the row says
+    what still stands between them and recording it (the sole-operator conditions known before
+    the dialog opens: switch, role, membership, organizer confirmation, evidence, 48 hours), in
+    the words the refusal uses, so the console shows "On hold" and the reason instead of a
+    "Mark paid" that can only be refused. The reference, typed amount and attestation are asked
+    for in the dialog and checked at payment.
   */
-  async adminList() {
+  async adminList(viewer?: Pick<RequestUser, 'id' | 'roles'>) {
     const payouts = await this.prisma.payout.findMany({
       orderBy: { createdAt: 'desc' },
       include: { organization: { select: { name: true } } },
@@ -1527,6 +1534,12 @@ export class PayoutsService {
           rejectedAt: true,
           holderName: true,
           disputedAt: true,
+          version: true,
+          verifiedByUserId: true,
+          ownerConfirmedAt: true,
+          ownerConfirmedVersion: true,
+          verificationMethod: true,
+          verificationEvidence: true,
         },
       }),
       this.prisma.organization.findMany({
@@ -1542,6 +1555,17 @@ export class PayoutsService {
       }),
     ]);
     const orgById = new Map(orgs.map((o) => [o.id, o]));
+    const viewerOrgs = viewer
+      ? new Set(
+          (
+            (await this.prisma.organizationMember?.findMany({
+              where: { userId: viewer.id },
+              select: { organizationId: true },
+            })) ?? []
+          ).map((m) => m.organizationId),
+        )
+      : new Set<string>();
+    const now = new Date();
     return payouts.map((p) => {
       if (!OPEN_PAYOUT_STATUSES.has(p.status)) return { ...p, hold: null };
       const account =
@@ -1552,15 +1576,47 @@ export class PayoutsService {
         account,
         owner: payoutOwnerFacts(orgById.get(p.organizationId) ?? null),
       });
-      return {
-        ...p,
-        hold: verdict.allowed
-          ? null
-          : {
-              code: `DESTINATION_${verdict.reason}`,
-              message: payoutHoldMessage(verdict.reason as PayoutHoldReason, p.currency),
+      if (!verdict.allowed) {
+        return {
+          ...p,
+          hold: {
+            code: `DESTINATION_${verdict.reason}`,
+            message: payoutHoldMessage(verdict.reason as PayoutHoldReason, p.currency),
+          },
+        };
+      }
+      if (
+        viewer &&
+        account &&
+        p.netMinor > 0 &&
+        verifierMayNotPay({ actorUserId: viewer.id, verifiedByUserId: account.verifiedByUserId })
+      ) {
+        const unmet = soleOperatorUnmet({
+          modeOn: this.soleOperatorModeOn(),
+          actorIsSuperAdmin: viewer.roles.includes(Role.SUPER_ADMIN),
+          actorIsMember: viewerOrgs.has(p.organizationId),
+          account,
+          // Asked for in the dialog and checked at payment, so not a reason to hide the button.
+          reference: 'dialog',
+          amountConfirmedMinor: p.netMinor,
+          netMinor: p.netMinor,
+          attested: true,
+          now,
+        });
+        if (unmet.length > 0) {
+          return {
+            ...p,
+            hold: {
+              code: 'VERIFIER_CANNOT_PAY',
+              message: `On hold for you: you verified this bank account. ${unmet
+                .map((u) => SOLE_OPERATOR_UNMET_MESSAGES[u])
+                .join(' ')}`,
+              unmet,
             },
-      };
+          };
+        }
+      }
+      return { ...p, hold: null };
     });
   }
 
