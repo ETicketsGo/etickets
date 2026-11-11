@@ -15,10 +15,11 @@ screenshot and record the page address and the time.
 - [ ] Sign in with password. The console asks for the authenticator code before it shows any page.
 - [ ] After the code, the console opens. The profile menu shows your name and role.
 - [ ] Sign out, then open `/admin/payouts` directly. You land on the sign-in page (no endless spinner).
-- [ ] Sign in again. Open **Staff**. Two people are listed, each with their duties; nothing is changed.
-- [ ] Second staff member (on their own device): signs in with their code. **Payouts** opens. There is
-      no **Mark paid** button anywhere (they verify bank accounts, they do not pay). Pages outside
-      their duties say they do not have that duty.
+- [ ] Sign in again. Open **Staff**. You are listed as super admin. Note who holds the second
+      account (bank verifier). If it is you, write that down: it must not be used to get round the
+      verify/pay rule (see FOUNDER-OPERATED-CONTROLS.md). Change nothing.
+- [ ] As super admin, open Organizers, Events, Refunds, Payouts and Settlements: every page opens
+      (no "you do not have that duty" message).
 
 ## 2. Admin Payouts and Settlements
 
