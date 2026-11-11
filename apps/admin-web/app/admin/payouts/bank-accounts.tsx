@@ -9,12 +9,14 @@ import {
   DataTable,
   Dialog,
   Input,
+  Select,
   StatusBadge,
   dateOnly,
   useToast,
   errorMessage,
   type Column,
   type PayoutAccount,
+  type PayoutVerificationMethod,
   useAuthUser,
 } from '@eticketsgo/web-kit';
 import { missingDutyNote, useHolds } from '../../../lib/capabilities';
@@ -32,6 +34,13 @@ const VERSION_BADGE = {
   REJECTED: REVIEW_BADGE.REJECTED,
   SUPERSEDED: { status: 'EXPIRED', label: 'Replaced before it was checked' },
 } as const;
+
+const METHOD_LABELS: Record<PayoutVerificationMethod, string> = {
+  PENNY_DROP: 'Penny drop (small test transfer)',
+  BANK_LETTER: 'Letter from the bank',
+  CANCELLED_CHEQUE: 'Cancelled cheque',
+  BANK_STATEMENT: 'Bank statement',
+};
 
 const FIELD_LABELS: Record<string, string> = {
   initial: 'New account',
@@ -98,6 +107,14 @@ export function BankAccounts() {
   const [historyOf, setHistoryOf] = useState<PayoutAccount | null>(null);
   const [rejecting, setRejecting] = useState<PayoutAccount | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  /*
+    Verifying records HOW the account was checked: a method, a reference for the evidence and
+    the last four digits read off it. Founder-operated payouts need all three.
+  */
+  const [verifying, setVerifying] = useState<PayoutAccount | null>(null);
+  const [method, setMethod] = useState<PayoutVerificationMethod>('PENNY_DROP');
+  const [evidenceRef, setEvidenceRef] = useState('');
+  const [last4, setLast4] = useState('');
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'payout-accounts'],
@@ -117,9 +134,20 @@ export function BankAccounts() {
   // The version the reviewer is looking at travels with the request, so details the owner saved
   // a moment later are refused rather than verified by a look at the old ones.
   const verify = useMutation({
-    mutationFn: (row: PayoutAccount) => api.admin.verifyPayoutAccount(row.id, row.version),
+    mutationFn: (row: PayoutAccount) =>
+      api.admin.verifyPayoutAccount(row.id, row.version, {
+        method,
+        evidenceReference: evidenceRef.trim(),
+        accountLast4: last4,
+      }),
     onSuccess: () => {
-      toast.push('Account marked as checked. The owners are told by email.', 'success');
+      toast.push(
+        'Account marked as checked. The owners are emailed and asked to confirm it.',
+        'success',
+      );
+      setVerifying(null);
+      setEvidenceRef('');
+      setLast4('');
       void qc.invalidateQueries({ queryKey: ['admin', 'payout-accounts'] });
     },
     onError: (e) => {
@@ -176,9 +204,28 @@ export function BankAccounts() {
             <p className="mt-1 text-caption text-text-muted">
               Verified by {row.verifiedBy.email || 'unknown'}
               {row.verifiedBy.id === user?.id
-                ? '. You verified this account, so someone else must mark payouts to it as paid.'
+                ? '. You verified this account: someone else must mark payouts to it as paid, unless sole-operator controls apply (owner confirmation, 48 hours, evidence).'
                 : '. They cannot mark payouts to this account as paid; a different person must.'}
             </p>
+          ) : null}
+          {row.verificationMethod ? (
+            <p className="mt-1 text-caption text-text-muted">
+              Evidence: {METHOD_LABELS[row.verificationMethod]}
+              {row.verificationEvidence ? ` (${row.verificationEvidence})` : ''}
+            </p>
+          ) : null}
+          {row.disputedAt ? (
+            <p className="mt-1 text-caption text-status-error" data-testid="account-disputed">
+              Disputed by the organizer on {dateOnly(row.disputedAt)}
+              {row.disputeReason ? `: ${row.disputeReason}` : ''}. Every payout to it is on hold
+              until an owner saves the details again.
+            </p>
+          ) : row.ownerConfirmedAt ? (
+            <p className="mt-1 text-caption text-status-success" data-testid="account-confirmed">
+              Confirmed by the organizer on {dateOnly(row.ownerConfirmedAt)}
+            </p>
+          ) : row.status !== 'REJECTED' ? (
+            <p className="mt-1 text-caption text-text-muted">Not yet confirmed by the organizer</p>
           ) : null}
           {row.status === 'REJECTED' && row.rejectionReason ? (
             <p className="mt-1 text-caption text-text-muted">{row.rejectionReason}</p>
@@ -211,7 +258,7 @@ export function BankAccounts() {
           ) : null}
           {row.status === 'PENDING_VERIFICATION' && mayVerify && !row.independenceBlock ? (
             <>
-              <Button size="sm" variant="ghost" onClick={() => verify.mutate(row)}>
+              <Button size="sm" variant="ghost" onClick={() => setVerifying(row)}>
                 Mark checked
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setRejecting(row)}>
@@ -295,6 +342,63 @@ export function BankAccounts() {
                 {historyOf.organization?.name} &middot; {historyOf.currency}
               </p>
               <HistoryList accountId={historyOf.id} />
+            </div>
+          )}
+        </Dialog>
+
+        <Dialog
+          open={!!verifying}
+          onClose={() => setVerifying(null)}
+          title="Record how you checked this account"
+          footer={
+            <>
+              <Button variant="outline" onClick={() => setVerifying(null)}>
+                Cancel
+              </Button>
+              <Button
+                loading={verify.isPending}
+                disabled={evidenceRef.trim().length < 3 || !/^[0-9]{4}$/.test(last4)}
+                onClick={() => verifying && verify.mutate(verifying)}
+              >
+                Mark checked
+              </Button>
+            </>
+          }
+        >
+          {verifying && (
+            <div className="space-y-3">
+              <p>
+                {verifying.organization?.name} &middot; {verifying.holderName} &middot;{' '}
+                {verifying.bankName} &middot; {verifying.bankCode} &middot; version{' '}
+                {verifying.version}
+              </p>
+              <Select
+                label="How did you check it?"
+                value={method}
+                onChange={(e) => setMethod(e.target.value as PayoutVerificationMethod)}
+              >
+                {(Object.keys(METHOD_LABELS) as PayoutVerificationMethod[]).map((m) => (
+                  <option key={m} value={m}>
+                    {METHOD_LABELS[m]}
+                  </option>
+                ))}
+              </Select>
+              <Input
+                label="Evidence reference"
+                value={evidenceRef}
+                maxLength={200}
+                placeholder="Penny-drop UTR, or the document name and date"
+                hint="Stored in the audit log. Do not type an account number."
+                onChange={(e) => setEvidenceRef(e.target.value)}
+              />
+              <Input
+                label="Last four digits on the evidence"
+                value={last4}
+                maxLength={4}
+                inputMode="numeric"
+                hint="Must match the account on file."
+                onChange={(e) => setLast4(e.target.value.replace(/\D/g, ''))}
+              />
             </div>
           )}
         </Dialog>

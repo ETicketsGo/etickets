@@ -87,7 +87,8 @@ export type PayoutDestinationVerdict =
         | 'PENDING_VERIFICATION'
         | 'REJECTED'
         | 'OWNERSHIP_MISMATCH'
-        | 'IDENTITY_NOT_APPROVED';
+        | 'IDENTITY_NOT_APPROVED'
+        | 'DISPUTED';
     };
 
 /*
@@ -106,6 +107,8 @@ export function payoutDestinationVerdict(input: {
     verifiedAt: Date | null;
     rejectedAt: Date | null;
     holderName?: string | null;
+    /** An owner said these details are not theirs. Holds every payout, whoever pays. */
+    disputedAt?: Date | null;
   } | null;
   /**
    * The organizer's APPROVED legal identity (the snapshot staff approved, never the editable
@@ -122,6 +125,7 @@ export function payoutDestinationVerdict(input: {
     return { allowed: false, reason: 'IDENTITY_NOT_APPROVED' };
   }
   if (!input.account) return { allowed: false, reason: 'NO_ACCOUNT' };
+  if (input.account.disputedAt) return { allowed: false, reason: 'DISPUTED' };
   if (!input.account.verifiedAt) {
     return {
       allowed: false,
@@ -151,3 +155,103 @@ export function verifierMayNotPay(input: {
 }): boolean {
   return !!input.verifiedByUserId && input.verifiedByUserId === input.actorUserId;
 }
+
+/*
+  ── FOUNDER-OPERATED PAYOUTS: THE ONE EXCEPTION TO "THE VERIFIER MAY NOT PAY" ─────────
+  Owner decision 2026-11-11: ETicketsGo runs with one operator, the super admin. The rule above
+  would stop every manual payout, because that one person must both verify the account and
+  record the payment. This replaces "a different staff member" with checks one person cannot
+  fake alone (docs/go-live/FOUNDER-OPERATED-CONTROLS.md):
+
+  - the organizer, signed in to their own console, re-typed the full account number and bank
+    code of THIS version and confirmed it is theirs;
+  - the verifier recorded how they checked it (method and evidence reference);
+  - at least 48 hours passed between verification and payment;
+  - the payment carries the bank reference, the amount typed again, and an attestation.
+
+  Never for anyone but a SUPER_ADMIN, never for an organization they belong to, and only while
+  SOLE_OPERATOR_MODE is on. Bank ownership, approved identity, disputes, provider-transfer
+  claims and the duplicate-payment claim are checked before this and are not relaxed by it.
+*/
+
+/** How long verification must stand before the same person may record a payment into it. */
+export const SOLE_OPERATOR_WAIT_MS = 48 * 60 * 60 * 1000;
+
+/** How a verifier checked a bank account. */
+export const VERIFICATION_METHODS = [
+  'PENNY_DROP',
+  'BANK_LETTER',
+  'CANCELLED_CHEQUE',
+  'BANK_STATEMENT',
+] as const;
+export type VerificationMethod = (typeof VERIFICATION_METHODS)[number];
+
+export type SoleOperatorUnmet =
+  | 'MODE_OFF'
+  | 'NOT_SUPER_ADMIN'
+  | 'ORGANIZATION_MEMBER'
+  | 'NOT_CONFIRMED_BY_ORGANIZER'
+  | 'NO_VERIFICATION_EVIDENCE'
+  | 'WAITING_PERIOD'
+  | 'BANK_REFERENCE_REQUIRED'
+  | 'AMOUNT_NOT_CONFIRMED'
+  | 'ATTESTATION_REQUIRED';
+
+/**
+ * What still stands between this verifier and recording the payment. Empty means the exception
+ * applies. The first three are absolute (nothing the operator does at payment time changes them)
+ * and are returned alone.
+ */
+export function soleOperatorUnmet(input: {
+  modeOn: boolean;
+  actorIsSuperAdmin: boolean;
+  actorIsMember: boolean;
+  account: {
+    version: number;
+    verifiedAt: Date | null;
+    ownerConfirmedAt: Date | null;
+    ownerConfirmedVersion: number | null;
+    verificationMethod: string | null;
+    verificationEvidence: string | null;
+  };
+  reference: string | null;
+  amountConfirmedMinor: number | null | undefined;
+  netMinor: number;
+  attested: boolean;
+  now: Date;
+}): SoleOperatorUnmet[] {
+  if (!input.modeOn) return ['MODE_OFF'];
+  if (!input.actorIsSuperAdmin) return ['NOT_SUPER_ADMIN'];
+  if (input.actorIsMember) return ['ORGANIZATION_MEMBER'];
+  const out: SoleOperatorUnmet[] = [];
+  const a = input.account;
+  if (!a.ownerConfirmedAt || a.ownerConfirmedVersion !== a.version) {
+    out.push('NOT_CONFIRMED_BY_ORGANIZER');
+  }
+  if (!a.verificationMethod || !a.verificationEvidence) out.push('NO_VERIFICATION_EVIDENCE');
+  if (!a.verifiedAt || input.now.getTime() - a.verifiedAt.getTime() < SOLE_OPERATOR_WAIT_MS) {
+    out.push('WAITING_PERIOD');
+  }
+  if (!input.reference) out.push('BANK_REFERENCE_REQUIRED');
+  if (input.amountConfirmedMinor !== input.netMinor) out.push('AMOUNT_NOT_CONFIRMED');
+  if (!input.attested) out.push('ATTESTATION_REQUIRED');
+  return out;
+}
+
+/** One sentence per unmet condition, in the words the admin console shows. */
+export const SOLE_OPERATOR_UNMET_MESSAGES: Record<SoleOperatorUnmet, string> = {
+  MODE_OFF: 'Sole-operator controls are off on this server.',
+  NOT_SUPER_ADMIN:
+    'Only the super admin may pay into an account they verified, and only under sole-operator controls.',
+  ORGANIZATION_MEMBER:
+    'You belong to this organization, so you can never pay it into an account you verified.',
+  NOT_CONFIRMED_BY_ORGANIZER:
+    'An owner of the organization has not confirmed this version of the bank account in their own console.',
+  NO_VERIFICATION_EVIDENCE:
+    'The verification has no recorded method and evidence reference. Ask the owner to save the account again and verify it with evidence.',
+  WAITING_PERIOD: 'Wait until 48 hours have passed since you verified the bank account.',
+  BANK_REFERENCE_REQUIRED: 'Enter the bank reference (UTR or ACH trace) of the transfer.',
+  AMOUNT_NOT_CONFIRMED: 'Type the exact amount you transferred.',
+  ATTESTATION_REQUIRED:
+    'Confirm that you are the only operator and that you checked the transfer on the bank statement.',
+};

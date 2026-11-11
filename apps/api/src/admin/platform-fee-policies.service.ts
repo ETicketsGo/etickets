@@ -1398,10 +1398,10 @@ function moved(row: Pick<PlatformFeePolicy, 'status' | 'version'>) {
 function independenceError(subject: PendingSubject, reject = false) {
   const what = subject === 'POLICY' ? 'a fee policy you created' : 'a switch-off you asked for';
   return new AppException(
-    ErrorCodes.FORBIDDEN,
+    ErrorCodes.SEPARATION_OF_DUTIES,
     `You cannot ${reject ? 'reject' : 'approve'} ${what}. Another administrator must decide.`,
     HttpStatus.FORBIDDEN,
-    { reason: 'APPROVER_IS_MAKER' },
+    { reason: 'APPROVER_IS_MAKER', rule: 'FEE_POLICY_APPROVER_INDEPENDENT' },
   );
 }
 

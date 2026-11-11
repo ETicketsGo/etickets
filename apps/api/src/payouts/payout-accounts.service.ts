@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AdminPermission, NotificationType, Role } from '@eticketsgo/shared-types';
 import { Prisma } from '@prisma/client';
@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
 import { AdminAudienceService } from '../notifications/admin-audience.service';
+import { OpsAlertService } from '../ops/alerts/ops-alert.service';
 import { currentRequest } from '../common/request-context';
 import { AppException, ErrorCodes } from '../common/errors';
 import { SUSPENDED_BANK_MESSAGE, assertOrganizationMayMoveMoney } from './organization-money-gate';
@@ -23,6 +24,7 @@ import {
   looksLikeAccountNumber,
   reviewStatusOf,
   type PayoutAccountReviewStatus,
+  type VerificationMethod,
 } from './payout-account-safety';
 
 /**
@@ -57,6 +59,14 @@ export interface PayoutAccountView {
   rejectedAt: Date | null;
   /** Why staff turned the details down, in their words. Never contains an account number. */
   rejectionReason: string | null;
+  /** How the verifier checked this version, and their evidence reference. */
+  verificationMethod: string | null;
+  verificationEvidence: string | null;
+  /** An owner confirmed THIS version in their own console (re-typed number and bank code). */
+  ownerConfirmedAt: Date | null;
+  /** An owner said these details are not theirs or are wrong. Every payout into it is held. */
+  disputedAt: Date | null;
+  disputeReason: string | null;
 }
 
 /** One saved version of an account, masked. There is no field here that could hold a full number. */
@@ -84,6 +94,7 @@ export class PayoutAccountsService {
     private readonly audit: AuditService,
     private readonly config: ConfigService,
     private readonly audience: AdminAudienceService,
+    @Optional() private readonly alerts?: OpsAlertService,
   ) {}
 
   private key(): Buffer | null {
@@ -102,6 +113,12 @@ export class PayoutAccountsService {
     rejectedAt: Date | null;
     rejectionReason: string | null;
     version: number;
+    verificationMethod?: string | null;
+    verificationEvidence?: string | null;
+    ownerConfirmedAt?: Date | null;
+    ownerConfirmedVersion?: number | null;
+    disputedAt?: Date | null;
+    disputeReason?: string | null;
   }): PayoutAccountView {
     return {
       id: row.id,
@@ -116,6 +133,15 @@ export class PayoutAccountsService {
       version: row.version,
       rejectedAt: row.rejectedAt,
       rejectionReason: row.rejectionReason,
+      verificationMethod: row.verificationMethod ?? null,
+      verificationEvidence: row.verificationEvidence ?? null,
+      // A confirmation names the version it confirmed; an older one says nothing about this one.
+      ownerConfirmedAt:
+        row.ownerConfirmedAt && row.ownerConfirmedVersion === row.version
+          ? row.ownerConfirmedAt
+          : null,
+      disputedAt: row.disputedAt ?? null,
+      disputeReason: row.disputeReason ?? null,
     };
   }
 
@@ -151,7 +177,7 @@ export class PayoutAccountsService {
    */
   private async notifyOwners(
     organizationId: string,
-    change: 'SAVED' | 'VERIFIED' | 'REJECTED',
+    change: 'SAVED' | 'VERIFIED' | 'REJECTED' | 'CONFIRMED' | 'DISPUTED',
     row: { currency: string; bankName: string; accountLast4: string; version: number },
     extra: { changedFields?: string[]; reason?: string } = {},
   ): Promise<void> {
@@ -281,7 +307,15 @@ export class PayoutAccountsService {
       }
       const changed = changedFieldsOf(existing, details, numberChanged);
 
-      if (existing && changed !== 'initial' && changed.length === 0 && !existing.rejectedAt) {
+      // A rejected or disputed account saved again, even unchanged, is a new version: that is the
+      // owner asking for another check from the start.
+      if (
+        existing &&
+        changed !== 'initial' &&
+        changed.length === 0 &&
+        !existing.rejectedAt &&
+        !existing.disputedAt
+      ) {
         return { row: existing, changedFields: [] as string[], created: false };
       }
       const changedFields: string[] = changed === 'initial' ? ['initial'] : changed;
@@ -294,6 +328,16 @@ export class PayoutAccountsService {
         rejectedAt: null,
         rejectedByUserId: null,
         rejectionReason: null,
+        // New details: the old evidence, the organizer's confirmation and any dispute were about
+        // different details. Verification, confirmation and the 48 hours all start again.
+        verificationMethod: null,
+        verificationEvidence: null,
+        ownerConfirmedAt: null,
+        ownerConfirmedByUserId: null,
+        ownerConfirmedVersion: null,
+        disputedAt: null,
+        disputedByUserId: null,
+        disputeReason: null,
         updatedByUserId: user.id,
       };
       const row = existing
@@ -627,11 +671,12 @@ export class PayoutAccountsService {
       reasonCode: failure,
     });
     throw new AppException(
-      ErrorCodes.FORBIDDEN,
+      ErrorCodes.SEPARATION_OF_DUTIES,
       failure === 'SAME_PERSON'
         ? 'You entered these bank details, so someone else must check them.'
         : 'You belong to this organization, so someone else must check its bank details.',
       HttpStatus.FORBIDDEN,
+      { rule: 'BANK_VERIFIER_INDEPENDENT', reason: failure },
     );
   }
 
@@ -665,16 +710,59 @@ export class PayoutAccountsService {
    * Only staff who did not enter the details and are not members of the organization may do
    * this, and only for the version they were looking at (`expectedVersion`).
    */
-  async markVerified(admin: RequestUser, id: string, expectedVersion?: number) {
+  async markVerified(
+    admin: RequestUser,
+    id: string,
+    expectedVersion?: number,
+    evidence: {
+      method?: VerificationMethod;
+      reference?: string;
+      /** The last four digits the verifier read on the evidence, typed again. */
+      accountLast4?: string;
+    } = {},
+  ) {
+    const evidenceRef = evidence.reference?.trim() || null;
+    if (evidenceRef && looksLikeAccountNumber(evidenceRef)) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'Do not type an account number in the evidence reference. It is stored in the audit log.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    if (!!evidence.method !== !!evidenceRef) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'Give both how you checked the account and a reference for that evidence.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
     const row = await this.loadForDecision(id, expectedVersion);
     await this.assertIndependent(admin, row, 'PAYOUT_ACCOUNT_VERIFIED');
+    if (evidence.accountLast4 !== undefined && evidence.accountLast4 !== row.accountLast4) {
+      await this.record(admin.id, row.organizationId, id, 'PAYOUT_ACCOUNT_VERIFIED', 'REFUSED', {
+        currency: row.currency,
+        version: row.version,
+        reasonCode: 'LAST4_MISMATCH',
+      });
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'The last four digits you typed do not match the account on file. Nothing was verified.',
+        HttpStatus.BAD_REQUEST,
+        { reason: 'LAST4_MISMATCH' },
+      );
+    }
 
     const saved = await this.prisma.$transaction(async (tx) => {
       // Conditional on the version and on still being undecided: a save or another decision
       // that landed first makes this match nothing instead of overwriting it.
       const claim = await tx.organizerPayoutAccount.updateMany({
         where: { id, version: row.version, verifiedAt: null, rejectedAt: null },
-        data: { verifiedAt: new Date(), verifiedByUserId: admin.id },
+        data: {
+          verifiedAt: new Date(),
+          verifiedByUserId: admin.id,
+          verificationMethod: evidence.method ?? null,
+          verificationEvidence: evidenceRef,
+        },
       });
       if (claim.count !== 1) return null;
       await tx.organizerPayoutAccountVersion.updateMany({
@@ -694,6 +782,9 @@ export class PayoutAccountsService {
       currency: row.currency,
       accountLast4: row.accountLast4,
       version: row.version,
+      verificationMethod: evidence.method ?? null,
+      verificationEvidence: evidenceRef,
+      last4Retyped: evidence.accountLast4 !== undefined,
     });
     await this.notifyOwners(row.organizationId, 'VERIFIED', saved);
     return this.view(saved);
@@ -754,6 +845,172 @@ export class PayoutAccountsService {
       reason: trimmedReason,
     });
     await this.notifyOwners(row.organizationId, 'REJECTED', saved, { reason: trimmedReason });
+    return this.view(saved);
+  }
+
+  /*
+    ── THE ORGANIZER'S OWN CONFIRMATION ────────────────────────────────────────────────
+    Founder-operated payouts replace "a second staff member" with the organizer. An OWNER,
+    signed in to their own console (never platform staff: the route is organizer-only), types
+    the full account number and bank code of the CURRENT version again. They must match what
+    is stored, so the confirmation is about these exact details and nothing an insider could
+    have swapped in. A later save clears it, so a confirmation never outlives the details.
+  */
+  async confirm(
+    user: RequestUser,
+    id: string,
+    input: { version: number; accountNumber: string; bankCode: string },
+  ): Promise<PayoutAccountView> {
+    const row = await this.prisma.organizerPayoutAccount.findUnique({ where: { id } });
+    if (!row) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'No account on file.', HttpStatus.NOT_FOUND);
+    }
+    await this.access.assertMember(user, row.organizationId, [Role.ORGANIZER_OWNER]);
+    if (input.version !== row.version) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'These bank details changed since you opened them. Reload and check them again.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    if (row.disputedAt || row.rejectedAt) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'These details cannot be confirmed: save the correct bank details again first.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    let stored: string;
+    try {
+      stored = decryptAccountNumber(row.accountCipher, this.key());
+    } catch {
+      throw new AppException(
+        ErrorCodes.INTERNAL,
+        'These bank details cannot be read. Save them again.',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+    const typedNumber = input.accountNumber.replace(/[\s-]/g, '');
+    const typedCode = input.bankCode.trim().toUpperCase();
+    if (typedNumber !== stored || typedCode !== row.bankCode) {
+      await this.record(user.id, row.organizationId, id, 'PAYOUT_ACCOUNT_CONFIRMED', 'REFUSED', {
+        currency: row.currency,
+        version: row.version,
+        reasonCode: typedNumber !== stored ? 'NUMBER_MISMATCH' : 'BANK_CODE_MISMATCH',
+      });
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'That does not match the account on file. Check your bank statement. If the account on file is not yours, report it instead.',
+        HttpStatus.BAD_REQUEST,
+        { reason: 'DETAILS_MISMATCH' },
+      );
+    }
+    const claim = await this.prisma.organizerPayoutAccount.updateMany({
+      where: { id, version: row.version, disputedAt: null, rejectedAt: null },
+      data: {
+        ownerConfirmedAt: new Date(),
+        ownerConfirmedByUserId: user.id,
+        ownerConfirmedVersion: row.version,
+      },
+    });
+    if (claim.count !== 1) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'These bank details changed while you were confirming them. Reload and try again.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    const saved = await this.prisma.organizerPayoutAccount.findUniqueOrThrow({ where: { id } });
+    await this.record(user.id, row.organizationId, id, 'PAYOUT_ACCOUNT_CONFIRMED', 'SUCCESS', {
+      currency: row.currency,
+      accountLast4: row.accountLast4,
+      version: row.version,
+    });
+    await this.notifyOwners(row.organizationId, 'CONFIRMED', saved);
+    return this.view(saved);
+  }
+
+  /*
+    ── "THIS IS NOT OUR ACCOUNT" ───────────────────────────────────────────────────────
+    Any owner, signed in, may dispute the current details. It takes effect at once: every
+    payout into the account is held (`payoutDestinationVerdict` -> DISPUTED) for every staff
+    member, not only under sole-operator controls. It ends only when an owner saves the
+    details again, which starts verification, confirmation and the 48 hours from the start.
+  */
+  async dispute(
+    user: RequestUser,
+    id: string,
+    input: { version: number; reason: string },
+  ): Promise<PayoutAccountView> {
+    const reason = input.reason?.trim();
+    if (!reason) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'Say what is wrong with these details.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    if (looksLikeAccountNumber(reason)) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'Do not type an account number here. It is stored and emailed.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const row = await this.prisma.organizerPayoutAccount.findUnique({ where: { id } });
+    if (!row) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'No account on file.', HttpStatus.NOT_FOUND);
+    }
+    await this.access.assertMember(user, row.organizationId, [Role.ORGANIZER_OWNER]);
+    if (input.version !== row.version) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'These bank details changed since you opened them. Reload and check them again.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    if (row.disputedAt) return this.view(row);
+    const claim = await this.prisma.organizerPayoutAccount.updateMany({
+      where: { id, version: row.version, disputedAt: null },
+      data: {
+        disputedAt: new Date(),
+        disputedByUserId: user.id,
+        disputeReason: reason,
+        // A dispute withdraws any confirmation of these details.
+        ownerConfirmedAt: null,
+        ownerConfirmedByUserId: null,
+        ownerConfirmedVersion: null,
+      },
+    });
+    if (claim.count !== 1) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'These bank details changed while you were reporting them. Reload and try again.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    const saved = await this.prisma.organizerPayoutAccount.findUniqueOrThrow({ where: { id } });
+    await this.record(user.id, row.organizationId, id, 'PAYOUT_ACCOUNT_DISPUTED', 'SUCCESS', {
+      currency: row.currency,
+      accountLast4: row.accountLast4,
+      version: row.version,
+      wasVerified: !!row.verifiedAt,
+      reason,
+    });
+    await this.notifyOwners(row.organizationId, 'DISPUTED', saved, { reason });
+    void this.alerts?.notify({
+      kind: 'PAYOUT_ACCOUNT_DISPUTED',
+      key: `${id}:${row.version}`,
+      summary: 'An organizer disputed a payout bank account; payouts into it are held',
+      facts: {
+        accountId: id,
+        organizationId: row.organizationId,
+        currency: row.currency,
+        version: row.version,
+        wasVerified: !!row.verifiedAt,
+      },
+      where: 'Admin > Payouts > Bank accounts; audit PAYOUT_ACCOUNT_DISPUTED',
+    });
     return this.view(saved);
   }
 }

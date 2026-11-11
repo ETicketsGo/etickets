@@ -300,8 +300,8 @@ describe('SettlementService.release - AR-55 maker-checker and the payout lock', 
       createTransfer,
     });
     await expect(service.release(actor, 's1')).rejects.toMatchObject({
-      code: 'FORBIDDEN',
-      details: { hold: 'SAME_PERSON' },
+      code: 'SEPARATION_OF_DUTIES',
+      details: { hold: 'SAME_PERSON', rule: 'SETTLEMENT_RELEASER_INDEPENDENT' },
     });
     expect(createTransfer).not.toHaveBeenCalled();
     expect(prisma.settlement.updateMany).not.toHaveBeenCalled();
@@ -321,7 +321,7 @@ describe('SettlementService.release - AR-55 maker-checker and the payout lock', 
       releaserMemberships: 1,
     });
     await expect(service.release(actor, 's1')).rejects.toMatchObject({
-      code: 'FORBIDDEN',
+      code: 'SEPARATION_OF_DUTIES',
       details: { hold: 'ORGANIZATION_MEMBER' },
     });
     expect(prisma.organizationMember.count).toHaveBeenCalledWith({

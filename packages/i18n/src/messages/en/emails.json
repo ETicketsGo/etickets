@@ -227,11 +227,19 @@
     },
     "verified": {
       "subject": "Your {currency} payout bank account was verified",
-      "body": "ETicketsGo staff verified the {currency} payout bank account at {bank}, ending {last4} (version {version}). If you did not expect this, contact support now."
+      "body": "ETicketsGo staff verified the {currency} payout bank account at {bank}, ending {last4} (version {version}). Sign in and open Payouts to confirm this account is yours: settlements may wait for your confirmation. If it is not your account, choose Report a problem there, which stops every payout to it at once."
     },
     "rejected": {
       "subject": "Your {currency} payout bank account was not accepted",
       "body": "ETicketsGo staff could not verify the {currency} payout bank account at {bank}, ending {last4} (version {version}).{reason} Check the details and save the account again."
+    },
+    "confirmed": {
+      "subject": "Your {currency} payout bank account was confirmed",
+      "body": "An owner of your organization confirmed the {currency} payout bank account at {bank}, ending {last4} (version {version}). If this was not you, sign in and report it under Payouts now."
+    },
+    "disputed": {
+      "subject": "Payouts to your {currency} bank account are on hold",
+      "body": "An owner of your organization reported that the {currency} payout bank account at {bank}, ending {last4} (version {version}), is not theirs or is wrong.{reason} Nothing will be paid into it. Save the correct bank details under Payouts to start a new check."
     },
     "fields": {
       "initial": "a new account",

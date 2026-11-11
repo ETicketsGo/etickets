@@ -15,6 +15,7 @@ import {
 } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { OrganizerOnly } from '../tenancy/organizer-only.guard';
+import { VERIFICATION_METHODS } from './payout-account-safety';
 
 /**
  * What an admin may write. `null` clears an override back to inherited; an absent field
@@ -188,6 +189,54 @@ export class PayoutsController {
     return this.accounts_.save(user, organizationId, rest);
   }
 
+  /**
+   * An owner confirms, in their own console, that the CURRENT version of the account is
+   * theirs, by typing the full number and bank code again. Organizer-only: platform staff can
+   * never confirm on an organizer's behalf. Required before the founder-operated exception
+   * may pay into an account the same person verified.
+   */
+  @Post('accounts/:id/confirm')
+  @Roles(Role.ORGANIZER_OWNER)
+  @OrganizerOnly('payout.account.confirm')
+  @ApiOperation({ summary: 'Owner confirms the current bank account version is theirs.' })
+  confirmAccount(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body(
+      new ZodValidationPipe(
+        z.object({
+          version: z.number().int().min(1),
+          accountNumber: z.string().trim().min(6).max(34),
+          bankCode: z.string().trim().min(4).max(34),
+        }),
+      ),
+    )
+    body: { version: number; accountNumber: string; bankCode: string },
+  ) {
+    return this.accounts_.confirm(user, id, body);
+  }
+
+  /** An owner reports the details are not theirs or are wrong. Holds every payout into it. */
+  @Post('accounts/:id/dispute')
+  @Roles(Role.ORGANIZER_OWNER)
+  @OrganizerOnly('payout.account.dispute')
+  @ApiOperation({ summary: 'Owner reports the bank account is not theirs (holds payouts).' })
+  disputeAccount(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body(
+      new ZodValidationPipe(
+        z.object({
+          version: z.number().int().min(1),
+          reason: z.string().trim().min(1).max(300),
+        }),
+      ),
+    )
+    body: { version: number; reason: string },
+  ) {
+    return this.accounts_.dispute(user, id, body);
+  }
+
   @Post('generate')
   @Roles(Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER)
   // Staff do not raise an organizer's payouts; settlement runs and /admin/payouts do.
@@ -238,10 +287,19 @@ export class AdminPayoutsController {
           // hand may have none, and refusing would leave money paid and the ledger disagreeing.
           reference: z.string().trim().max(120).optional(),
           note: z.string().trim().max(500).optional(),
+          // The amount typed again, in minor units. Refused when it differs from the payout.
+          amountConfirmedMinor: z.number().int().min(0).optional(),
+          // Founder-operated payouts: the operator's attestation (see FOUNDER-OPERATED-CONTROLS).
+          soleOperatorAttestation: z.boolean().optional(),
         }),
       ),
     )
-    body: { reference?: string; note?: string } = {},
+    body: {
+      reference?: string;
+      note?: string;
+      amountConfirmedMinor?: number;
+      soleOperatorAttestation?: boolean;
+    } = {},
   ) {
     return this.payouts.markPaid(admin, id, body);
   }
@@ -288,10 +346,33 @@ export class AdminPayoutsController {
   verifyAccount(
     @CurrentUser() admin: RequestUser,
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(z.object({ version: z.number().int().min(1) })))
-    body: { version: number },
+    @Body(
+      new ZodValidationPipe(
+        z.object({
+          version: z.number().int().min(1),
+          // How the account was checked and a reference for that evidence. Required for the
+          // founder-operated exception; the console always asks for them.
+          method: z.enum(VERIFICATION_METHODS).optional(),
+          evidenceReference: z.string().trim().min(3).max(200).optional(),
+          accountLast4: z
+            .string()
+            .regex(/^[0-9]{4}$/)
+            .optional(),
+        }),
+      ),
+    )
+    body: {
+      version: number;
+      method?: (typeof VERIFICATION_METHODS)[number];
+      evidenceReference?: string;
+      accountLast4?: string;
+    },
   ) {
-    return this.accounts_.markVerified(admin, id, body.version);
+    return this.accounts_.markVerified(admin, id, body.version, {
+      method: body.method,
+      reference: body.evidenceReference,
+      accountLast4: body.accountLast4,
+    });
   }
 
   @RequiresRecentMfa()

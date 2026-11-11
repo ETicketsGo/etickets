@@ -96,6 +96,13 @@ const envSchema = z.object({
   */
   OPS_ALERT_EMAILS: z.string().optional(),
   /*
+    Founder-operated payouts (docs/go-live/FOUNDER-OPERATED-CONTROLS.md). Off unless exactly
+    "on". When on, a SUPER_ADMIN who verified a bank account may still record a payout into it
+    paid, but only with the organizer's own confirmation, 48 hours, evidence and an attestation.
+    Every other separation-of-duties rule is unchanged.
+  */
+  SOLE_OPERATOR_MODE: z.enum(['on', 'off']).optional(),
+  /*
     The controlled India pilot (apps/api/src/pilot, docs/go-live/PILOT-GUARD.md). Raw strings on
     purpose: pilot mode that cannot be read must close sales, not stop the API booting, so the
     pilot parses them itself and reports what is wrong on Admin > Operations.

@@ -22,6 +22,7 @@ import {
   Textarea,
   type Column,
   type Payout,
+  useAuthUser,
 } from '@eticketsgo/web-kit';
 import { missingDutyNote, useHolds } from '../../../lib/capabilities';
 import { SettlementTerms } from './settlement-terms';
@@ -29,6 +30,7 @@ import { BankAccounts } from './bank-accounts';
 import { MoneyStatusPill } from '../../../components/money-status';
 import { moneyStatusLabel } from '../../../lib/money-status';
 import { payoutRowAction } from '../../../lib/payout-row-action';
+import { typedAmountToMinor, verifiedByViewer } from '../../../lib/payout-amount';
 
 const STATUSES = ['PENDING', 'SCHEDULED', 'PAID', 'FAILED'];
 const PAGE_SIZE = 15;
@@ -48,6 +50,14 @@ export default function AdminPayouts() {
   */
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
+  /*
+    The amount typed again from the bank screen. The API refuses a mismatch, so a payout cannot
+    be recorded at a sum other than the one transferred.
+  */
+  const [amount, setAmount] = useState('');
+  /** Sole-operator attestation, asked only when the viewer also verified the account. */
+  const [attested, setAttested] = useState(false);
+  const { user } = useAuthUser();
   const [failureReason, setFailureReason] = useState('');
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState('');
@@ -67,13 +77,31 @@ export default function AdminPayouts() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
+  // The bank accounts list (also shown below) says who verified each account.
+  const { data: accounts } = useQuery({
+    queryKey: ['admin', 'payout-accounts'],
+    queryFn: () => api.admin.payoutAccounts(),
+  });
+  const soleOperator = confirm ? verifiedByViewer(accounts ?? [], confirm, user?.id) : false;
+  const typedMinor = typedAmountToMinor(amount);
+  const amountMatches = !!confirm && typedMinor === confirm.netMinor;
+  const mayConfirm = amountMatches && (!soleOperator || (attested && reference.trim().length > 0));
+
   const markPaid = useMutation({
-    mutationFn: (payoutId: string) => api.admin.markPayoutPaid(payoutId, { reference, note }),
+    mutationFn: (payoutId: string) =>
+      api.admin.markPayoutPaid(payoutId, {
+        reference,
+        note,
+        amountConfirmedMinor: typedMinor ?? undefined,
+        ...(soleOperator ? { soleOperatorAttestation: attested } : {}),
+      }),
     onSuccess: () => {
       toast.push('Payout marked as paid.', 'success');
       setConfirm(null);
       setReference('');
       setNote('');
+      setAmount('');
+      setAttested(false);
       qc.invalidateQueries({ queryKey: ['admin', 'payouts'] });
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
@@ -195,6 +223,12 @@ export default function AdminPayouts() {
           return (
             <div className="text-right">
               <p className="text-caption text-text-secondary">Paid {dateOnly(p.paidAt)}</p>
+              {/* Founder-operated: the verifier also recorded the payment (audited, alerted). */}
+              {p.soleOperator ? (
+                <p className="mt-0.5" data-testid="payout-sole-operator">
+                  <Badge tone="warning">Sole operator</Badge>
+                </p>
+              ) : null}
               {/* The reference is what reconciles this row to a bank statement. */}
               {p.paidReference ? (
                 <p className="text-caption text-text-muted">{p.paidReference}</p>
@@ -225,7 +259,7 @@ export default function AdminPayouts() {
     <div className="space-y-6">
       <PageHeader
         title="Payouts"
-        description="Manual settlements: organizers paid by bank transfer, recorded here with the bank reference. A payout to a bank account must be marked paid by someone other than the person who verified that account."
+        description="Manual settlements: organizers paid by bank transfer, recorded here with the bank reference. A payout to a bank account is marked paid by someone other than the person who verified that account, or, where sole-operator controls are on, by the super admin after the organizer confirmed the account and 48 hours have passed."
       />
 
       <Card
@@ -296,6 +330,7 @@ export default function AdminPayouts() {
             </Button>
             <Button
               loading={markPaid.isPending}
+              disabled={!mayConfirm}
               onClick={() => confirm && markPaid.mutate(confirm.id)}
             >
               Confirm paid
@@ -309,14 +344,49 @@ export default function AdminPayouts() {
               Confirm settlement of <strong>{money(confirm.netMinor, confirm.currency)}</strong> to{' '}
               {confirm.organization?.name ?? 'this organizer'}.
             </p>
+            {soleOperator ? (
+              <p
+                className="rounded-md border border-border bg-background-subtle px-3 py-2 text-caption text-text-secondary"
+                data-testid="sole-operator-note"
+              >
+                You verified this bank account. You can record this payout yourself only under
+                sole-operator controls: the organizer has confirmed the account in their own
+                console, 48 hours have passed since you verified it, and you give the bank
+                reference. This is recorded as Sole operator and emailed to the operations inbox.
+              </p>
+            ) : null}
             <Input
-              label="Bank reference"
+              label="Amount transferred"
+              value={amount}
+              inputMode="decimal"
+              placeholder={(confirm.netMinor / 100).toFixed(2)}
+              hint={`Type the amount you sent, in ${confirm.currency}. It must match this payout.`}
+              error={
+                amount.trim() && !amountMatches
+                  ? 'This does not match the payout amount.'
+                  : undefined
+              }
+              onChange={(e) => setAmount(e.target.value)}
+            />
+            <Input
+              label={soleOperator ? 'Bank reference (required)' : 'Bank reference'}
               value={reference}
               maxLength={120}
               placeholder="UTR / wire reference"
               hint="What reconciles this payout to the bank statement. Recorded in the audit log."
               onChange={(e) => setReference(e.target.value)}
             />
+            {soleOperator ? (
+              <label className="flex items-start gap-2 text-sm text-text-secondary">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={attested}
+                  onChange={(e) => setAttested(e.target.checked)}
+                />
+                I am the only operator. I made this transfer and checked it on the bank statement.
+              </label>
+            ) : null}
             <Textarea
               label="Note (optional)"
               rows={2}

@@ -1020,18 +1020,18 @@ model Organization {
   /// Payouts are judged against THESE, which only an independent staff decision writes.
   /// Changing from a company to an individual (or renaming the business) therefore cannot
   /// make a personal bank account payable: the change waits for review, and payouts with it.
-  legalIdentityStatus              LegalIdentityStatus @default(UNREVIEWED)
-  approvedLegalName                String?
-  approvedLegalEntityType          String?
-  approvedRegisteredCountry        String?
-  approvedTaxRegistrationKind      String?
-  approvedTaxRegistrationNumber    String?
-  legalIdentityApprovedAt          DateTime?
-  legalIdentityApprovedByUserId    String?
+  legalIdentityStatus           LegalIdentityStatus @default(UNREVIEWED)
+  approvedLegalName             String?
+  approvedLegalEntityType       String?
+  approvedRegisteredCountry     String?
+  approvedTaxRegistrationKind   String?
+  approvedTaxRegistrationNumber String?
+  legalIdentityApprovedAt       DateTime?
+  legalIdentityApprovedByUserId String?
   /// Who last changed a payout-critical field, so the reviewer can be someone else.
-  legalIdentityChangedAt           DateTime?
-  legalIdentityChangedByUserId     String?
-  legalIdentityReviewNote          String?
+  legalIdentityChangedAt        DateTime?
+  legalIdentityChangedByUserId  String?
+  legalIdentityReviewNote       String?
 
   /// Registered address, structured because an invoice needs the parts separately.
   registeredAddressLine1 String?
@@ -2557,6 +2557,10 @@ model Payout {
   /// representation: the ledger said the organizer had been paid and the money was back in the
   /// platform's account. A FAILED payout returns its revenue to the unsettled pool.
   failureReason String?
+  /// Recorded paid under founder-operated controls: the person who verified the bank account
+  /// also recorded the payment (organizer confirmation, 48 h, evidence, attestation). Shown as
+  /// "Sole operator" in admin payout history and audited as PAYOUT_PAID_SOLE_OPERATOR.
+  soleOperator  Boolean @default(false)
 
   allocations   PayoutAllocation[]
   /// When this payout started recording which bookings it is made of.
@@ -5039,19 +5043,33 @@ model OrganizerPayoutAccount {
   accountCipher String
 
   /// Somebody has checked this against a document or a penny transfer.
-  verifiedAt       DateTime?
-  verifiedByUserId String?
+  verifiedAt             DateTime?
+  verifiedByUserId       String?
   /// Who SAVED the details now on this row (the maker). Verification must come from somebody else.
-  updatedByUserId  String?
+  updatedByUserId        String?
   /// Staff turned these details down. Cleared by the next save, like verifiedAt.
-  rejectedAt       DateTime?
-  rejectedByUserId String?
-  rejectionReason  String?
+  rejectedAt             DateTime?
+  rejectedByUserId       String?
+  rejectionReason        String?
+  /// How the verifier checked the account (PENNY_DROP, BANK_LETTER, CANCELLED_CHEQUE,
+  /// BANK_STATEMENT) and their reference for that evidence. Cleared by the next save.
+  verificationMethod     String?
+  verificationEvidence   String?
+  /// An organization OWNER, signed in to their own console, re-typed the full account number
+  /// and bank code of THIS version and confirmed it is theirs. Cleared by the next save.
+  ownerConfirmedAt       DateTime?
+  ownerConfirmedByUserId String?
+  ownerConfirmedVersion  Int?
+  /// An owner said these details are not theirs or are wrong. Holds every payout into the
+  /// account until an owner saves the details again (a new version, checked from scratch).
+  disputedAt             DateTime?
+  disputedByUserId       String?
+  disputeReason          String?
   /// Counts saves. A verification names the version it checked, so details swapped after a
   /// reviewer looked at them can never be verified by that earlier look.
-  version          Int       @default(1)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  version                Int       @default(1)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   versions OrganizerPayoutAccountVersion[]
 

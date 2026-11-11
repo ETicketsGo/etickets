@@ -227,11 +227,19 @@
     },
     "verified": {
       "subject": "Votre compte bancaire de versement en {currency} a été vérifié",
-      "body": "L'équipe ETicketsGo a vérifié le compte bancaire de versement en {currency} chez {bank}, se terminant par {last4} (version {version}). Si vous ne vous y attendiez pas, communiquez avec le soutien maintenant."
+      "body": "L'équipe ETicketsGo a vérifié le compte bancaire de versement en {currency} chez {bank}, se terminant par {last4} (version {version}). Connectez-vous et ouvrez Versements pour confirmer que ce compte est le vôtre : les règlements peuvent attendre votre confirmation. S'il ne s'agit pas de votre compte, choisissez Signaler un problème, ce qui arrête immédiatement tout versement vers ce compte."
     },
     "rejected": {
       "subject": "Votre compte bancaire de versement en {currency} n'a pas été accepté",
       "body": "L'équipe ETicketsGo n'a pas pu vérifier le compte bancaire de versement en {currency} chez {bank}, se terminant par {last4} (version {version}).{reason} Vérifiez les renseignements et enregistrez de nouveau le compte."
+    },
+    "confirmed": {
+      "subject": "Votre compte bancaire de versement en {currency} a été confirmé",
+      "body": "Un propriétaire de votre organisation a confirmé le compte bancaire de versement en {currency} chez {bank}, se terminant par {last4} (version {version}). Si ce n'était pas vous, connectez-vous et signalez-le sous Versements maintenant."
+    },
+    "disputed": {
+      "subject": "Les versements vers votre compte bancaire en {currency} sont suspendus",
+      "body": "Un propriétaire de votre organisation a signalé que le compte bancaire de versement en {currency} chez {bank}, se terminant par {last4} (version {version}), n'est pas le sien ou est erroné.{reason} Aucun versement n'y sera fait. Enregistrez les bons renseignements bancaires sous Versements pour lancer une nouvelle vérification."
     },
     "fields": {
       "initial": "un nouveau compte",

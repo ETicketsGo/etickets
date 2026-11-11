@@ -565,11 +565,12 @@ export class OrganizationsService {
         metadata: { reasonCode: failure, decision: input.decision },
       });
       throw new AppException(
-        ErrorCodes.FORBIDDEN,
+        ErrorCodes.SEPARATION_OF_DUTIES,
         failure === 'SAME_PERSON'
           ? 'You made this change, so someone else must review it.'
           : 'You belong to this organization, so someone else must review its legal details.',
         HttpStatus.FORBIDDEN,
+        { rule: 'IDENTITY_REVIEWER_INDEPENDENT', reason: failure },
       );
     }
 
