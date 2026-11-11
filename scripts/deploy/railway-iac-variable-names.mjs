@@ -13,7 +13,7 @@
 // The pull is read-only. Values in the pull are `{type:"preserve"}` markers; this script
 // refuses a graph that contains any real value, so a secret can never be written to source.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const [envName, graphPath] = process.argv.slice(2);
@@ -48,10 +48,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const target = path.join(root, '.railway', 'variables.ts');
 let all = {};
 if (existsSync(target)) {
-  const m = readFileSync(target, 'utf8').match(
-    /export const VARIABLE_NAMES = (\{[\s\S]*\}) as const;/,
-  );
-  if (m) all = JSON.parse(m[1]);
+  // Load the existing file as the module it is (Node strips the `as const`). It was read with
+  // JSON.parse, which broke once Prettier reformatted the file (unquoted keys, single quotes):
+  // regenerating one environment then failed instead of keeping the other two.
+  const mod = await import(`${pathToFileURL(target).href}?t=${Date.now()}`);
+  all = JSON.parse(JSON.stringify(mod.VARIABLE_NAMES ?? {}));
 }
 all[envName] = names;
 const ordered = Object.fromEntries(

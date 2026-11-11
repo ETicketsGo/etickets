@@ -25,6 +25,7 @@
 //     node --experimental-strip-types scripts/deploy/railway-iac-settings-first.mjs
 //   ... --write                 needs CONFIRM_IAC_SETTINGS=<environment name>
 //   ... --clear-legacy-paths    needs CONFIRM_IAC_SETTINGS=<environment name>
+//   ... --clear-legacy-paths --services=api,worker   only those services (db-seed last)
 //
 // Exit: 0 nothing pending; 2 settings pending (dry run); 1 error or refusal.
 import { createRailwayContext, project } from 'railway/iac';
@@ -39,6 +40,19 @@ if (!token) {
 }
 const write = process.argv.includes('--write');
 const clearPaths = process.argv.includes('--clear-legacy-paths');
+/*
+  --services=a,b limits --clear-legacy-paths to those services. Why: one service still on an
+  old commit (db-seed, which is deployed rarely) used to block clearing every other service.
+  The trap-3 guard still applies to each named service; the rest keep their legacy path.
+*/
+const servicesArg = process.argv.find((a) => a.startsWith('--services='));
+const onlyServices = servicesArg
+  ? new Set(servicesArg.slice('--services='.length).split(',').filter(Boolean))
+  : null;
+if (onlyServices && !clearPaths) {
+  console.error('--services= only applies to --clear-legacy-paths.');
+  process.exit(1);
+}
 if (write && clearPaths) {
   console.error('One step at a time: --write, then a dry run, then --clear-legacy-paths.');
   process.exit(1);
@@ -213,8 +227,14 @@ if (clearPaths) {
     that environment's release of main. Until then the written settings sit under the file
     (no effect), and they are what remains once Railway stops reading files on 2026-12-01.
   */
+  const unknown = [...(onlyServices ?? [])].filter((n) => !plan.some((x) => x.r.name === n));
+  if (unknown.length) {
+    console.error(`Refusing: not services of ${envName}: ${unknown.join(', ')}`);
+    process.exit(1);
+  }
+  const targets = onlyServices ? plan.filter((x) => onlyServices.has(x.r.name)) : plan;
   const stale = [];
-  for (const { r, inst } of plan) {
+  for (const { r, inst } of targets) {
     const sha = inst.latestDeployment?.meta?.commitHash;
     if (!sha) continue; // image-sourced service: no repo file can apply
     try {
@@ -240,12 +260,15 @@ if (clearPaths) {
     );
     process.exit(1);
   }
-  for (const { r, inst } of plan) {
+  for (const { r, inst } of targets) {
     if (!inst.railwayConfigFile) continue;
     // An empty string clears the path; null is ignored by the API.
     await update(inst.serviceId, { railwayConfigFile: '' });
     console.log(`  cleared the legacy path on ${r.name} (was ${inst.railwayConfigFile})`);
   }
+  const kept = plan.filter((x) => !targets.includes(x) && x.inst.railwayConfigFile);
+  if (kept.length)
+    console.log(`  still on a legacy path (not named): ${kept.map((x) => x.r.name).join(', ')}`);
   await assertNoNewDeployments('after clearing');
   console.log('Next: railway config plan --detailed-exit-code must exit 0.');
   process.exit(0);
