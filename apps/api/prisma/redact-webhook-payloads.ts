@@ -1,8 +1,26 @@
 import { PrismaClient, WebhookProcessingStatus } from '@prisma/client';
-import {
-  holdsPersonalData,
-  redactProviderPayload,
-} from '../src/payments/webhooks/payload-redaction';
+import type * as Redaction from '../src/payments/webhooks/payload-redaction';
+
+/*
+  The db-seed service runs this from the API image, which carries prisma/ and the COMPILED API
+  (dist/) but not src/. Locally and under jest it is src/. Same module either way, so the
+  backfill can never drift from what the receivers apply on write.
+*/
+function loadRedaction(): typeof Redaction {
+  for (const path of [
+    '../src/payments/webhooks/payload-redaction',
+    '../dist/payments/webhooks/payload-redaction',
+  ]) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      return require(path) as typeof Redaction;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'MODULE_NOT_FOUND') throw e;
+    }
+  }
+  throw new Error('payload-redaction module not found in src/ or dist/');
+}
+const { holdsPersonalData, redactProviderPayload } = loadRedaction();
 
 /**
  * Remove the payer from payment webhook rows stored BEFORE redaction-on-write shipped.
