@@ -42,16 +42,17 @@ health result is exactly as before.
 
 ## Variables (names only; set them on `db-seed`, and `BACKUP_OFFSITE_BUCKET` also on `api`)
 
-| Name                                                               | Where        | Meaning                                                                                    |
-| ------------------------------------------------------------------ | ------------ | ------------------------------------------------------------------------------------------ |
-| `BACKUP_OFFSITE_BUCKET`                                            | db-seed, api | Turns the feature on. Unset means off.                                                     |
-| `BACKUP_OFFSITE_REGION`                                            | db-seed      | Default `ap-south-1` (Mumbai).                                                             |
-| `BACKUP_OFFSITE_PREFIX`                                            | db-seed      | Default `etg-db-backups`.                                                                  |
-| `BACKUP_OFFSITE_ENDPOINT`                                          | db-seed      | Optional, for R2/B2/other S3-compatible stores (path-style addressing is used when set).   |
-| `BACKUP_OFFSITE_SSE`                                               | db-seed      | Optional: `none` for a store that rejects SSE headers. `aws:kms` is implied by the key id. |
-| `BACKUP_OFFSITE_KMS_KEY_ID`                                        | db-seed      | Optional KMS key for SSE-KMS.                                                              |
-| `BACKUP_OFFSITE_MAX_AGE_HOURS`                                     | api          | Optional, default 26.                                                                      |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (`AWS_SESSION_TOKEN`) | db-seed      | The **write-only** principal below. Standard AWS names; never set the read principal here. |
+| Name                                                               | Where        | Meaning                                                                                                                                                             |
+| ------------------------------------------------------------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BACKUP_OFFSITE_BUCKET`                                            | db-seed, api | Turns the feature on. Unset means off.                                                                                                                              |
+| `BACKUP_OFFSITE_REGION`                                            | db-seed      | Default `ap-south-1` (Mumbai).                                                                                                                                      |
+| `BACKUP_OFFSITE_PREFIX`                                            | db-seed      | Default `etg-db-backups`.                                                                                                                                           |
+| `BACKUP_OFFSITE_ENDPOINT`                                          | db-seed      | Optional, for R2/B2/other S3-compatible stores (path-style addressing is used when set).                                                                            |
+| `BACKUP_OFFSITE_SSE`                                               | db-seed      | Optional: `none` for a store that rejects SSE headers. `aws:kms` is implied by the key id.                                                                          |
+| `BACKUP_OFFSITE_KMS_KEY_ID`                                        | db-seed      | Optional KMS key for SSE-KMS.                                                                                                                                       |
+| `BACKUP_OFFSITE_ENCRYPTION_KEY`                                    | db-seed      | 32 random bytes (base64). Client-side AES-256-GCM before upload. **Required when APP_ENV is PRODUCTION/STAGING** (no key = no upload). Keep a copy OUTSIDE Railway. |
+| `BACKUP_OFFSITE_MAX_AGE_HOURS`                                     | api          | Optional, default 26.                                                                                                                                               |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (`AWS_SESSION_TOKEN`) | db-seed      | The **write-only** principal below. Standard AWS names; never set the read principal here.                                                                          |
 
 ## Owner steps
 
@@ -123,3 +124,20 @@ time in the restore log.
 - The upload is not part of the destructive `full-reset` path, which only needs the local pre-reset recovery point.
 - This is tested against a mocked client and an in-process S3-compatible HTTP server. It has **not** been run against
   real AWS S3; the first real run is the owner's verification above.
+
+## Client-side encryption and the off-platform restore drill
+
+Server-side encryption protects the provider's disks, not the data from whoever holds bucket credentials. With
+`BACKUP_OFFSITE_ENCRYPTION_KEY` set, the dump is encrypted on db-seed before upload (`prisma/backup-crypto.ts`,
+AES-256-GCM, fresh IV per file, authenticated) and stored as `<name>.dump.enc` with metadata `encryption`, `key-fp`
+(key fingerprint, not the key) and `source-sha256`. Production refuses to upload without a key.
+
+Generate the key once: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Store it in
+the password manager FIRST, then set it on db-seed. A key that exists only in Railway is lost in exactly the disaster
+this copy is for. To rotate, set a new key; older objects stay decryptable with the old key (the fingerprint says
+which one a file needs).
+
+**Restore drill from outside Railway** (`prisma/offsite-restore-drill.ts`) with the READ-only principal: newest object
+for the environment -> SHA-256 check -> decrypt -> `pg_restore --list` -> optional restore into an EMPTY scratch
+database (`RESTORE_DRILL_DATABASE_URL`; refuses a database that already has tables) -> core-table row counts. Needs
+Node and the Postgres 16 client tools. Prints one `OFFSITE_RESTORE_DRILL_JSON` line, deletes every temporary file.

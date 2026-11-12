@@ -24,9 +24,11 @@
  * from '../src'. Its evidence-row constants are duplicated in src/ops/backup-freshness.ts and
  * pinned together by backup-offsite.spec.ts.
  */
-import { createHash } from 'node:crypto';
-import { createReadStream, statSync } from 'node:fs';
-import { basename } from 'node:path';
+import { createHash, randomBytes } from 'node:crypto';
+import { createReadStream, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
+import { encryptFile, keyFingerprint, parseBackupKey } from './backup-crypto';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { recordOpsEvidence } from './backup';
 
@@ -56,7 +58,15 @@ export interface OffsiteConfig {
   /** 'AES256' (default), 'aws:kms', or null when the operator opted out for a store without SSE. */
   sse: 'AES256' | 'aws:kms' | null;
   kmsKeyId: string | null;
+  /**
+   * Client-side AES-256-GCM before upload (backup-crypto.ts). REQUIRED in production: a dump of
+   * every customer must not leave Railway readable by whoever holds the bucket credentials.
+   */
+  encryptionRequired: boolean;
 }
+
+/** Environments whose off-platform copy must be encrypted client-side. */
+const ENCRYPTION_REQUIRED_ENVS = ['PRODUCTION', 'STAGING'];
 
 /** Null means "not configured": the feature is off and nothing else in this file runs. */
 export function offsiteConfig(env: NodeJS.ProcessEnv = process.env): OffsiteConfig | null {
@@ -74,6 +84,7 @@ export function offsiteConfig(env: NodeJS.ProcessEnv = process.env): OffsiteConf
     endpoint: env.BACKUP_OFFSITE_ENDPOINT?.trim() || null,
     sse,
     kmsKeyId: sse === 'aws:kms' ? kmsKeyId : null,
+    encryptionRequired: ENCRYPTION_REQUIRED_ENVS.includes((env.APP_ENV ?? '').trim().toUpperCase()),
   };
 }
 
@@ -153,15 +164,35 @@ export async function uploadOffsite(
   let key: string | null = null;
   let sha256: string | null = null;
   let bytes: number | null = null;
+  let encryptedPath: string | null = null;
   try {
-    key = offsiteKey(cfg.prefix, file.name);
-    bytes = statSync(file.path).size;
-    sha256 = await sha256OfFile(file.path);
+    const encKey = parseBackupKey((opts.env ?? process.env).BACKUP_OFFSITE_ENCRYPTION_KEY);
+    if (!encKey && cfg.encryptionRequired) {
+      return failed(
+        null,
+        null,
+        null,
+        'BACKUP_OFFSITE_ENCRYPTION_KEY is not set; production backups are never uploaded unencrypted',
+      );
+    }
+    const sourceSha256 = await sha256OfFile(file.path);
+    // What is uploaded: the dump itself, or its encrypted form written to a private temp file
+    // (never into the backups directory, so retention and restore never mistake it for a dump).
+    let uploadPath = file.path;
+    if (encKey) {
+      encryptedPath = join(tmpdir(), `etg-offsite-${randomBytes(6).toString('hex')}.enc`);
+      await encryptFile(file.path, encryptedPath, encKey);
+      uploadPath = encryptedPath;
+    }
+    key = offsiteKey(cfg.prefix, file.name) + (encKey ? '.enc' : '');
+    bytes = statSync(uploadPath).size;
+    // The checksum the STORE verifies is over the bytes it receives (ciphertext when encrypted).
+    sha256 = encKey ? await sha256OfFile(uploadPath) : sourceSha256;
     const client = opts.client ?? makeClient(cfg, opts.env ?? process.env);
 
     let lastError = 'unknown error';
     for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
-      const body = createReadStream(file.path);
+      const body = createReadStream(uploadPath);
       // An error on a stream the SDK never got to read must not become an unhandled event.
       body.on('error', () => undefined);
       try {
@@ -179,8 +210,12 @@ export async function uploadOffsite(
             IfNoneMatch: '*',
             Metadata: {
               sha256,
-              'source-bytes': String(bytes),
+              'source-bytes': String(statSync(file.path).size),
               'source-name': basename(file.name),
+              'source-sha256': sourceSha256,
+              ...(encKey
+                ? { encryption: 'aes-256-gcm', 'key-fp': keyFingerprint(encKey).toString('hex') }
+                : {}),
             },
             ...(cfg.sse
               ? {
@@ -218,6 +253,8 @@ export async function uploadOffsite(
     return failed(key, sha256, bytes, lastError);
   } catch (e) {
     return failed(key, sha256, bytes, scrub((e as Error).message ?? String(e)));
+  } finally {
+    if (encryptedPath) rmSync(encryptedPath, { force: true });
   }
 }
 

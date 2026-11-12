@@ -14,6 +14,9 @@ import {
 } from '../../prisma/backup-offsite';
 import { OFFSITE_BACKUP_EVIDENCE_ACTION } from './backup-freshness';
 import * as backup from '../../prisma/backup';
+import { decryptFile, parseBackupKey } from '../../prisma/backup-crypto';
+
+const BACKUP_KEY = Buffer.alloc(32, 7).toString('base64');
 
 /*
   recordOpsEvidence shells out to psql against DATABASE_URL, which on a developer machine is the
@@ -191,11 +194,23 @@ describe('the db-seed image constraints', () => {
     expect(PRISMA_ACTION).toBe(OFFSITE_BACKUP_EVIDENCE_ACTION);
   });
 
+  it('prisma/backup-crypto.ts imports only node built-ins', () => {
+    const src = readFileSync(join(__dirname, '../../prisma/backup-crypto.ts'), 'utf8');
+    const imports = [...src.matchAll(/^import [^;]*? from '([^']+)'/gm)].map((m) => m[1]);
+    expect(imports.length).toBeGreaterThan(0);
+    for (const i of imports) expect(i.startsWith('node:')).toBe(true);
+  });
+
   it('prisma/backup-offsite.ts imports nothing from src/ (the runtime image has no apps/api/src)', () => {
     const src = readFileSync(join(__dirname, '../../prisma/backup-offsite.ts'), 'utf8');
     const imports = [...src.matchAll(/^import [^;]*? from '([^']+)'/gm)].map((m) => m[1]);
     for (const i of imports) {
-      expect(i.startsWith('node:') || i.startsWith('@aws-sdk/') || i === './backup').toBe(true);
+      expect(
+        i.startsWith('node:') ||
+          i.startsWith('@aws-sdk/') ||
+          i === './backup' ||
+          i === './backup-crypto',
+      ).toBe(true);
     }
   });
 });
@@ -285,6 +300,41 @@ describe('real SDK against an in-process S3-compatible server', () => {
     const r = await uploadOffsite(d2, { env: e, client: corrupting, retryDelayMs: 1 });
     expect(r.status).toBe('failed');
     expect([...store.keys()].some((k) => k.includes('2026-10-13'))).toBe(false);
+    err.mockRestore();
+  });
+
+  it('encrypted: the store holds only ciphertext, and the key restores the exact dump', async () => {
+    const e = { ...env(), BACKUP_OFFSITE_ENCRYPTION_KEY: BACKUP_KEY } as NodeJS.ProcessEnv;
+    const d3 = { name: 'etg-production-2026-10-14T02-00-00-000Z.dump', path: dump.path };
+    const r = await uploadOffsite(d3, { env: e, client: makeClient(offsiteConfig(e)!, e) });
+    expect(r.status).toBe('uploaded');
+    expect(r.key!.endsWith('.dump.enc')).toBe(true);
+    const stored = store.get(`/etg-backups/${r.key}`)!;
+    expect(stored.includes(CONTENT.subarray(0, 32))).toBe(false); // no plaintext on the store
+    const h = seen[seen.length - 1];
+    expect(h['x-amz-meta-encryption']).toBe('aes-256-gcm');
+    expect(h['x-amz-meta-source-sha256']).toBe(SHA);
+    // Round trip: download (here: the stored bytes) and decrypt with the same key.
+    const enc = join(dir, 'down.enc');
+    const plain = join(dir, 'restored.dump');
+    writeFileSync(enc, stored);
+    await decryptFile(enc, plain, parseBackupKey(BACKUP_KEY)!);
+    expect(readFileSync(plain).equals(CONTENT)).toBe(true);
+    // The temporary ciphertext is gone from the machine that made it.
+    expect(
+      readdirSync(tmpdir()).some((f) => f.startsWith('etg-offsite-') && f.endsWith('.enc')),
+    ).toBe(false);
+  });
+
+  it('production without a key: nothing is sent, and the run says why', async () => {
+    const err = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const before = seen.length;
+    const e = { ...env(), APP_ENV: 'PRODUCTION' } as NodeJS.ProcessEnv;
+    const r = await uploadOffsite(dump, { env: e, client: makeClient(offsiteConfig(e)!, e) });
+    expect(r.status).toBe('failed');
+    expect(r.error).toMatch(/never uploaded unencrypted/);
+    expect(seen.length).toBe(before);
+    expect(readFileSync(dump.path).length).toBeGreaterThan(0); // local dump untouched
     err.mockRestore();
   });
 });
