@@ -168,7 +168,7 @@ we will recreate it if needed. The same is available at
 https://www.eticketsgo.com/delete-account
 ```
 
-## Submission checklist (2026-11-11, build after PRs 643/644)
+## Submission checklist (2026-11-12, build 8)
 
 Status words: DONE = proven; OWNER = needs Play Console or a business decision; BLOCKED = waits on
 something outside engineering. Nothing here is marked done without the evidence named.
