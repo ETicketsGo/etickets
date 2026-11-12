@@ -136,6 +136,7 @@ describe('authorised manual maintenance still works', () => {
       'payment-providers',
       'review-catalogue',
       'backfill-objects',
+      'redact-webhooks',
       'full-reset',
     ]) {
       const v = resolveOperation({

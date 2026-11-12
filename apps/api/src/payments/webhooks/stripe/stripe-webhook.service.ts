@@ -10,6 +10,7 @@ import { StripeWebhookProcessor } from './stripe-webhook.processor';
 import { OpsAlertService } from '../../../ops/alerts/ops-alert.service';
 import { webhookSignatureAlert } from '../../../ops/alerts/ops-alert-messages';
 import { isUniqueViolation } from '../../../events/request-key';
+import { redactProviderPayload } from '../payload-redaction';
 
 export interface WebhookIngestResult {
   received: true;
@@ -94,7 +95,11 @@ export class StripeWebhookService {
     }
 
     const payloadHash = createHash('sha256').update(rawBody).digest('hex');
-    const data = { account: envelope.account ?? null, object: envelope.object };
+    // Stored without the payer: see payload-redaction.ts. The processor reads this copy.
+    const data = redactProviderPayload({
+      account: envelope.account ?? null,
+      object: envelope.object,
+    });
 
     const record = existing
       ? await this.prisma.webhookEvent.update({
