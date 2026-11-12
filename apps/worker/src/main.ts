@@ -6,6 +6,7 @@ import IORedis from 'ioredis';
 import {
   AppModule,
   AuthService,
+  AuthRecordRetentionService,
   BillingSweepService,
   BillingPriceReconcileService,
   BookingsService,
@@ -246,6 +247,7 @@ async function main(): Promise<void> {
   const sellability = app.get(EventSellabilitySweepService);
   const finance = app.get(FinanceReconciliationService);
   const auth = app.get(AuthService);
+  const authRecordRetention = app.get(AuthRecordRetentionService);
   const stripeWebhooks = app.get(StripeWebhookProcessor);
   const razorpayWebhooks = app.get(RazorpayWebhookProcessor);
   const settlements = app.get(SettlementService);
@@ -664,7 +666,15 @@ async function main(): Promise<void> {
       if (job.name === 'prune-tokens') {
         const pruned = await auth.pruneExpiredRefreshTokens();
         if (pruned > 0) log('info', 'pruned expired refresh tokens', { pruned });
-        return { pruned };
+        /*
+          Same daily tick: one-time auth records (OTPs, verification codes, reset tokens,
+          handoff codes, guest-booking links) expired beyond AUTH_RECORD_RETENTION_DAYS.
+          DRY RUN unless RETENTION_PURGE_ENABLED=true - it then only counts. Counts per model
+          only in the log line; never a phone, email, IP or token.
+        */
+        const retention = await authRecordRetention.run();
+        log('info', 'auth record retention', { ...retention });
+        return { pruned, authRecords: retention };
       }
       if (job.name === 'reversal-reconcile') {
         /*

@@ -1,6 +1,5 @@
-import { Body, Controller, Delete, Get, Patch, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Patch, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import type { Request } from 'express';
 import { z } from 'zod';
 import { AdminPermission, Role, UserStatus, isResidenceCountry } from '@eticketsgo/shared-types';
 import { paginationSchema } from '@eticketsgo/validation';
@@ -83,13 +82,9 @@ export class UsersController {
   deleteMe(
     @CurrentUser('id') userId: string,
     @Body(new ZodValidationPipe(deleteAccountSchema)) body: { reason?: string },
-    @Req() req: Request,
   ) {
-    return this.accountDeletion.deleteMe(userId, {
-      reason: body?.reason,
-      ip: req.ip,
-      userAgent: req.get('user-agent') ?? undefined,
-    });
+    // No IP or user agent is passed on: the deletion audit row keeps neither.
+    return this.accountDeletion.deleteMe(userId, { reason: body?.reason });
   }
 
   /*
