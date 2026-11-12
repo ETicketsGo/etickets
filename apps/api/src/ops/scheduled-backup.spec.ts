@@ -134,6 +134,7 @@ describe('authorised manual maintenance still works', () => {
       'india-cinema',
       'payment-routes',
       'payment-providers',
+      'db-roles',
       'review-catalogue',
       'backfill-objects',
       'redact-webhooks',
