@@ -12,6 +12,18 @@ Bradstreet (section 4).
 
 ## 0. Release candidate: Android 1.0.0
 
+**Current candidate (2026-11-12): versionCode 8.** Upload this one; 4-7 are superseded.
+
+|            |                                                                                                                                              |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Source     | `main` 5c10d50918e1ed5f7f942064462b508031dfab1f (PRs 643-647)                                                                                |
+| EAS build  | `503e2658-6c55-463d-8dca-042d36690a89`                                                                                                       |
+| AAB sha256 | `a2758d98b3db418ec8a4c38e9b87e30472cd5d3b7388f5031b0d1fb9e817f3c1`                                                                           |
+| Copy       | `Documents/ETicketsGo-Releases/android-1.0.0-vc8/` (AAB, SHA256SUMS, BUILD-INFO.txt)                                                         |
+| Checked    | package `com.eticketsgo.customer`, versionName 1.0.0, targetSdk 36, upload key 86:D8:AE:...:E3:2A, production API, no test endpoints or keys |
+| Needs      | production API at 5c10d509 or later (deployed 2026-11-12) for "Online" on bookings and tickets; older APIs still work                        |
+| Rollback   | build 7 (`3005a215`, `android-1.0.0-vc7/`)                                                                                                   |
+
 **Status 2026-11-04.** versionCode 4 below is SUPERSEDED (it lacks the repeat phone sign-up
 message). A versionCode 5 bundle was built from main 7b3da50f: EAS build
 `a74795bf-0f76-4236-9e89-705eb6b8f5ed`, sha256
