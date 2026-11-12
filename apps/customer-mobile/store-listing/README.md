@@ -173,23 +173,23 @@ https://www.eticketsgo.com/delete-account
 Status words: DONE = proven; OWNER = needs Play Console or a business decision; BLOCKED = waits on
 something outside engineering. Nothing here is marked done without the evidence named.
 
-| Item | Status | Evidence / action |
-| --- | --- | --- |
-| Organization developer account (DeepTrics Software Solutions Pvt Ltd) | BLOCKED | D-U-N-S pending, then Google's organization verification. Never a personal account. |
-| Package `com.eticketsgo.customer`, versionName 1.0.0 | DONE | Built and checked with bundletool; versionCode comes from EAS (remote, auto-increment). |
-| Target API 36 (required for new apps from 2026-08-31) | DONE | `targetSdkVersion` 36 in the bundle manifest. |
-| Signing | DONE / OWNER | Upload key on EAS (SHA-256 `86:D8:AE:...:E3:2A`). The owner turns on Play App Signing when creating the app. |
-| Permissions | DONE | No camera, location, storage, contacts or draw-over-apps; `POST_NOTIFICATIONS` only asked in a build with push (push is off). |
-| Privacy policy URL | DONE | `https://www.eticketsgo.com/privacy` (v2, live). |
-| Account deletion URL + in-app path | DONE | `https://www.eticketsgo.com/delete-account` (live); Account > Delete account (verified on QA). |
-| Data safety | OWNER | Draft above; no SDK added since it was written (Expo 57 patch versions only). The owner submits it. |
-| Content rating (IARC) | OWNER | Inputs above. |
-| Target audience, ads, financial features | OWNER | Inputs below. |
-| Store listing text, icon, feature graphic, 7 screenshots | DONE / OWNER | In this folder. Screenshots are labelled demonstration content from QA; retake on production once real events exist, or keep the "Sample event" label. |
-| Release notes | DONE | Above. |
-| App access (reviewer) | OWNER + BLOCKED | Reviewer account on production, and a published event (see next section). |
-| Countries | OWNER | India and the United States (where the platform sells). Do not list other countries: the app has no catalogue or payment route there. |
-| App Links (website links open the app) | OWNER | After the app exists: Play's app-signing SHA-256 into `ANDROID_APP_LINKS` on production customer-web (owner-approved change). Until then links open the website, which is safe. |
+| Item                                                                  | Status          | Evidence / action                                                                                                                                                               |
+| --------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Organization developer account (DeepTrics Software Solutions Pvt Ltd) | BLOCKED         | D-U-N-S pending, then Google's organization verification. Never a personal account.                                                                                             |
+| Package `com.eticketsgo.customer`, versionName 1.0.0                  | DONE            | Built and checked with bundletool; versionCode comes from EAS (remote, auto-increment).                                                                                         |
+| Target API 36 (required for new apps from 2026-08-31)                 | DONE            | `targetSdkVersion` 36 in the bundle manifest.                                                                                                                                   |
+| Signing                                                               | DONE / OWNER    | Upload key on EAS (SHA-256 `86:D8:AE:...:E3:2A`). The owner turns on Play App Signing when creating the app.                                                                    |
+| Permissions                                                           | DONE            | No camera, location, storage, contacts or draw-over-apps; `POST_NOTIFICATIONS` only asked in a build with push (push is off).                                                   |
+| Privacy policy URL                                                    | DONE            | `https://www.eticketsgo.com/privacy` (v2, live).                                                                                                                                |
+| Account deletion URL + in-app path                                    | DONE            | `https://www.eticketsgo.com/delete-account` (live); Account > Delete account (verified on QA).                                                                                  |
+| Data safety                                                           | OWNER           | Draft above; no SDK added since it was written (Expo 57 patch versions only). The owner submits it.                                                                             |
+| Content rating (IARC)                                                 | OWNER           | Inputs above.                                                                                                                                                                   |
+| Target audience, ads, financial features                              | OWNER           | Inputs below.                                                                                                                                                                   |
+| Store listing text, icon, feature graphic, 7 screenshots              | DONE / OWNER    | In this folder. Screenshots are labelled demonstration content from QA; retake on production once real events exist, or keep the "Sample event" label.                          |
+| Release notes                                                         | DONE            | Above.                                                                                                                                                                          |
+| App access (reviewer)                                                 | OWNER + BLOCKED | Reviewer account on production, and a published event (see next section).                                                                                                       |
+| Countries                                                             | OWNER           | India and the United States (where the platform sells). Do not list other countries: the app has no catalogue or payment route there.                                           |
+| App Links (website links open the app)                                | OWNER           | After the app exists: Play's app-signing SHA-256 into `ANDROID_APP_LINKS` on production customer-web (owner-approved change). Until then links open the website, which is safe. |
 
 ## How a reviewer can test without paying
 
