@@ -44,6 +44,9 @@ export function useRequestRefund(bookingId: string) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: refundKeys.forBooking(bookingId) });
       void queryClient.invalidateQueries({ queryKey: bookingKeys.all });
+      // Tickets live under their own key. A free cancellation voids them at once, and the
+      // booking page kept showing the pass as "Valid" until the app was restarted.
+      void queryClient.invalidateQueries({ queryKey: bookingKeys.tickets() });
     },
   });
 }
