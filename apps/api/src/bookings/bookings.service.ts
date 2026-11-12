@@ -2648,6 +2648,9 @@ export class BookingsService {
             refundsEnabled: true,
             refundCutoffHours: true,
             refundPolicy: true,
+            // IN_PERSON, ONLINE or HYBRID: an ONLINE event's venue is a placeholder, and the
+            // booking page must say "Online" rather than print it.
+            attendanceMode: true,
             // Who ran it: the confirmation offers to follow them. Public profile fields only.
             organization: { select: { id: true, name: true } },
             // The venue's clock, for events that are not cinema showings — which is most

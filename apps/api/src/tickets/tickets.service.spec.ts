@@ -66,6 +66,29 @@ describe('TicketsService.wallet', () => {
     expect(t.qrDataUrl!.startsWith('data:image/png')).toBe(true);
   });
 
+  it('sends no venue for an ONLINE event, only its mode, so no ticket prints a placeholder place', async () => {
+    const base = row();
+    const online = row({
+      eventSession: {
+        ...base.eventSession,
+        event: {
+          ...base.eventSession.event,
+          attendanceMode: 'ONLINE',
+          venue: { name: 'Webinar placeholder', city: 'Boise' },
+        },
+      },
+    });
+    const { svc, findMany } = setup([online, row()]);
+    const [o, inPerson] = await svc.wallet(USER);
+    expect(o.venueName).toBeNull();
+    expect(o.attendanceMode).toBe('ONLINE');
+    // An in-person ticket keeps its real venue.
+    expect(inPerson.venueName).toBe('Hall A');
+    expect(inPerson.attendanceMode).toBe('IN_PERSON');
+    // And the mode is actually asked of the database.
+    expect(JSON.stringify(findMany.mock.calls[0][0])).toContain('"attendanceMode":true');
+  });
+
   it('falls back to a derived short code when no reference is set (legacy booking)', async () => {
     const { svc } = setup([row({ booking: { reference: null } })]);
     const [t] = await svc.wallet(USER);
