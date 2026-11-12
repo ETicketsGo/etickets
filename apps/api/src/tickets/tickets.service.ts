@@ -39,6 +39,8 @@ const TICKET_INCLUDE = {
           title: true,
           slug: true,
           experienceType: true,
+          // ONLINE events carry a placeholder venue; see venueName below.
+          attendanceMode: true,
           // The venue's zone is the fallback for every event that is not in a cinema.
           venue: { select: { name: true, city: true, timezone: true, country: true } },
         },
@@ -234,6 +236,7 @@ export class TicketsService {
           title: string;
           slug: string;
           experienceType: string;
+          attendanceMode?: string | null;
           venue: {
             name: string;
             city: string;
@@ -327,7 +330,13 @@ export class TicketsService {
       bookingRef: ticket.booking.reference ?? ticket.bookingId.slice(-6).toUpperCase(),
       experienceType: event.experienceType,
       seatLabel: ticket.seatLabel,
-      venueName: event.venue?.name ?? null,
+      /*
+        An ONLINE event's venue is the organizer's placeholder for the stream (a name and a
+        city so discovery can list it). Printed on a ticket it is a place nobody should go,
+        so it is not sent; the client says "Online" from attendanceMode.
+      */
+      venueName: event.attendanceMode === 'ONLINE' ? null : (event.venue?.name ?? null),
+      attendanceMode: event.attendanceMode ?? 'IN_PERSON',
       screenName: screen?.name ?? null,
       cinemaName: screen?.cinema?.name ?? null,
       /*

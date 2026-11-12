@@ -20,6 +20,7 @@ import {
 import type { CachedTicket } from '@/services/ticket-cache';
 import { TicketQr } from '@/features/bookings/ticket-qr';
 import { BookingManage } from '@/features/bookings/booking-manage';
+import { isOnlineOnly, ONLINE } from '@/features/events/event-place';
 
 /**
  * A single booking and the tickets in it.
@@ -123,9 +124,11 @@ export default function BookingScreen() {
               <Text variant="body" className="font-semibold">
                 {formatEventWhen(booking.eventSession.startsAt, booking.timeZone ?? undefined)}
               </Text>
-              {booking.event.venue?.name
-                ? ` - ${booking.event.venue.name}${booking.event.venue.city ? `, ${booking.event.venue.city}` : ''}`
-                : ''}
+              {isOnlineOnly(booking.event)
+                ? ` - ${ONLINE}`
+                : booking.event.venue?.name
+                  ? ` - ${booking.event.venue.name}${booking.event.venue.city ? `, ${booking.event.venue.city}` : ''}`
+                  : ''}
             </Text>
           </View>
 
@@ -179,9 +182,10 @@ export default function BookingScreen() {
  */
 function TicketPass({ ticket, timeZone }: { ticket: CachedTicket; timeZone?: string }) {
   const state = ticketState(ticket.status);
-  const where = [ticket.venueName, ticket.cinemaName, ticket.screenName]
-    .filter(Boolean)
-    .join(' - ');
+  // An online event has no place to print: its venue is the organizer's placeholder.
+  const where = isOnlineOnly(ticket)
+    ? ONLINE
+    : [ticket.venueName, ticket.cinemaName, ticket.screenName].filter(Boolean).join(' - ');
 
   return (
     <View className="overflow-hidden rounded-card bg-stage">

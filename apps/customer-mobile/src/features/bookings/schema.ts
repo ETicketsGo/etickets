@@ -54,6 +54,8 @@ export const bookingDetailSchema = bookingSchema.omit({ _count: true }).extend({
     refundsEnabled: z.boolean().nullish(),
     refundCutoffHours: z.number().nullish(),
     refundPolicy: z.string().nullish(),
+    /** IN_PERSON, ONLINE or HYBRID; an ONLINE event's venue is a placeholder. */
+    attendanceMode: z.string().nullish(),
   }),
   payment: z.object({ status: z.string(), provider: z.string().nullish() }).nullish(),
   tickets: z.array(z.object({ id: z.string() })).default([]),
@@ -118,6 +120,8 @@ export const ticketSchema = z.object({
   experienceType: z.string(),
   seatLabel: z.string().nullable(),
   venueName: z.string().nullable(),
+  /** IN_PERSON, ONLINE or HYBRID. An ONLINE ticket has no venue to print (venueName null). */
+  attendanceMode: z.string().nullish(),
   screenName: z.string().nullable(),
   cinemaName: z.string().nullable(),
   assignmentStatus: z.string(),
