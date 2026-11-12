@@ -205,6 +205,42 @@ reached. Before submitting for review:
 
 A QA or test environment is not an option for review: the Play build talks only to production.
 
+## Play Console setup steps (owner)
+
+**1. Organization account (DeepTrics Software Solutions Pvt Ltd).** Needs the D-U-N-S number,
+the legal name and address exactly as on the D-U-N-S record, a website
+(`https://www.eticketsgo.com`), a verified developer email and phone, and a Google payments
+profile in the same legal name. Google then verifies the organization. Never a personal account.
+
+**2. Create the app.** All apps > Create app: name `ETicketsGo`, default language English
+(United States), App, Free. Package is set by the first upload: `com.eticketsgo.customer`
+(it can never change).
+
+**3. Play App Signing.** On the first release, accept "Use a Google-generated app signing key"
+(recommended). The bundle from EAS is signed with the UPLOAD key (SHA-256
+`86:D8:AE:AD:09:E7:46:5B:A8:3B:DC:79:56:A9:97:79:17:AD:A5:64:FE:56:78:7D:57:01:71:BC:F5:D5:E3:2A`); Play
+re-signs installs with its own key. Keep the upload key on EAS and its backup (section 6.4 of
+`docs/PLAY-RELEASE.md`). If it is ever lost, request an upload-key reset in the Console.
+
+**4. Internal testing first.** Testing > Internal testing > Create new release > upload the AAB
+from `Documents/ETicketsGo-Releases/` after `sha256sum -c SHA256SUMS`; paste the release notes;
+add testers by email; install from the opt-in link on a phone.
+
+**5. App content.** Privacy policy URL, App access (reviewer text above), Ads: none, Content
+rating (IARC inputs above), Target audience 18+, Data safety (table above), Financial features:
+none, Government app: no, Account deletion URL. Countries: India and United States only.
+
+**6. App Links fingerprint (after step 3).** Setup > App integrity > App signing > copy the
+"App signing key certificate" SHA-256. With the owner's approval, set on production
+customer-web: `ANDROID_APP_LINKS=com.eticketsgo.customer:<that SHA-256>` (add
+`,com.eticketsgo.customer:<upload SHA-256>` only if testers install builds outside Play). Then
+check `https://www.eticketsgo.com/.well-known/assetlinks.json` returns it, and on a phone with the
+Play build: `adb shell pm verify-app-links --re-verify com.eticketsgo.customer` followed by
+`adb shell pm get-app-links com.eticketsgo.customer` shows `www.eticketsgo.com: verified`.
+
+**7. Production review.** Only after: a real free event is published on production, the
+reviewer account exists, and internal testing passed on a physical phone.
+
 ## Release notes (1.0.0)
 
 ```
