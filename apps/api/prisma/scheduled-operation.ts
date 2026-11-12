@@ -52,6 +52,7 @@ export const KNOWN_OPERATIONS = [
   'india-cinema',
   'payment-routes',
   'payment-providers',
+  'db-roles',
   'review-catalogue',
   'backfill-objects',
   'full-reset',

@@ -78,7 +78,7 @@ export class PrismaService
   async onModuleInit(): Promise<void> {
     this.registerSlowQueryListener();
     new Logger('DatabasePool').log(
-      `connection pool ${this.pool.poolSize} (${this.pool.source})` +
+      `connection pool ${this.pool.poolSize} (${this.pool.source}), credential ${this.pool.credential}` +
         (this.pool.poolTimeoutSeconds ? `, pool_timeout ${this.pool.poolTimeoutSeconds}s` : ''),
     );
     await this.$connect();

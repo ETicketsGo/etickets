@@ -244,6 +244,21 @@ switch (operation) {
     break;
   }
 
+  case 'db-roles': {
+    /*
+      Creates or refreshes the least-privilege logins etg_app and etg_readonly (db-roles.ts).
+      DRY RUN unless DB_ROLES_APPLY=true. Adds roles and grants only; no service changes
+      credentials until its DATABASE_URL is pointed at the new role.
+    */
+    const { applyDbRoles } = require('./apply-db-roles');
+    const { PrismaClient } = require('@prisma/client');
+    const db = new PrismaClient();
+    afterwards = applyDbRoles(db, (process.env.DB_ROLES_APPLY ?? '').trim() === 'true')
+      .then(() => undefined)
+      .finally(() => db.$disconnect());
+    break;
+  }
+
   case 'review-catalogue': {
     /*
       A small, real catalogue for a production environment that has nothing in it yet. Additive
