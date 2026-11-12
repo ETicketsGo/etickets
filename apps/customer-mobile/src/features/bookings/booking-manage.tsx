@@ -18,9 +18,18 @@ import {
  * event's window is open, and follow any refund already asked for. Every decision is the
  * server's; this card offers only what the event declares and shows what the server says.
  */
+/** What the API records for a free cancellation when the buyer gives no reason (as the web). */
+export const FREE_CANCEL_REASON = 'Free tickets cancelled by the buyer';
+
 export function BookingManage({ booking }: { booking: BookingDetail }) {
   const now = useNow(60_000);
   const status = booking.status.toUpperCase();
+  /*
+    A free booking has nothing to refund. The same request cancels its tickets at once, so
+    it is offered as "Cancel tickets" with an optional reason, as on the web. It used to say
+    "the money goes back the way you paid" and demand a reason for the organizer.
+  */
+  const free = booking.totalMinor <= 0 && !booking.payment;
   const tz = booking.timeZone ?? undefined;
   const refunds = useBookingRefunds(booking.id, status !== 'PENDING_PAYMENT');
   const cancel = useCancelUnpaid(booking.id);
@@ -101,13 +110,24 @@ export function BookingManage({ booking }: { booking: BookingDetail }) {
       })}
 
       {refundWin.kind === 'open' && open.length === 0 ? (
-        <>
-          <Text variant="ui" tone="secondary">
-            You can ask for a refund until {formatEventWhen(refundWin.closesAt, tz)}. The organizer
-            approves it, and the money goes back the way you paid.
-          </Text>
-          <Button label="Ask for a refund" variant="secondary" onPress={() => setAsking(true)} />
-        </>
+        free ? (
+          <>
+            <Text variant="ui" tone="secondary">
+              This booking was free, so there is nothing to refund. You can cancel until{' '}
+              {formatEventWhen(refundWin.closesAt, tz)}. Cancelling releases your tickets for
+              someone else and cannot be undone.
+            </Text>
+            <Button label="Cancel tickets" variant="secondary" onPress={() => setAsking(true)} />
+          </>
+        ) : (
+          <>
+            <Text variant="ui" tone="secondary">
+              You can ask for a refund until {formatEventWhen(refundWin.closesAt, tz)}. The
+              organizer approves it, and the money goes back the way you paid.
+            </Text>
+            <Button label="Ask for a refund" variant="secondary" onPress={() => setAsking(true)} />
+          </>
+        )
       ) : null}
       {refundWin.kind === 'closed' ? (
         <Text variant="ui" tone="secondary">
@@ -126,10 +146,14 @@ export function BookingManage({ booking }: { booking: BookingDetail }) {
         </Text>
       ) : null}
 
-      <Sheet visible={asking} onClose={() => setAsking(false)} title="Ask for a refund">
+      <Sheet
+        visible={asking}
+        onClose={() => setAsking(false)}
+        title={free ? 'Cancel tickets' : 'Ask for a refund'}
+      >
         <View className="gap-4">
           <Field
-            label="Why do you want a refund?"
+            label={free ? 'Why are you cancelling? (optional)' : 'Why do you want a refund?'}
             value={reason}
             onChangeText={(t) => {
               setReason(t);
@@ -141,15 +165,17 @@ export function BookingManage({ booking }: { booking: BookingDetail }) {
             hint="The organizer reads this. A few words is enough."
           />
           <Button
-            label="Send request"
+            label={free ? 'Cancel tickets' : 'Send request'}
+            variant={free ? 'danger' : undefined}
             size="lg"
             loading={request.isPending}
             onPress={() => {
-              if (reason.trim().length < 3) {
+              const given = reason.trim().length >= 3;
+              if (!given && !free) {
                 setError('Tell the organizer why in a few words.');
                 return;
               }
-              request.mutate(reason, {
+              request.mutate(given ? reason : FREE_CANCEL_REASON, {
                 onSuccess: () => {
                   setAsking(false);
                   setReason('');
