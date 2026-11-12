@@ -28,6 +28,7 @@ import {
   type TicketType,
 } from '@/features/events/schema';
 import { requiresSeatSelection } from '@/features/events/seating';
+import { eventPlace, isOnlineOnly, ONLINE } from '@/features/events/event-place';
 
 /**
  * Event page and ticket selection, laid out as the storefront's event page on a phone: the
@@ -71,6 +72,13 @@ export default function EventDetailScreen() {
 
   const totalQty = selected.reduce((n, r) => n + r.qty, 0);
   const subtotalMinor = selected.reduce((n, r) => n + r.type.priceMinor * r.qty, 0);
+  /*
+    The organizer has not finished payment setup. The API refuses the payment, and the app
+    used to find out only at "Pay", after holding the seats ("Something went wrong"). Said on
+    the page instead, as on the website; free tickets can still be booked.
+  */
+  const paidNotOnSale = !!event && !event.isFree && event.paidSalesReady === false;
+  const blockedByPayments = paidNotOnSale && subtotalMinor > 0;
   const currency = session?.ticketTypes[0]?.currency ?? 'INR';
   const fromMinor = useMemo(() => {
     const prices = (session?.ticketTypes ?? []).filter(isOnSale).map((t) => t.priceMinor);
@@ -163,21 +171,34 @@ export default function EventDetailScreen() {
 
         <View className="gap-4 px-4 pt-8">
           <Separator />
-          <View className="gap-1.5">
-            <Eyebrow>Venue</Eyebrow>
-            <Text variant="card">{event.venue.name}</Text>
-            <Text variant="ui" tone="secondary">
-              {venueLine(event)}
-            </Text>
-            <Button
-              label="Get directions"
-              variant="secondary"
-              icon="navigate-outline"
-              fullWidth={false}
-              className="mt-2"
-              onPress={() => void openDirections(event)}
-            />
-          </View>
+          {isOnlineOnly(event) ? (
+            // An online event's venue is a placeholder for the stream: no address, no map.
+            <View className="gap-1.5">
+              <Eyebrow>Where</Eyebrow>
+              <Text variant="card">{ONLINE}</Text>
+            </View>
+          ) : (
+            <View className="gap-1.5">
+              <Eyebrow>Venue</Eyebrow>
+              <Text variant="card">{event.venue.name}</Text>
+              <Text variant="ui" tone="secondary">
+                {venueLine(event)}
+              </Text>
+              {event.attendanceMode === 'HYBRID' ? (
+                <Text variant="ui" tone="secondary">
+                  You can also join online.
+                </Text>
+              ) : null}
+              <Button
+                label="Get directions"
+                variant="secondary"
+                icon="navigate-outline"
+                fullWidth={false}
+                className="mt-2"
+                onPress={() => void openDirections(event)}
+              />
+            </View>
+          )}
           <Separator />
           <View className="gap-1.5">
             <Eyebrow>Organizer</Eyebrow>
@@ -226,10 +247,20 @@ export default function EventDetailScreen() {
               </Text>
               {session ? (
                 <Text variant="meta" tone="secondary" className="text-center">
-                  {formatEventWhen(session.startsAt, tz)} - {event.venue.name}
+                  {formatEventWhen(session.startsAt, tz)} - {eventPlace(event).name}
                 </Text>
               ) : null}
             </View>
+
+            {paidNotOnSale ? (
+              <View accessibilityRole="summary" className="gap-1 rounded-control bg-sunken p-3">
+                <Text variant="uiStrong">Paid tickets are not on sale yet</Text>
+                <Text variant="meta" tone="secondary">
+                  The organizer is finishing payment setup. Check back soon. Free tickets, if any,
+                  can still be booked.
+                </Text>
+              </View>
+            ) : null}
 
             {event.sessions.length === 0 ? (
               <Text variant="ui" tone="secondary" className="text-center">
@@ -327,9 +358,21 @@ export default function EventDetailScreen() {
               )}
             </View>
             {reservedSeating ? (
-              <Button label="Choose seats" size="lg" fullWidth={false} onPress={goToSeats} />
+              <Button
+                label="Choose seats"
+                size="lg"
+                fullWidth={false}
+                disabled={paidNotOnSale}
+                onPress={goToSeats}
+              />
             ) : totalQty > 0 ? (
-              <Button label="Continue" size="lg" fullWidth={false} onPress={goToCheckout} />
+              <Button
+                label="Continue"
+                size="lg"
+                fullWidth={false}
+                disabled={blockedByPayments}
+                onPress={goToCheckout}
+              />
             ) : (
               <Button
                 label="Choose tickets"
@@ -360,7 +403,7 @@ function TitleBlock({
   const tz = event.timeZone ?? undefined;
   const eyebrow = [
     event.category,
-    event.venue.city,
+    isOnlineOnly(event) ? ONLINE : event.venue.city,
     session ? longDate(session.startsAt, tz) : null,
   ]
     .filter(Boolean)
@@ -431,7 +474,9 @@ function FactsGrid({ event, session }: { event: EventDetail; session: EventSessi
   const cells: { label: string; value: string }[] = [
     { label: 'Date', value: longDate(session.startsAt, tz) },
     { label: 'Time', value: formatShortTime(session.startsAt, tz) },
-    { label: 'Venue', value: event.venue.name },
+    isOnlineOnly(event)
+      ? { label: 'Where', value: ONLINE }
+      : { label: 'Venue', value: event.venue.name },
     ...(duration ? [{ label: 'Duration', value: duration }] : []),
     ...(event.ageLimit ? [{ label: 'Audience', value: `Age ${event.ageLimit}+` }] : []),
   ];

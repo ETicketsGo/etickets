@@ -8,6 +8,7 @@ import { EventPicture } from '@/features/events/event-picture';
 import { EventArtworkFallback } from '@/features/events/event-artwork';
 import { ContentLabelPill } from '@/features/events/content-label';
 import type { EventSummary, MovieSummary } from './schema';
+import { eventPlace } from '@/features/events/event-place';
 
 /**
  * The storefront's event cards (DESIGN-SYSTEM.md section 4): the picture on top or at the
@@ -26,7 +27,8 @@ function eventFacts(event: EventSummary) {
         ? 'Free'
         : formatMoney(event.fromPriceMinor, event.currency)
       : null;
-  const where = `${event.venue.name}, ${event.venue.city}`;
+  const place = eventPlace(event);
+  const where = place.full;
   // One announcement carrying everything a sighted customer gets from the card.
   const label = [
     event.title,
@@ -37,7 +39,7 @@ function eventFacts(event: EventSummary) {
   ]
     .filter(Boolean)
     .join('. ');
-  return { when, price, where, label };
+  return { when, price, where, place, label };
 }
 
 function useOpenEvent(slug: string) {
@@ -280,8 +282,9 @@ export function MovieCard({
 export function StageHero({ event }: { event: EventSummary }) {
   const { height } = useWindowDimensions();
   const facts = eventFacts(event);
+  const place = facts.place;
   const open = useOpenEvent(event.slug);
-  const eyebrow = [event.category, event.venue.city].filter(Boolean).join(' / ');
+  const eyebrow = [event.category, place.city].filter(Boolean).join(' / ');
   const date = facts.when?.split(', ');
 
   return (
@@ -316,9 +319,9 @@ export function StageHero({ event }: { event: EventSummary }) {
         ) : null}
         <Text variant="body" tone="onStage2" numberOfLines={2}>
           <Text variant="body" tone="onStage" className="font-semibold">
-            {event.venue.name}
+            {place.name}
           </Text>{' '}
-          {event.venue.city}
+          {place.city}
         </Text>
         {event.organizer ? (
           <Text variant="body" tone="onStage3" numberOfLines={1}>
