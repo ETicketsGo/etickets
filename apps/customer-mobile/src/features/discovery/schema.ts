@@ -39,6 +39,8 @@ export const eventSummarySchema = z.object({
   slug: z.string(),
   category: z.string(),
   venue: venueSchema,
+  /** IN_PERSON, ONLINE or HYBRID; see features/events/event-place.ts. */
+  attendanceMode: z.string().nullish(),
   organizer: z.string(),
   /** ISO timestamp of the soonest upcoming session, or null if none is scheduled. */
   nextSessionAt: z.string().nullable(),

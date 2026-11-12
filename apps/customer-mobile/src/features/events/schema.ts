@@ -62,6 +62,8 @@ export const eventDetailSchema = z.object({
   contentLabel: z.string().nullish(),
   /** The venue's IANA zone. Session times are printed in it. */
   timeZone: z.string().nullish(),
+  /** IN_PERSON, ONLINE or HYBRID. An open string: an unknown mode must not fail the page. */
+  attendanceMode: z.string().nullish(),
   venue: z.object({
     id: z.string(),
     name: z.string(),
@@ -74,6 +76,11 @@ export const eventDetailSchema = z.object({
   organizer: z.object({ id: z.string(), name: z.string(), verified: z.boolean().nullish() }),
   /** Free events skip payment entirely (declared by the organizer, not inferred). */
   isFree: z.boolean().nullish(),
+  /**
+   * False while the organizer has not finished payment setup: paid tickets cannot be sold
+   * yet (free ones still can). The API refuses the payment; the page must say so first.
+   */
+  paidSalesReady: z.boolean().nullish(),
   /** Minimum age, when the organizer set one. */
   ageLimit: z.number().int().nullish(),
   termsAndConditions: z.string().nullish(),

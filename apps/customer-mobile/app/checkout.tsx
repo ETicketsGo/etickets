@@ -27,6 +27,7 @@ import { HoldCountdown } from '@/features/checkout/hold-countdown';
 import { feeLines } from '@/features/checkout/fee-lines';
 import { readBookingStatus } from '@/features/checkout/booking-status';
 import { bookingKeys } from '@/features/bookings/api';
+import { eventPlace } from '@/features/events/event-place';
 
 /**
  * Checkout: confirm what's being bought, create the hold, then pay.
@@ -230,6 +231,11 @@ Your tickets are still held for a few minutes. You can try again.`
 
   const when = session ? formatEventWhen(session.startsAt, event?.timeZone ?? undefined) : null;
   const totalLabel = fees ? formatMoney(fees.totalMinor, currency) : null;
+  /*
+    A free event skips payment entirely (the API confirms the booking at once), so its
+    checkout must not read as a payment: "Get my tickets", as on the website, and no card note.
+  */
+  const free = event?.isFree === true || (fees != null && fees.totalMinor === 0);
 
   return (
     <Screen padded={false} edges={['top']}>
@@ -265,7 +271,7 @@ Your tickets are still held for a few minutes. You can try again.`
             {when ? (
               <Text variant="meta" tone="secondary">
                 {when}
-                {event?.venue.name ? ` - ${event.venue.name}, ${event.venue.city}` : ''}
+                {event?.venue.name ? ` - ${eventPlace(event).full}` : ''}
               </Text>
             ) : null}
             {params.seatNames ? (
@@ -379,7 +385,9 @@ Your tickets are still held for a few minutes. You can try again.`
                 <Text variant="figureSm">{formatMoney(fees.totalMinor, currency)}</Text>
               </View>
               <Text variant="meta" tone="muted">
-                This is the total you will be charged. Every fee is listed above.
+                {free
+                  ? 'These tickets are free. Nothing is charged.'
+                  : 'This is the total you will be charged. Every fee is listed above.'}
               </Text>
             </>
           ) : (
@@ -396,12 +404,14 @@ Your tickets are still held for a few minutes. You can try again.`
           )}
         </Card>
 
-        <View className="flex-row items-center gap-2 px-1">
-          <Ionicons name="lock-closed-outline" size={15} color={palette.textMuted} />
-          <Text variant="meta" tone="muted" className="flex-1">
-            Payment is handled by our payment partner. We never see your card number.
-          </Text>
-        </View>
+        {free ? null : (
+          <View className="flex-row items-center gap-2 px-1">
+            <Ionicons name="lock-closed-outline" size={15} color={palette.textMuted} />
+            <Text variant="meta" tone="muted" className="flex-1">
+              Payment is handled by our payment partner. We never see your card number.
+            </Text>
+          </View>
+        )}
       </ScrollView>
 
       <BookingBar>
@@ -414,8 +424,10 @@ Your tickets are still held for a few minutes. You can try again.`
               <Text variant="figureSm">{totalLabel ?? '...'}</Text>
             </View>
             <Button
-              label={fees ? 'Pay now' : 'Continue to payment'}
-              accessibilityLabel={totalLabel ? `Pay ${totalLabel}` : 'Continue to payment'}
+              label={free ? 'Get my tickets' : fees ? 'Pay now' : 'Continue to payment'}
+              accessibilityLabel={
+                free ? 'Get my tickets' : totalLabel ? `Pay ${totalLabel}` : 'Continue to payment'
+              }
               size="lg"
               fullWidth={false}
               loading={paying}
