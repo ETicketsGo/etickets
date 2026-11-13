@@ -15,6 +15,7 @@ export { ShowCancellationFanoutService } from './notifications/producers/show-ca
 export { CancellationRefundsService } from './refunds/cancellation-refunds.service';
 export { ShowReminderService } from './notifications/producers/show-reminder.service';
 export { AuthService } from './auth/auth.service';
+export { AuthRecordRetentionService } from './auth/auth-record-retention.service';
 export { FinanceReconciliationService } from './payments/finance/finance-reconciliation.service';
 export { StripeWebhookProcessor } from './payments/webhooks/stripe/stripe-webhook.processor';
 export { RazorpayWebhookProcessor } from './payments/razorpay/razorpay-webhook.processor';

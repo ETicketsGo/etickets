@@ -11,6 +11,7 @@ function makeService(
     user?: unknown;
     ownerCounts?: { organizationId: string; _count: { _all: number } }[];
     consentRows?: unknown[];
+    guestBookings?: { id: string }[];
   } = {},
 ) {
   const tx = {
@@ -28,8 +29,14 @@ function makeService(
     notification: { deleteMany: jest.fn() },
     review: { deleteMany: jest.fn() },
     organizationMember: { deleteMany: jest.fn() },
-    booking: { updateMany: jest.fn() },
+    booking: {
+      updateMany: jest.fn(),
+      findMany: jest.fn().mockResolvedValue(opts.guestBookings ?? []),
+    },
     ticket: { updateMany: jest.fn() },
+    marketingConsent: { updateMany: jest.fn() },
+    ticketInvite: { updateMany: jest.fn() },
+    feedback: { updateMany: jest.fn() },
     user: { update: jest.fn() },
     auditLog: { create: jest.fn() },
   };
@@ -217,7 +224,7 @@ describe('audit trail', () => {
   it('records the deletion without retaining personal data', async () => {
     const { service, tx } = makeService();
 
-    await service.deleteMe('u_1', { reason: 'PRIVACY', ip: '203.0.113.9', userAgent: 'app/1.0' });
+    await service.deleteMe('u_1', { reason: 'PRIVACY' });
 
     const entry = tx.auditLog.create.mock.calls[0][0].data;
     expect(entry.action).toBe('USER_SELF_DELETED');
@@ -244,12 +251,26 @@ describe('audit trail', () => {
     expect(tx.auditLog.create.mock.calls[0][0].data.metadata.reason).toBeNull();
   });
 
-  it('bounds the user agent', async () => {
+  /*
+    Replaces 'bounds the user agent'. The row used to keep the caller's IP and a 200-character
+    user agent; it now keeps neither, so there is nothing left to bound. An IP beside "this
+    account deleted itself" is the identifying link the deletion removes everywhere else.
+  */
+  it('stores no IP address or user agent', async () => {
     const { service, tx } = makeService();
 
-    await service.deleteMe('u_1', { userAgent: 'x'.repeat(5000) });
+    await service.deleteMe('u_1', {
+      reason: 'PRIVACY',
+      ip: '203.0.113.9',
+      userAgent: 'Mozilla/5.0 (secret-device)',
+    } as never);
 
-    expect(tx.auditLog.create.mock.calls[0][0].data.metadata.userAgent).toHaveLength(200);
+    const entry = tx.auditLog.create.mock.calls[0][0].data;
+    expect(entry).not.toHaveProperty('ip');
+    expect(entry.metadata).toEqual({ reason: 'PRIVACY' });
+    const text = JSON.stringify(entry);
+    expect(text).not.toContain('203.0.113.9');
+    expect(text).not.toContain('secret-device');
   });
 });
 
@@ -372,5 +393,229 @@ describe('atomicity', () => {
     // A partial deletion — sessions gone but data intact, or the reverse — is worse
     // than either outcome.
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('identity held outside the user row', () => {
+  const ANON = 'deleted+u_1@deleted.invalid';
+  const verifiedUser = {
+    id: 'u_1',
+    email: 'Asha@Example.test',
+    emailVerifiedAt: new Date('2026-01-01T00:00:00Z'),
+    phone: '+919800000001',
+    phoneVerifiedAt: new Date('2026-01-01T00:00:00Z'),
+    status: 'ACTIVE',
+    memberships: [],
+  };
+  const unverifiedUser = {
+    id: 'u_1',
+    email: 'asha@example.test',
+    emailVerifiedAt: null,
+    phone: '+919800000001',
+    phoneVerifiedAt: null,
+    status: 'ACTIVE',
+    memberships: [],
+  };
+
+  describe('marketing consent', () => {
+    it('anonymises email and phone on the user rows and keeps the rows', async () => {
+      const { service, tx } = makeService({ user: unverifiedUser });
+
+      await service.deleteMe('u_1');
+
+      expect(tx.marketingConsent.updateMany).toHaveBeenCalledWith({
+        where: { OR: [{ userId: 'u_1' }] },
+        data: { email: ANON, phone: null },
+      });
+      // Evidence: never deleted, and the consent facts are never rewritten.
+      expect(tx.marketingConsent).not.toHaveProperty('deleteMany');
+      const data = tx.marketingConsent.updateMany.mock.calls[0][0].data;
+      for (const kept of [
+        'granted',
+        'source',
+        'createdAt',
+        'policyVersion',
+        'channel',
+        'country',
+      ]) {
+        expect(data).not.toHaveProperty(kept);
+      }
+    });
+
+    it('also covers consent given at a guest checkout with the VERIFIED email', async () => {
+      const { service, tx } = makeService({ user: verifiedUser });
+
+      await service.deleteMe('u_1');
+
+      expect(tx.marketingConsent.updateMany.mock.calls[0][0].where).toEqual({
+        OR: [{ userId: 'u_1' }, { email: 'asha@example.test' }],
+      });
+    });
+  });
+
+  describe('ticket invites', () => {
+    it('anonymises invites to the verified email and phone, or accepted by the user', async () => {
+      const { service, tx } = makeService({ user: verifiedUser });
+
+      await service.deleteMe('u_1');
+
+      expect(tx.ticketInvite.updateMany).toHaveBeenCalledWith({
+        where: {
+          OR: [
+            { acceptedByUserId: 'u_1' },
+            { email: { equals: 'asha@example.test', mode: 'insensitive' } },
+            { phone: '+919800000001' },
+          ],
+        },
+        data: { email: null, phone: null },
+      });
+      expect(tx.ticketInvite).not.toHaveProperty('deleteMany');
+    });
+
+    it('matches by address only when the account proved it', async () => {
+      const { service, tx } = makeService({ user: unverifiedUser });
+
+      await service.deleteMe('u_1');
+
+      expect(tx.ticketInvite.updateMany.mock.calls[0][0].where).toEqual({
+        OR: [{ acceptedByUserId: 'u_1' }],
+      });
+    });
+  });
+
+  describe('feedback', () => {
+    it('anonymises the email on the user feedback and keeps the request', async () => {
+      const { service, tx } = makeService();
+
+      await service.deleteMe('u_1');
+
+      expect(tx.feedback.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'u_1', email: { not: null } },
+        data: { email: ANON },
+      });
+      expect(tx.feedback).not.toHaveProperty('deleteMany');
+    });
+  });
+
+  describe('guest bookings', () => {
+    it('anonymises guest bookings made with the verified email, and their tickets', async () => {
+      const { service, tx } = makeService({
+        user: verifiedUser,
+        guestBookings: [{ id: 'b_g1' }, { id: 'b_g2' }],
+      });
+
+      await service.deleteMe('u_1');
+
+      expect(tx.booking.findMany).toHaveBeenCalledWith({
+        where: { userId: null, buyerEmail: { equals: 'asha@example.test', mode: 'insensitive' } },
+        select: { id: true },
+      });
+      expect(tx.booking.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['b_g1', 'b_g2'] }, userId: null },
+        data: { buyerName: 'Deleted user', buyerEmail: ANON },
+      });
+      const ticketCall = tx.ticket.updateMany.mock.calls
+        .map((c: unknown[]) => c[0] as { where: Record<string, unknown>; data: object })
+        .find((c: { where: Record<string, unknown> }) => c.where.bookingId);
+      // A ticket somebody else has claimed into their own account is theirs, not this person's.
+      expect(ticketCall?.where).toEqual({
+        bookingId: { in: ['b_g1', 'b_g2'] },
+        attendeeUserId: null,
+      });
+      expect(ticketCall?.data).toMatchObject({
+        holderName: null,
+        holderEmail: null,
+        attendeePhone: null,
+      });
+      expect(ticketCall?.data).not.toHaveProperty('status');
+      expect(ticketCall?.data).not.toHaveProperty('serial');
+    });
+
+    it('does not touch guest bookings when the email was never verified', async () => {
+      const { service, tx } = makeService({
+        user: unverifiedUser,
+        guestBookings: [{ id: 'b_g1' }],
+      });
+
+      await service.deleteMe('u_1');
+
+      expect(tx.booking.findMany).not.toHaveBeenCalled();
+      // Only the account-owned bookings are anonymised.
+      expect(tx.booking.updateMany).toHaveBeenCalledTimes(1);
+      expect(tx.booking.updateMany.mock.calls[0][0].where).toEqual({ userId: 'u_1' });
+      expect(tx.ticket.updateMany).toHaveBeenCalledTimes(1);
+      expect(tx.ticket.updateMany.mock.calls[0][0].where).toEqual({ attendeeUserId: 'u_1' });
+    });
+
+    it('does nothing more when the verified email matches no guest booking', async () => {
+      const { service, tx } = makeService({ user: verifiedUser, guestBookings: [] });
+
+      await service.deleteMe('u_1');
+
+      expect(tx.booking.findMany).toHaveBeenCalledTimes(1);
+      expect(tx.booking.updateMany).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('financial retention', () => {
+    const FINANCIAL = [
+      'totalMinor',
+      'subtotalMinor',
+      'amountMinor',
+      'currency',
+      'status',
+      'reference',
+      'taxMinor',
+      'feeMinor',
+      'organizationId',
+      'eventId',
+      'userId',
+    ];
+
+    it('changes only identity fields on bookings, and never deletes a financial row', async () => {
+      const { service, tx } = makeService({
+        user: verifiedUser,
+        guestBookings: [{ id: 'b_g1' }],
+      });
+
+      await service.deleteMe('u_1');
+
+      expect(tx.booking.updateMany).toHaveBeenCalledTimes(2);
+      for (const [call] of tx.booking.updateMany.mock.calls) {
+        expect(Object.keys(call.data).sort()).toEqual(['buyerEmail', 'buyerName']);
+        for (const field of FINANCIAL) expect(call.data).not.toHaveProperty(field);
+      }
+      for (const model of ['booking', 'ticket', 'marketingConsent', 'ticketInvite', 'feedback']) {
+        expect((tx as unknown as Record<string, object>)[model]).not.toHaveProperty('deleteMany');
+      }
+      // No payment, refund, receipt, invoice, payout, settlement or tax model is reachable.
+      for (const model of [
+        'payment',
+        'refund',
+        'receipt',
+        'invoice',
+        'payout',
+        'settlement',
+        'taxLine',
+      ]) {
+        expect(tx).not.toHaveProperty(model);
+      }
+    });
+
+    it('does every new step inside the same single transaction', async () => {
+      const { service, prisma, tx } = makeService({
+        user: verifiedUser,
+        guestBookings: [{ id: 'b_g1' }],
+      });
+
+      await service.deleteMe('u_1');
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(tx.marketingConsent.updateMany).toHaveBeenCalled();
+      expect(tx.ticketInvite.updateMany).toHaveBeenCalled();
+      expect(tx.feedback.updateMany).toHaveBeenCalled();
+      expect(prisma).not.toHaveProperty('marketingConsent');
+      expect(prisma).not.toHaveProperty('booking');
+    });
   });
 });

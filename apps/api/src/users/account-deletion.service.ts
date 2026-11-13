@@ -46,7 +46,12 @@ import { currentConsent } from '../engagement/consent-purpose';
  *   - user.passwordHash     → a fresh hash of an unguessable value, so the column stays
  *                             a valid bcrypt hash for any code that reads it while
  *                             matching no password that can ever be typed
- *   - booking.buyerName / buyerEmail → the PII on retained financial rows
+ *   - booking.buyerName / buyerEmail → the PII on retained financial rows, for account
+ *                             bookings and for guest bookings made with the account's
+ *                             VERIFIED email (plus the attendee fields on those tickets)
+ *   - marketing consent     → email and phone snapshot; the consent evidence stays
+ *   - ticket invites        → the recipient email/phone on invites to this person
+ *   - feedback / support    → the sender email; the request itself stays
  *
  * Left untouched deliberately: booking amounts, currencies, references, payment and
  * settlement rows, ticket serials, check-in facts. Those are the records being retained.
@@ -72,13 +77,18 @@ export class AccountDeletionService {
    */
   async deleteMe(
     userId: string,
-    options: { reason?: string; ip?: string; userAgent?: string } = {},
+    // No IP or user agent: the deletion audit row must not retain anything that identifies
+    // the person whose identity is being removed (see the audit entry below).
+    options: { reason?: string } = {},
   ): Promise<{ status: 'DELETED'; deletedAt: string; alreadyDeleted: boolean }> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
         id: true,
         email: true,
+        emailVerifiedAt: true,
+        phone: true,
+        phoneVerifiedAt: true,
         status: true,
         memberships: { select: { organizationId: true, role: true, status: true } },
       },
@@ -176,6 +186,81 @@ export class AccountDeletionService {
         data: { buyerName: 'Deleted user', buyerEmail: anonymousEmail },
       });
 
+      /*
+        ── IDENTIFIERS THIS PERSON HAS PROVED ARE THEIRS ──────────────────────────────
+        Rows keyed by an address rather than by the account (guest bookings, invites sent to
+        an address, consent given at a guest checkout) are only scrubbed when the account
+        PROVED it holds that address. `User.email` on an email sign-up has never been proved
+        (`emailVerifiedAt` is null), and anybody can sign up with somebody else's address.
+        Without this rule, opening an account with a stranger's email and deleting it would
+        wipe the stranger's guest bookings and pending ticket transfers.
+      */
+      const verifiedEmail =
+        user.emailVerifiedAt && user.email ? user.email.trim().toLowerCase() : null;
+      const verifiedPhone = user.phoneVerifiedAt && user.phone ? user.phone : null;
+
+      /*
+        Marketing consent is evidence and the rows stay: `granted`, `source`, `createdAt`,
+        `country` and `policyVersion` still prove what was agreed, and when it was withdrawn.
+        Only the subject goes - the email (a NOT NULL column, so the same reserved
+        `.invalid` address as the user row) and the phone snapshot.
+      */
+      await tx.marketingConsent.updateMany({
+        where: { OR: [{ userId }, ...(verifiedEmail ? [{ email: verifiedEmail }] : [])] },
+        data: { email: anonymousEmail, phone: null },
+      });
+
+      /*
+        Ticket invites and transfers addressed to this person. The invite row is the transfer
+        ledger and stays (status, ticket, token hash, timestamps); only the recipient's
+        address goes. An invite this account ACCEPTED was sent to this person whatever the
+        address said; otherwise the address must be one the account proved.
+      */
+      const inviteTargets: Prisma.TicketInviteWhereInput[] = [{ acceptedByUserId: userId }];
+      if (verifiedEmail) {
+        inviteTargets.push({ email: { equals: verifiedEmail, mode: 'insensitive' } });
+      }
+      if (verifiedPhone) inviteTargets.push({ phone: verifiedPhone });
+      await tx.ticketInvite.updateMany({
+        where: { OR: inviteTargets },
+        data: { email: null, phone: null },
+      });
+
+      // Support requests and feedback stay (a complaint is a record), without the address.
+      await tx.feedback.updateMany({
+        where: { userId, email: { not: null } },
+        data: { email: anonymousEmail },
+      });
+
+      /*
+        Guest bookings this person made before (or without) signing in: same treatment as
+        their account bookings, but only for an address the account proved (see above).
+        Identity fields only - amounts, currency, status, reference, tax and every payment,
+        refund, receipt and payout row are untouched.
+      */
+      if (verifiedEmail) {
+        const guestBookings = await tx.booking.findMany({
+          where: { userId: null, buyerEmail: { equals: verifiedEmail, mode: 'insensitive' } },
+          select: { id: true },
+        });
+        const guestBookingIds = guestBookings.map((b) => b.id);
+        if (guestBookingIds.length > 0) {
+          await tx.booking.updateMany({
+            where: { id: { in: guestBookingIds }, userId: null },
+            data: { buyerName: 'Deleted user', buyerEmail: anonymousEmail },
+          });
+          /*
+            The attendee details the buyer typed onto those tickets. A ticket somebody has
+            since CLAIMED into their own account (attendeeUserId set) is that person's, not
+            this one's, and is left alone. Serial, status and validity are kept, as below.
+          */
+          await tx.ticket.updateMany({
+            where: { bookingId: { in: guestBookingIds }, attendeeUserId: null },
+            data: ANONYMISED_ATTENDEE_FIELDS,
+          });
+        }
+      }
+
       /**
        * Tickets assigned to this person lose the attribution and the personal fields on
        * them, but keep their serial, status and validity: the ticket is still a valid
@@ -184,17 +269,7 @@ export class AccountDeletionService {
        */
       await tx.ticket.updateMany({
         where: { attendeeUserId: userId },
-        data: {
-          attendeeUserId: null,
-          holderName: null,
-          holderEmail: null,
-          attendeePhone: null,
-          attendeeCompany: null,
-          attendeeDesignation: null,
-          attendeeStudentId: null,
-          attendeeMemberId: null,
-          attendeeCustomFields: Prisma.DbNull,
-        },
+        data: { attendeeUserId: null, ...ANONYMISED_ATTENDEE_FIELDS },
       });
 
       await tx.user.update({
@@ -233,9 +308,13 @@ export class AccountDeletionService {
             // A free-text reason is user-supplied and could contain anything, so it is
             // bounded and stored only as a coarse category when recognised.
             reason: normaliseReason(options.reason),
-            ip: options.ip ?? null,
-            userAgent: options.userAgent?.slice(0, 200) ?? null,
           },
+          /*
+            No IP and no user agent, in the metadata or in `AuditLog.ip`. They used to be kept
+            here, and an IP next to "this account deleted itself" is exactly the identifying
+            link the deletion removes everywhere else. The actor id and the time are the
+            evidence the record exists for.
+          */
         },
       });
     });
@@ -283,6 +362,21 @@ export class AccountDeletionService {
     }
   }
 }
+
+/**
+ * The personal fields on a ticket, cleared. Serial, status, QR nonce and validity are not
+ * here on purpose: deleting an account is not cancelling the tickets it bought.
+ */
+const ANONYMISED_ATTENDEE_FIELDS = {
+  holderName: null,
+  holderEmail: null,
+  attendeePhone: null,
+  attendeeCompany: null,
+  attendeeDesignation: null,
+  attendeeStudentId: null,
+  attendeeMemberId: null,
+  attendeeCustomFields: Prisma.DbNull,
+} satisfies Prisma.TicketUpdateManyMutationInput;
 
 /**
  * Reduce a free-text reason to a known category, or drop it.

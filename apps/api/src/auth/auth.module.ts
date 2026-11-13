@@ -13,6 +13,7 @@ import { MfaService } from './mfa/mfa.service';
 import { LoginBackoff } from './login-backoff';
 import { AuthHandoffService } from './handoff.service';
 import { EmailVerificationService } from './email-verification.service';
+import { AuthRecordRetentionService } from './auth-record-retention.service';
 // Password reset tells the account holder, by email, that somebody asked.
 import { NotificationsModule } from '../notifications/notifications.module';
 
@@ -31,8 +32,10 @@ import { NotificationsModule } from '../notifications/notifications.module';
     LoginBackoff,
     AuthHandoffService,
     EmailVerificationService,
+    // Worker-driven retention purge of expired one-time auth records (dry run by default).
+    AuthRecordRetentionService,
   ],
   // EmailVerificationService: a team invitation is accepted only once the email is proved.
-  exports: [AuthService, MfaService, EmailVerificationService],
+  exports: [AuthService, MfaService, EmailVerificationService, AuthRecordRetentionService],
 })
 export class AuthModule {}
