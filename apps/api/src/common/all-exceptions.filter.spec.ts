@@ -1,6 +1,6 @@
 import { ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
 import { captureException } from '../observability/sentry';
-import { AllExceptionsFilter } from './all-exceptions.filter';
+import { AllExceptionsFilter, describeThrown } from './all-exceptions.filter';
 import { AppException, ErrorCodes } from './errors';
 
 jest.mock('../observability/sentry', () => ({ captureException: jest.fn() }));
@@ -65,5 +65,25 @@ describe('AllExceptionsFilter — Sentry capture is 5xx-only', () => {
     expect(body.message).toBe('Something went wrong.');
     expect(JSON.stringify(body)).not.toContain('sk_live_');
     expect(JSON.stringify(body)).not.toContain('Invalid API Key');
+  });
+});
+
+describe('personal data never reaches the error log', () => {
+  it('redacts email, phone, OTP, UPI, card and holder fields from a thrown object, keeping the error code', () => {
+    const line = describeThrown({
+      error: { code: 'BAD_REQUEST_ERROR', reason: 'payment_failed' },
+      request: {
+        email: 'buyer@example.com',
+        contact: '+919800000000',
+        otp: '482913',
+        vpa: 'buyer@okaxis',
+        card: { last4: '4242' },
+        holderName: 'Asha',
+        buyerEmail: 'b@example.com',
+      },
+    });
+    expect(line).not.toMatch(/buyer@example|9800000000|482913|okaxis|4242|Asha|b@example/);
+    expect(line).toContain('BAD_REQUEST_ERROR');
+    expect(line).toContain('payment_failed');
   });
 });

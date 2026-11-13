@@ -55,6 +55,7 @@ export const KNOWN_OPERATIONS = [
   'db-roles',
   'review-catalogue',
   'backfill-objects',
+  'redact-webhooks',
   'full-reset',
 ] as const;
 

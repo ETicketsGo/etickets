@@ -282,6 +282,22 @@ switch (operation) {
     break;
   }
 
+  case 'redact-webhooks': {
+    /*
+      Removes payer email, phone, UPI address and card details from payment webhook rows stored
+      before redaction-on-write. Counts only in the log. DRY RUN unless WEBHOOK_REDACT_APPLY=true,
+      and never deletes a row. See redact-webhook-payloads.ts.
+    */
+    const { redactStoredWebhookPayloads } = require('./redact-webhook-payloads');
+    const { PrismaClient } = require('@prisma/client');
+    const db = new PrismaClient();
+    const apply = (process.env.WEBHOOK_REDACT_APPLY ?? '').trim() === 'true';
+    afterwards = redactStoredWebhookPayloads(db, apply)
+      .then((s: unknown) => console.log(`REDACT_WEBHOOKS_JSON ${JSON.stringify(s)}`))
+      .finally(() => db.$disconnect());
+    break;
+  }
+
   case 'payment-routes': {
     /*
       Bring the payment route rows into line with what this environment can actually charge
@@ -365,7 +381,7 @@ ABORTING: could not take a recovery point, so nothing has been touched.
 
   default:
     console.error(
-      `Unknown SEED_OPERATION "${operation}". Expected one of: status, backups, backup, restore-drill, india-gst, india-gst-activate, india-cinema, payment-routes, payment-providers, review-catalogue, backfill-objects, full-reset.`,
+      `Unknown SEED_OPERATION "${operation}". Expected one of: status, backups, backup, restore-drill, india-gst, india-gst-activate, india-cinema, payment-routes, payment-providers, review-catalogue, backfill-objects, redact-webhooks, full-reset.`,
     );
     process.exit(1);
 }

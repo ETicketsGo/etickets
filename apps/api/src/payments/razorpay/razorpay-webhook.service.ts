@@ -9,6 +9,7 @@ import { RazorpayWebhookProcessor } from './razorpay-webhook.processor';
 import { OpsAlertService } from '../../ops/alerts/ops-alert.service';
 import { webhookSignatureAlert } from '../../ops/alerts/ops-alert-messages';
 import { isUniqueViolation } from '../../events/request-key';
+import { redactProviderPayload } from '../webhooks/payload-redaction';
 
 const PROVIDER = 'razorpay';
 
@@ -89,7 +90,11 @@ export class RazorpayWebhookService {
       return { received: true, duplicate: true };
     }
 
-    const data = { account: envelope.account ?? null, object: envelope.object };
+    // Stored without the payer: see payload-redaction.ts. The processor reads this copy.
+    const data = redactProviderPayload({
+      account: envelope.account ?? null,
+      object: envelope.object,
+    });
     const record = existing
       ? await this.prisma.webhookEvent.update({
           where: { id: existing.id },
