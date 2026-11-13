@@ -16,6 +16,12 @@ import { availableParallelism } from 'node:os';
 export interface PoolSetting {
   /** The URL to give Prisma, or null to leave Prisma's own datasource alone. */
   url: string | null;
+  /**
+   * Which variable the runtime connects with. APP_DATABASE_URL (the least-privilege `etg_app`
+   * login, prisma/db-roles.ts) wins when set; DATABASE_URL then stays the schema OWNER and is
+   * used only by `prisma migrate deploy` in the api's preDeployCommand and by db-seed.
+   */
+  credential: 'APP_DATABASE_URL' | 'DATABASE_URL';
   /** The pool size this process uses. */
   poolSize: number;
   /** Where it came from. */
@@ -33,7 +39,12 @@ export function poolSetting(
   env: Record<string, string | undefined> = process.env,
   cpus: number = availableParallelism(),
 ): PoolSetting {
-  const raw = env.DATABASE_URL ?? '';
+  const appUrl = env.APP_DATABASE_URL?.trim() || '';
+  const credential = appUrl ? ('APP_DATABASE_URL' as const) : ('DATABASE_URL' as const);
+  const raw = appUrl || (env.DATABASE_URL ?? '');
+  // With APP_DATABASE_URL the client must be handed the URL explicitly: Prisma's own default is
+  // DATABASE_URL, which is now the owner credential.
+  const passThrough = appUrl || null;
   const prismaDefault = cpus * 2 + 1;
   let parsed: URL | null = null;
   try {
@@ -44,13 +55,20 @@ export function poolSetting(
   const inUrl = positiveInt(parsed?.searchParams.get('connection_limit') ?? undefined, 10_000);
   const timeoutInUrl = positiveInt(parsed?.searchParams.get('pool_timeout') ?? undefined, 3_600);
   if (inUrl !== null) {
-    return { url: null, poolSize: inUrl, source: 'DATABASE_URL', poolTimeoutSeconds: timeoutInUrl };
+    return {
+      url: passThrough,
+      credential,
+      poolSize: inUrl,
+      source: 'DATABASE_URL',
+      poolTimeoutSeconds: timeoutInUrl,
+    };
   }
   const size = positiveInt(env.DATABASE_POOL_SIZE, 200);
   const timeout = positiveInt(env.DATABASE_POOL_TIMEOUT_SECONDS, 300);
   if (size === null || !parsed) {
     return {
-      url: null,
+      url: passThrough,
+      credential,
       poolSize: prismaDefault,
       source: 'PRISMA_DEFAULT',
       poolTimeoutSeconds: timeoutInUrl,
@@ -62,6 +80,7 @@ export function poolSetting(
   }
   return {
     url: parsed.toString(),
+    credential,
     poolSize: size,
     source: 'DATABASE_POOL_SIZE',
     poolTimeoutSeconds: timeoutInUrl ?? timeout,
