@@ -54,6 +54,7 @@ export const KNOWN_OPERATIONS = [
   'payment-providers',
   'review-catalogue',
   'backfill-objects',
+  'redact-webhooks',
   'full-reset',
 ] as const;
 

@@ -238,3 +238,39 @@ describe('ingestion survives a processor that fails', () => {
     expect(h.created).toHaveLength(1);
   });
 });
+
+describe('the payer is not stored', () => {
+  it('stores the event without email, phone, UPI address or card, and keeps the raw-body hash', async () => {
+    const { service, created } = makeService();
+    const raw = JSON.stringify({
+      event: 'payment.captured',
+      created_at: 1_700_000_000,
+      payload: {
+        payment: {
+          entity: {
+            id: 'pay_9',
+            amount: 1000,
+            currency: 'INR',
+            status: 'captured',
+            email: 'buyer@example.com',
+            contact: '+919800000000',
+            vpa: 'buyer@okaxis',
+            card: { last4: '4242', name: 'Asha' },
+            notes: { bookingId: 'bk_9' },
+          },
+        },
+      },
+    });
+
+    await service.ingest(raw, sign(raw), 'evt_pii');
+
+    const stored = JSON.stringify(created[0].payload);
+    expect(stored).not.toMatch(/buyer@example\.com|\+919800000000|okaxis|4242|Asha/);
+    expect(stored).toContain('pay_9');
+    expect(stored).toContain('bk_9');
+    // Tamper-evidence still covers exactly the bytes the provider signed.
+    expect(created[0].payloadHash).toBe(
+      require('node:crypto').createHash('sha256').update(raw).digest('hex'),
+    );
+  });
+});

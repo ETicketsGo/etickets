@@ -11,6 +11,7 @@ import { ErrorCodes } from './errors';
 import { captureException } from '../observability/sentry';
 import { PaymentProviderError, PaymentErrorCode } from '../payments/domain/payment-errors';
 import { safeRequestPath } from './request-path';
+import { isPersonalKey } from '../payments/webhooks/payload-redaction';
 
 interface ErrorEnvelope {
   code: string;
@@ -39,7 +40,15 @@ interface ErrorEnvelope {
  * hold the request that produced it. Anything whose key looks like a credential is replaced
  * before it reaches a log line that ships to a log service.
  */
-const SENSITIVE = /key|secret|token|password|authorization|signature|cvv|card/i;
+const SENSITIVE = /key|secret|token|password|authorization|signature|cvv|card|cookie/i;
+/**
+ * Personal data, which is not a credential but must not ship to a log service either: a
+ * provider error can echo the buyer's email, phone, UPI address or the OTP that was sent.
+ * Field names only, so an error `code` or a `reason` still reads normally.
+ */
+const PERSONAL =
+  /otp|passcode|email|phone|mobile|contact|vpa|upi|holder|buyer|full_?name|first_?name|last_?name/i;
+const hidden = (k: string) => SENSITIVE.test(k) || PERSONAL.test(k) || isPersonalKey(k);
 
 function redact(value: unknown, depth = 0): unknown {
   if (value === null || typeof value !== 'object') return value;
@@ -48,7 +57,7 @@ function redact(value: unknown, depth = 0): unknown {
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
       .slice(0, 40)
-      .map(([k, v]) => [k, SENSITIVE.test(k) ? '[redacted]' : redact(v, depth + 1)]),
+      .map(([k, v]) => [k, hidden(k) ? '[redacted]' : redact(v, depth + 1)]),
   );
 }
 
