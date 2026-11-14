@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import type { PutObjectCommand } from '@aws-sdk/client-s3';
 import {
   OFFSITE_BACKUP_EVIDENCE_ACTION as PRISMA_ACTION,
+  isR2Endpoint,
   makeClient,
   offsiteConfig,
   offsiteKey,
@@ -69,6 +70,95 @@ describe('configuration', () => {
     expect(kms.sse).toBe('aws:kms');
     expect(kms.kmsKeyId).toBe('alias/etg');
     expect(offsiteConfig({ ...ENV, BACKUP_OFFSITE_SSE: 'none' })!.sse).toBeNull();
+  });
+});
+
+describe('Cloudflare R2', () => {
+  const ACCOUNT = 'a'.repeat(32);
+  const R2 = {
+    ...ENV,
+    BACKUP_OFFSITE_ENDPOINT: `https://${ACCOUNT}.r2.cloudflarestorage.com`,
+  } as unknown as NodeJS.ProcessEnv;
+
+  it('signs with region auto: R2 rejects an AWS region name with a bare 400', () => {
+    expect(isR2Endpoint(`https://${ACCOUNT}.r2.cloudflarestorage.com`)).toBe(true);
+    expect(isR2Endpoint(`https://${ACCOUNT}.eu.r2.cloudflarestorage.com`)).toBe(true);
+    expect(offsiteConfig(R2)!.region).toBe('auto');
+  });
+
+  it('never inherits AWS_REGION (the SES region on the api) for R2', () => {
+    expect(offsiteConfig({ ...R2, AWS_REGION: 'ap-south-1' })!.region).toBe('auto');
+  });
+
+  it('an explicit BACKUP_OFFSITE_REGION still wins', () => {
+    expect(offsiteConfig({ ...R2, BACKUP_OFFSITE_REGION: 'us-east-1' })!.region).toBe('us-east-1');
+  });
+
+  it('other S3-compatible endpoints keep the previous region rule', () => {
+    const other = { ...ENV, BACKUP_OFFSITE_ENDPOINT: 'https://s3.example.test' };
+    expect(isR2Endpoint('https://s3.example.test')).toBe(false);
+    expect(offsiteConfig(other)!.region).toBe('ap-south-1');
+    expect(offsiteConfig({ ...other, AWS_REGION: 'us-west-2' })!.region).toBe('us-west-2');
+  });
+
+  it('a pasted bucket URL is reduced to the account endpoint (no bucket twice in the path)', () => {
+    const c = offsiteConfig({
+      ...ENV,
+      BACKUP_OFFSITE_ENDPOINT: `https://${ACCOUNT}.r2.cloudflarestorage.com/etg-backups/`,
+    })!;
+    expect(c.endpoint).toBe(`https://${ACCOUNT}.r2.cloudflarestorage.com`);
+    expect(c.region).toBe('auto');
+  });
+
+  it('builds a path-style client on the R2 endpoint', async () => {
+    const client = makeClient(offsiteConfig(R2)!, R2);
+    expect(await client.config.region()).toBe('auto');
+    expect(client.config.forcePathStyle).toBe(true);
+    const ep = await client.config.endpoint!();
+    expect(ep.hostname).toBe(`${ACCOUNT}.r2.cloudflarestorage.com`);
+  });
+
+  it('a failure message never carries the account host, key id or secret', async () => {
+    const logged: string[] = [];
+    const err = jest.spyOn(console, 'error').mockImplementation((m: string) => void logged.push(m));
+    const keyId = 'b'.repeat(32);
+    const secret = 'c'.repeat(64);
+    const send = jest
+      .fn()
+      .mockRejectedValue(
+        Object.assign(
+          new Error(
+            `getaddrinfo ENOTFOUND ${ACCOUNT}.r2.cloudflarestorage.com key ${keyId} sig ${secret}`,
+          ),
+          { name: 'Error' },
+        ),
+      );
+    const r = await uploadOffsite(dump, { env: R2, client: { send }, retryDelayMs: 1 });
+    expect(r.status).toBe('failed');
+    for (const text of [r.error!, ...logged]) {
+      expect(text).not.toContain(ACCOUNT);
+      expect(text).not.toContain(keyId);
+      expect(text).not.toContain(secret);
+    }
+    expect(r.error).toContain('[r2-host]');
+    expect(logged.join('\n')).toContain('BACKUP_OFFSITE_FAILED');
+    err.mockRestore();
+  });
+
+  it("R2's region-mismatch answer (400 UnknownError) is permanent: one attempt, local dump kept", async () => {
+    const err = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const send = jest.fn().mockRejectedValue(
+      Object.assign(new Error('UnknownError'), {
+        name: 'Unknown',
+        $metadata: { httpStatusCode: 400 },
+      }),
+    );
+    const r = await uploadOffsite(dump, { env: R2, client: { send }, retryDelayMs: 1 });
+    expect(r.status).toBe('failed');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(readFileSync(dump.path).equals(CONTENT)).toBe(true);
+    expect(recordEvidence).not.toHaveBeenCalled();
+    err.mockRestore();
   });
 });
 

@@ -5,8 +5,8 @@
  * ── WHY ────────────────────────────────────────────────────────────────────────────
  * Every dump `backup.ts` takes lives on a volume of the same Railway project as the database it
  * protects. Losing the project, the account or the volume loses the data and every backup of it
- * together. This file puts one more copy somewhere that fails independently (S3 in ap-south-1 is
- * the expected choice; any S3-compatible store works through BACKUP_OFFSITE_ENDPOINT).
+ * together. This file puts one more copy somewhere that fails independently: Cloudflare R2 (the
+ * chosen store, through BACKUP_OFFSITE_ENDPOINT, region `auto`), S3, or any S3-compatible store.
  *
  * ── THE RULES THIS FILE KEEPS ──────────────────────────────────────────────────────
  * 1. OFF unless BACKUP_OFFSITE_BUCKET is set. With it unset nothing here touches the network.
@@ -68,10 +68,39 @@ export interface OffsiteConfig {
 /** Environments whose off-platform copy must be encrypted client-side. */
 const ENCRYPTION_REQUIRED_ENVS = ['PRODUCTION', 'STAGING'];
 
+/** Cloudflare R2's S3 API host: `<account id>.r2.cloudflarestorage.com` (also `.eu.` / `.fedramp.`). */
+const R2_HOST = /\.r2\.cloudflarestorage\.com$/i;
+
+/**
+ * The S3 endpoint as an origin only. The R2 dashboard shows the bucket URL
+ * (`https://<account>.r2.cloudflarestorage.com/<bucket>`) next to the account endpoint, and pasting
+ * the bucket URL here would put the bucket in the path twice under path-style addressing. An S3
+ * endpoint never carries a path, so anything after the host is dropped.
+ */
+function endpointOrigin(raw: string | undefined): string | null {
+  const v = raw?.trim();
+  if (!v) return null;
+  try {
+    return new URL(v).origin;
+  } catch {
+    return v;
+  }
+}
+
+export function isR2Endpoint(endpoint: string | null): boolean {
+  if (!endpoint) return false;
+  try {
+    return R2_HOST.test(new URL(endpoint).hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** Null means "not configured": the feature is off and nothing else in this file runs. */
 export function offsiteConfig(env: NodeJS.ProcessEnv = process.env): OffsiteConfig | null {
   const bucket = env.BACKUP_OFFSITE_BUCKET?.trim();
   if (!bucket) return null;
+  const endpoint = endpointOrigin(env.BACKUP_OFFSITE_ENDPOINT);
   const kmsKeyId = env.BACKUP_OFFSITE_KMS_KEY_ID?.trim() || null;
   const sseSetting = (env.BACKUP_OFFSITE_SSE ?? '').trim().toLowerCase();
   let sse: OffsiteConfig['sse'] = 'AES256';
@@ -79,9 +108,16 @@ export function offsiteConfig(env: NodeJS.ProcessEnv = process.env): OffsiteConf
   else if (kmsKeyId || sseSetting === 'aws:kms' || sseSetting === 'kms') sse = 'aws:kms';
   return {
     bucket,
-    region: env.BACKUP_OFFSITE_REGION?.trim() || env.AWS_REGION?.trim() || 'ap-south-1',
+    /*
+      R2 signs with region `auto` and answers any AWS region name with a bare 400 "UnknownError"
+      (proven against a real bucket, 2026-11-14). AWS_REGION must never leak in for R2: on the api
+      it is the SES region (ap-south-1), so the restore drill and the freshness reader would fail.
+    */
+    region:
+      env.BACKUP_OFFSITE_REGION?.trim() ||
+      (isR2Endpoint(endpoint) ? 'auto' : env.AWS_REGION?.trim() || 'ap-south-1'),
     prefix: (env.BACKUP_OFFSITE_PREFIX ?? 'etg-db-backups').trim().replace(/^\/+|\/+$/g, ''),
-    endpoint: env.BACKUP_OFFSITE_ENDPOINT?.trim() || null,
+    endpoint,
     sse,
     kmsKeyId: sse === 'aws:kms' ? kmsKeyId : null,
     encryptionRequired: ENCRYPTION_REQUIRED_ENVS.includes((env.APP_ENV ?? '').trim().toUpperCase()),
@@ -113,10 +149,16 @@ export function sha256OfFile(path: string): Promise<string> {
 
 /** Never put a credential or a URL in a log line, whatever the SDK put in its message. */
 function scrub(message: string): string {
-  return message
-    .replace(/https?:\/\/\S+/g, '[url]')
-    .replace(/AKIA[0-9A-Z]{12,}/g, '[key-id]')
-    .slice(0, 300);
+  return (
+    message
+      .replace(/https?:\/\/\S+/g, '[url]')
+      // A bare host (e.g. "getaddrinfo ENOTFOUND <account>.r2.cloudflarestorage.com") names the account.
+      .replace(/[a-z0-9.-]+\.r2\.cloudflarestorage\.com/gi, '[r2-host]')
+      .replace(/AKIA[0-9A-Z]{12,}/g, '[key-id]')
+      // R2 access key ids and account ids are 32 hex characters; secrets are 64.
+      .replace(/\b[0-9a-f]{32,}\b/gi, '[hex]')
+      .slice(0, 300)
+  );
 }
 
 export function makeClient(cfg: OffsiteConfig, env: NodeJS.ProcessEnv = process.env): S3Client {
