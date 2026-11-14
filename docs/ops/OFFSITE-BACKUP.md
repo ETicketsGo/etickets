@@ -1,7 +1,7 @@
 # Off-platform backup copy
 
-Status: **OFF until the owner sets the variables below**. Nothing here changes how the local
-nightly backup works (`apps/api/prisma/backup.ts`).
+Status: **OFF until the owner sets the variables below**. The chosen store is Cloudflare R2 (see
+"Cloudflare R2"). Nothing here changes how the local nightly backup works (`apps/api/prisma/backup.ts`).
 
 ## What it does
 
@@ -45,16 +45,93 @@ health result is exactly as before.
 | Name                                                               | Where        | Meaning                                                                                                                                                             |
 | ------------------------------------------------------------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BACKUP_OFFSITE_BUCKET`                                            | db-seed, api | Turns the feature on. Unset means off.                                                                                                                              |
-| `BACKUP_OFFSITE_REGION`                                            | db-seed      | Default `ap-south-1` (Mumbai).                                                                                                                                      |
+| `BACKUP_OFFSITE_REGION`                                            | db-seed      | Default `auto` for an R2 endpoint (R2 refuses AWS region names with 400 `InvalidRegionName`), otherwise `AWS_REGION` or `ap-south-1`.                               |
 | `BACKUP_OFFSITE_PREFIX`                                            | db-seed      | Default `etg-db-backups`.                                                                                                                                           |
-| `BACKUP_OFFSITE_ENDPOINT`                                          | db-seed      | Optional, for R2/B2/other S3-compatible stores (path-style addressing is used when set).                                                                            |
+| `BACKUP_OFFSITE_ENDPOINT`                                          | db-seed      | For R2/B2/other S3-compatible stores (path-style addressing is used when set). Only the origin is used; a pasted bucket URL is reduced to the account endpoint.     |
 | `BACKUP_OFFSITE_SSE`                                               | db-seed      | Optional: `none` for a store that rejects SSE headers. `aws:kms` is implied by the key id.                                                                          |
 | `BACKUP_OFFSITE_KMS_KEY_ID`                                        | db-seed      | Optional KMS key for SSE-KMS.                                                                                                                                       |
 | `BACKUP_OFFSITE_ENCRYPTION_KEY`                                    | db-seed      | 32 random bytes (base64). Client-side AES-256-GCM before upload. **Required when APP_ENV is PRODUCTION/STAGING** (no key = no upload). Keep a copy OUTSIDE Railway. |
 | `BACKUP_OFFSITE_MAX_AGE_HOURS`                                     | api          | Optional, default 26.                                                                                                                                               |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (`AWS_SESSION_TOKEN`) | db-seed      | The **write-only** principal below. Standard AWS names; never set the read principal here.                                                                          |
 
-## Owner steps
+## Cloudflare R2 (the chosen store)
+
+Proven against the real bucket `eticketsgo-recovery` on 2026-11-14:
+
+- **Works as-is:** SHA-256 checksum (a wrong one is refused with 400 `BadDigest`), `If-None-Match: *` (a second write of a key is refused with 412, reported as `exists`), custom metadata, and the `AES256` SSE header (accepted; R2 always encrypts at rest).
+- **Needed a code change:** the region must be `auto`. This is now the default for any `*.r2.cloudflarestorage.com` endpoint, and `AWS_REGION` is never inherited for R2.
+- **R2 has no write-only credential.** "Object Read & Write" can also delete. The bucket lock rule below is what stops a leaked key from destroying history, so **it is required, not optional**.
+- **Object keys:** `etg-db-backups/production/<date>/…dump.enc` and `etg-db-backups/qa/<date>/…dump.enc`.
+
+### Owner steps (Cloudflare dashboard → R2 → `eticketsgo-recovery`)
+
+1. **Settings → Public access:** the r2.dev URL is **Disabled** and there are **no custom domains**. The S3 endpoint always requires a signature.
+2. **Settings → Bucket lock rules → Add rule:**
+   - name `retain-35d`
+   - prefix `etg-db-backups/`
+   - condition: age **35 days**
+
+   Objects under the prefix then cannot be deleted or overwritten for 35 days, by anyone, including with these keys.
+
+3. **Settings → Object lifecycle rules → Add rule:**
+   - name `expire-36d`
+   - prefix `etg-db-backups/`
+   - delete objects after **36 days**
+   - abort incomplete multipart uploads after **1 day**
+
+   The lifecycle rule must be **longer** than the lock (36 > 35) so the two never conflict.
+
+4. **R2 → Manage API tokens:** create **one token per job**, each scoped to **this bucket only**:
+
+   | Token                    | Permission          | Where it lives                                       |
+   | ------------------------ | ------------------- | ---------------------------------------------------- |
+   | `etg-backup-writer-prod` | Object Read & Write | PROD `db-seed` only                                  |
+   | `etg-backup-writer-qa`   | Object Read & Write | QA `db-seed` only                                    |
+   | `etg-backup-reader`      | Object Read only    | The owner's password manager, used only for restores |
+
+   Never Admin. The token used for the 2026-11-14 rehearsal can become the QA writer.
+
+5. **Encryption keys:** one per environment, each 32 random bytes in base64. Store the PROD key in the password manager **before** setting it on Railway. A key that exists only in Railway is lost in exactly the disaster this copy is for.
+
+### Railway variables (db-seed; `BACKUP_OFFSITE_BUCKET` also on api)
+
+`BACKUP_OFFSITE_BUCKET=eticketsgo-recovery`, `BACKUP_OFFSITE_ENDPOINT=https://<account id>.r2.cloudflarestorage.com`, `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (that environment's writer token), `BACKUP_OFFSITE_ENCRYPTION_KEY`. Leave `BACKUP_OFFSITE_REGION`, `BACKUP_OFFSITE_SSE` and `BACKUP_OFFSITE_PREFIX` unset. The api needs only the bucket name, because it reads the evidence row and never calls R2.
+
+### Restore drill from outside Railway (no local Postgres install needed)
+
+Use the **reader** token and the key from the password manager, in your own shell, with Docker:
+
+```bash
+docker network create etg-drill
+docker run -d --name etg-drill-pg --network etg-drill -e POSTGRES_PASSWORD=<pw> -e POSTGRES_DB=etg_restore_drill postgres:16
+# from apps/api, with the variables above plus AWS_* = reader token, DRILL_ENV=production|qa, and
+# RESTORE_DRILL_DATABASE_URL=postgresql://postgres:<pw>@etg-drill-pg:5432/etg_restore_drill
+docker run --rm --network etg-drill -v "$PWD/prisma:/drill/prisma" -w /drill \
+  -e BACKUP_OFFSITE_BUCKET -e BACKUP_OFFSITE_ENDPOINT -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
+  -e BACKUP_OFFSITE_ENCRYPTION_KEY -e DRILL_ENV -e RESTORE_DRILL_DATABASE_URL node:24-alpine sh -c \
+  "apk add --no-cache postgresql16-client && npm i @aws-sdk/client-s3 ts-node typescript @types/node && \
+   npx ts-node --transpile-only --compiler-options '{\"module\":\"commonjs\",\"moduleResolution\":\"node\"}' prisma/offsite-restore-drill.ts"
+docker rm -f etg-drill-pg && docker network rm etg-drill
+```
+
+`OFFSITE_RESTORE_DRILL_JSON {"ok":true,…}` with row counts is the pass.
+
+**QA rehearsal, 2026-11-14:**
+
+- The QA dump (3.77 MB) was encrypted and uploaded by the real dispatcher (`backup` operation).
+- R2 verified the checksum.
+- Downloaded, verified, decrypted and restored in a local container in 8 s.
+- All 141 tables, the migration count and the payment, refund and booking totals and hashes were identical to live QA. The one difference was the 2 evidence rows the run wrote after the dump.
+
+### Cost
+
+- Storage costs $0.015 per GB-month, and the first 10 GB a month are free.
+- Class A operations (writes) cost $4.50 per million; class B (reads) cost $0.36 per million.
+- Egress is free.
+
+36 nightly PROD dumps of about 0.6 MB plus QA come to well under 1 GB and fewer than 100 writes a month, so the cost is **$0** inside the free tier.
+
+## Owner steps (alternative: AWS S3)
 
 1. Create a bucket in `ap-south-1`, in an AWS account that is **not** the one that holds Railway/GoDaddy access.
 2. Turn on **Block all public access**.
